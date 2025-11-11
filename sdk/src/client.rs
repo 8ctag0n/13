@@ -1,5 +1,5 @@
 use anyhow::Result;
-use borsh::{BorshSerialize, to_vec};
+use borsh::to_vec;
 use cypherlink_types::CircuitType;
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::{
