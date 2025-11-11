@@ -1,0 +1,19 @@
+[package]
+name = "cypherlink-prover"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "cypherlink-prover"
+path = "src/main.rs"
+
+[dependencies]
+tokio.workspace = true
+log.workspace = true
+env_logger.workspace = true
+anyhow.workspace = true
+
+cypherlink-sdk = { path = "../sdk" }
+cypherlink-types = { path = "../shared/types" }

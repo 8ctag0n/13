@@ -1,0 +1,20 @@
+[package]
+name = "cypherlink-sdk"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+solana-sdk.workspace = true
+solana-client.workspace = true
+borsh.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+
+cypherlink-types = { path = "../shared/types" }
+
+[dev-dependencies]
+solana-program-test.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
