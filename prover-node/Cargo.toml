@@ -5,6 +5,10 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
+[lib]
+name = "prover_node"
+path = "src/lib.rs"
+
 [[bin]]
 name = "cypherlink-prover"
 path = "src/main.rs"

@@ -25,11 +25,11 @@ pub struct WitnessEncryption {
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
 pub struct EncryptedWitness {
     /// Ephemeral public key used for this encryption
-    ephemeral_public_key: [u8; 32],
+    pub ephemeral_public_key: [u8; 32],
     /// Nonce for ChaCha20-Poly1305
-    nonce: [u8; 12],
+    pub nonce: [u8; 12],
     /// Encrypted witness data (includes authentication tag)
-    ciphertext: Vec<u8>,
+    pub ciphertext: Vec<u8>,
 }
 
 impl WitnessEncryption {

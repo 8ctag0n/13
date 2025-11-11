@@ -3,6 +3,10 @@ name = "cypherlink-witness-storage"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "witness_storage"
+path = "src/lib.rs"
+
 [[bin]]
 name = "witness-storage"
 path = "src/main.rs"

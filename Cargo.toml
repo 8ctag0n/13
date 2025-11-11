@@ -6,6 +6,7 @@ members = [
     "witness-storage",
     "shared/types",
     "shared/crypto",
+    "e2e-tests",
 ]
 resolver = "2"
 
