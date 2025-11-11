@@ -17,6 +17,7 @@ test-sbf = []
 solana-program.workspace = true
 borsh.workspace = true
 thiserror.workspace = true
+light-sdk.workspace = true
 
 # Shared types
 cypherlink-types = { path = "../../shared/types" }

@@ -21,13 +21,19 @@ pub struct JobAccount {
     /// Type of circuit/proof being requested
     pub circuit_type: CircuitType,
 
-    /// Encrypted witness data
-    /// For MVP: stored directly (will use Light Protocol compression in Day 4)
-    /// Contains the private inputs needed to generate the proof
-    pub encrypted_witness_hash: [u8; 32], // Hash of witness (actual data off-chain or compressed)
+    /// Light Protocol commitment for encrypted witness
+    /// Actual witness data is stored in Light Protocol compressed state
+    /// Provers retrieve it from Light indexer using this commitment
+    pub witness_commitment: [u8; 32],
 
-    /// Whether proof has been submitted
-    pub proof_submitted: bool,
+    /// Size of the original witness (for validation)
+    pub witness_size: u32,
+
+    /// Light Protocol commitment for encrypted proof (once submitted)
+    pub proof_commitment: Option<[u8; 32]>,
+
+    /// Size of the proof (for validation)
+    pub proof_size: Option<u32>,
 
     /// Price offered for completing this job (in lamports)
     pub price_lamports: u64,
@@ -58,8 +64,10 @@ impl JobAccount {
         + 1 + 32                         // prover (Option<Pubkey>)
         + 1                              // status (enum, 1 byte)
         + 1 + 4                          // circuit_type (enum + potential String len, conservative)
-        + 32                             // encrypted_witness_hash
-        + 1                              // proof_submitted
+        + 32                             // witness_commitment
+        + 4                              // witness_size
+        + 1 + 32                         // proof_commitment (Option<[u8; 32]>)
+        + 1 + 4                          // proof_size (Option<u32>)
         + 8                              // price_lamports
         + 32                             // escrow_account
         + 8                              // created_at
@@ -71,13 +79,14 @@ impl JobAccount {
     // Total with some padding for circuit_type variants
     pub const LEN: usize = Self::BASE_LEN + 64; // Extra space for Custom circuit names
 
-    /// Create a new job account
+    /// Create a new job account with Light Protocol compression
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         id: u64,
         creator: Pubkey,
         circuit_type: CircuitType,
-        encrypted_witness_hash: [u8; 32],
+        witness_commitment: [u8; 32],
+        witness_size: u32,
         price_lamports: u64,
         escrow_account: Pubkey,
         created_at: i64,
@@ -90,8 +99,10 @@ impl JobAccount {
             prover: None,
             status: JobStatus::Pending,
             circuit_type,
-            encrypted_witness_hash,
-            proof_submitted: false,
+            witness_commitment,
+            witness_size,
+            proof_commitment: None,
+            proof_size: None,
             price_lamports,
             escrow_account,
             created_at,
@@ -114,11 +125,12 @@ impl JobAccount {
         self.claimed_at = Some(current_time);
     }
 
-    /// Mark job as completed
-    pub fn complete(&mut self, current_time: i64) {
+    /// Mark job as completed with proof commitment
+    pub fn complete(&mut self, proof_commitment: [u8; 32], proof_size: u32, current_time: i64) {
         self.status = JobStatus::Completed;
         self.completed_at = Some(current_time);
-        self.proof_submitted = true;
+        self.proof_commitment = Some(proof_commitment);
+        self.proof_size = Some(proof_size);
     }
 
     /// Mark job as failed
@@ -151,6 +163,7 @@ mod tests {
             Pubkey::new_unique(),
             CircuitType::ZcashOrchard,
             [0u8; 32],
+            2048, // witness_size
             1_000_000,
             Pubkey::new_unique(),
             1000,
@@ -161,6 +174,8 @@ mod tests {
         assert_eq!(job.id, 1);
         assert_eq!(job.status, JobStatus::Pending);
         assert_eq!(job.timeout_at, 1600);
+        assert_eq!(job.witness_size, 2048);
+        assert!(job.proof_commitment.is_none());
     }
 
     #[test]
@@ -170,6 +185,7 @@ mod tests {
             Pubkey::new_unique(),
             CircuitType::ZcashOrchard,
             [0u8; 32],
+            2048,
             1_000_000,
             Pubkey::new_unique(),
             1000,
@@ -192,6 +208,7 @@ mod tests {
             Pubkey::new_unique(),
             CircuitType::ZcashOrchard,
             [0u8; 32],
+            2048,
             1_000_000,
             Pubkey::new_unique(),
             1000,
@@ -200,12 +217,15 @@ mod tests {
         );
 
         job.claim(Pubkey::new_unique(), 1100);
-        job.complete(1115);
+
+        let proof_commitment = [1u8; 32];
+        job.complete(proof_commitment, 1536, 1115);
 
         assert_eq!(job.status, JobStatus::Completed);
         assert_eq!(job.completed_at, Some(1115));
         assert_eq!(job.completion_duration_secs(), Some(15));
-        assert!(job.proof_submitted);
+        assert_eq!(job.proof_commitment, Some(proof_commitment));
+        assert_eq!(job.proof_size, Some(1536));
     }
 
     #[test]
@@ -215,6 +235,7 @@ mod tests {
             Pubkey::new_unique(),
             CircuitType::ZcashOrchard,
             [0u8; 32],
+            2048,
             1_000_000,
             Pubkey::new_unique(),
             1000,
@@ -236,6 +257,7 @@ mod tests {
             Pubkey::new_unique(),
             CircuitType::ZcashOrchard,
             [0u8; 32],
+            2048,
             1_000_000,
             Pubkey::new_unique(),
             1000,

@@ -1,0 +1,492 @@
+# CypherLink / ZyberLink - Gitignore
+
+# ============================================
+# Rust / Cargo
+# ============================================
+
+# Compiled files
+target/
+**/*.rs.bk
+*.pdb
+
+# Cargo lock file (keep for applications, ignore for libraries)
+# Uncomment if this is a library:
+# Cargo.lock
+
+# Cargo build artifacts
+*.so
+*.dylib
+*.dll
+*.rlib
+
+# Cargo local config
+.cargo/config.toml
+
+# ============================================
+# Solana
+# ============================================
+
+# Solana CLI local config
+.config/
+
+# Deployed program artifacts
+*.so
+deploy/
+dist/
+
+# Solana test validator ledger
+test-ledger/
+ledger/
+
+# Solana keypairs (CRITICAL - never commit!)
+*.json
+!package.json
+!tsconfig.json
+!vercel.json
+deploy-keypair.json
+id.json
+keypair.json
+*-keypair.json
+
+# Program keys (keep public keys, exclude secret keys)
+program-keypair.json
+authority-keypair.json
+payer-keypair.json
+
+# ============================================
+# Flutter / Dart
+# ============================================
+
+# Flutter/Dart/Pub related
+cypherlink-wallet/.dart_tool/
+cypherlink-wallet/.flutter-plugins
+cypherlink-wallet/.flutter-plugins-dependencies
+cypherlink-wallet/.packages
+cypherlink-wallet/.pub-cache/
+cypherlink-wallet/.pub/
+cypherlink-wallet/build/
+cypherlink-wallet/flutter_*.png
+cypherlink-wallet/linked_*.ds
+cypherlink-wallet/unlinked.ds
+cypherlink-wallet/unlinked_spec.ds
+
+# Flutter generated files
+cypherlink-wallet/lib/generated_plugin_registrant.dart
+cypherlink-wallet/.flutter-plugins
+cypherlink-wallet/.flutter-plugins-dependencies
+
+# IntelliJ related
+cypherlink-wallet/*.iml
+cypherlink-wallet/*.ipr
+cypherlink-wallet/*.iws
+cypherlink-wallet/.idea/
+
+# Android related
+cypherlink-wallet/android/.gradle/
+cypherlink-wallet/android/captures/
+cypherlink-wallet/android/local.properties
+cypherlink-wallet/android/**/GeneratedPluginRegistrant.java
+cypherlink-wallet/android/key.properties
+cypherlink-wallet/android/**/*.jks
+cypherlink-wallet/android/**/*.keystore
+
+# iOS related
+cypherlink-wallet/ios/Flutter/App.framework
+cypherlink-wallet/ios/Flutter/Flutter.framework
+cypherlink-wallet/ios/Flutter/Flutter.podspec
+cypherlink-wallet/ios/Flutter/Generated.xcconfig
+cypherlink-wallet/ios/Flutter/app.flx
+cypherlink-wallet/ios/Flutter/app.zip
+cypherlink-wallet/ios/Flutter/flutter_assets/
+cypherlink-wallet/ios/Flutter/flutter_export_environment.sh
+cypherlink-wallet/ios/ServiceDefinitions.json
+cypherlink-wallet/ios/Runner/GeneratedPluginRegistrant.*
+cypherlink-wallet/ios/Pods/
+cypherlink-wallet/ios/.symlinks/
+cypherlink-wallet/ios/**/DerivedData/
+cypherlink-wallet/ios/**/*.mode1v3
+cypherlink-wallet/ios/**/*.mode2v3
+cypherlink-wallet/ios/**/*.moved-aside
+cypherlink-wallet/ios/**/*.pbxuser
+cypherlink-wallet/ios/**/*.perspectivev3
+cypherlink-wallet/ios/**/*sync/
+cypherlink-wallet/ios/**/.sconsign.dblite
+cypherlink-wallet/ios/**/.tags*
+cypherlink-wallet/ios/**/.vagrant/
+cypherlink-wallet/ios/**/xcuserdata/
+cypherlink-wallet/ios/**/profile
+cypherlink-wallet/ios/**/xcshareddata/WorkspaceSettings.xcsettings
+
+# macOS
+cypherlink-wallet/macos/Flutter/GeneratedPluginRegistrant.swift
+cypherlink-wallet/macos/Pods/
+
+# Web
+cypherlink-wallet/web/
+
+# ============================================
+# Rust FFI Bridge
+# ============================================
+
+# Generated FFI bindings
+cypherlink-wallet/lib/bridge_generated.dart
+cypherlink-wallet/rust/target/
+
+# ============================================
+# Node / JavaScript (if used for testing)
+# ============================================
+
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+
+# ============================================
+# Python (if used for scripts)
+# ============================================
+
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# ============================================
+# IDEs and Editors
+# ============================================
+
+# VSCode
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+
+# Eclipse
+.project
+.classpath
+.settings/
+
+# Vim
+*.swp
+*.swo
+*~
+
+# Emacs
+*~
+\#*\#
+.\#*
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# ============================================
+# Operating System Files
+# ============================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Linux
+*~
+.directory
+.Trash-*
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# ============================================
+# Logs and Databases
+# ============================================
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Databases
+*.db
+*.sqlite
+*.sqlite3
+
+# ============================================
+# Environment and Secrets
+# ============================================
+
+# Environment files
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+.envrc
+
+# Secret files
+secrets/
+*.key
+*.pem
+*.p12
+*.secret
+
+# API keys and credentials
+credentials.json
+service-account.json
+
+# ============================================
+# Build and Distribution
+# ============================================
+
+# Build artifacts
+build/
+dist/
+out/
+release/
+
+# Dependency directories
+vendor/
+
+# ============================================
+# Testing
+# ============================================
+
+# Test coverage
+coverage/
+*.lcov
+.nyc_output/
+
+# Test artifacts
+test-results/
+test-output/
+
+# ============================================
+# Solana Specific
+# ============================================
+
+# Program dump files
+*.dump
+
+# Anchor (if we migrate to it later)
+.anchor/
+programs/*/target/
+
+# ============================================
+# Zcash / ZK Proving
+# ============================================
+
+# Proving and verifying keys (large files, don't commit)
+*.pk
+*.vk
+*.params
+proving-keys/
+verification-keys/
+
+# But allow .gitkeep in empty directories
+!.gitkeep
+
+# Generated proofs (examples only)
+proofs/
+*.proof
+
+# Witness files (sensitive data)
+*.witness
+
+# ============================================
+# Prover Node
+# ============================================
+
+# Prover node runtime data
+prover-node/runtime/
+prover-node/jobs/
+prover-node/state/
+
+# Prover configuration (may contain sensitive data)
+prover-node/config.local.toml
+
+# ============================================
+# Docker
+# ============================================
+
+# Docker
+*.dockerignore
+docker-compose.override.yml
+
+# ============================================
+# Temporary Files
+# ============================================
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+*.cache
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# ============================================
+# Documentation Build Artifacts
+# ============================================
+
+# mdBook
+book/
+docs/book/
+
+# Sphinx
+docs/_build/
+docs/_static/
+docs/_templates/
+
+# ============================================
+# CI/CD
+# ============================================
+
+# GitHub Actions
+.github/workflows/*.log
+
+# ============================================
+# Benchmarking and Profiling
+# ============================================
+
+# Criterion benchmarks
+criterion/
+benches/target/
+
+# Profiling data
+*.prof
+*.perf
+flamegraph.svg
+
+# ============================================
+# Mobile Development
+# ============================================
+
+# Android signing
+*.jks
+*.keystore
+key.properties
+google-services.json
+
+# iOS signing
+*.mobileprovision
+*.p12
+*.cer
+*.certSigningRequest
+exportOptions.plist
+GoogleService-Info.plist
+
+# ============================================
+# Project Specific
+# ============================================
+
+# Demo recordings
+demo/
+recordings/
+*.mp4
+*.mov
+*.avi
+
+# Screenshots
+screenshots/
+*.png
+*.jpg
+*.jpeg
+!docs/images/*.png
+!docs/images/*.jpg
+
+# Large test files
+test-data/large/
+*.bin
+
+# Local development databases
+local-db/
+*.leveldb/
+
+# ============================================
+# Keep Important Files
+# ============================================
+
+# Keep these even if they match patterns above
+!.gitkeep
+!.gitignore
+!.github/
+!README.md
+!LICENSE*
+
+# ============================================
+# Generated Documentation
+# ============================================
+
+# Auto-generated API docs
+api-docs/generated/
+docs/api/
+
+# ============================================
+# Misc
+# ============================================
+
+# Misc
+.cache/
+.parcel-cache/
+*.pid
+*.seed
+*.pid.lock
+.grunt/
+lib-cov/
+.lock-wscript
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Optional REPL history
+.node_repl_history
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# ============================================
+# End of .gitignore
+# ============================================
