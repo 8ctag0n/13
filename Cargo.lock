@@ -1218,6 +1218,7 @@ dependencies = [
  "solana-program-test",
  "solana-sdk",
  "thiserror 1.0.69",
+ "tokio",
 ]
 
 [[package]]

@@ -1,8 +1,11 @@
 pub mod state;
 pub mod error;
+pub mod instruction;
+pub mod processor;
 
 pub use state::*;
 pub use error::*;
+pub use instruction::*;
 
 use solana_program::{
     account_info::AccountInfo, entrypoint, pubkey::Pubkey,
@@ -11,11 +14,9 @@ use solana_program::{
 entrypoint!(process_instruction);
 
 pub fn process_instruction(
-    _program_id: &Pubkey,
-    _accounts: &[AccountInfo],
-    _instruction_data: &[u8],
+    program_id: &Pubkey,
+    accounts: &[AccountInfo],
+    instruction_data: &[u8],
 ) -> ProgramResult {
-    // TODO: Implement instruction processing
-    // This will be implemented in Day 2
-    Ok(())
+    processor::process(program_id, accounts, instruction_data)
 }
