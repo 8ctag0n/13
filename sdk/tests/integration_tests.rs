@@ -82,7 +82,7 @@ async fn test_register_prover() {
 
     // Register prover
     let register_ix = client
-        .register_prover_instruction(&prover_keypair.pubkey(), 5_000_000_000)
+        .register_prover_instruction(&prover_keypair.pubkey(), 5_000_000_000, [1u8; 32])
         .unwrap();
 
     let recent_blockhash = banks_client.get_latest_blockhash().await.unwrap();
@@ -168,7 +168,7 @@ async fn test_full_job_lifecycle() {
     banks_client.process_transaction(tx).await.unwrap();
 
     let register_ix = client
-        .register_prover_instruction(&prover_keypair.pubkey(), 5_000_000_000)
+        .register_prover_instruction(&prover_keypair.pubkey(), 5_000_000_000, [1u8; 32])
         .unwrap();
     let recent_blockhash = banks_client.get_latest_blockhash().await.unwrap();
     let mut tx = Transaction::new_with_payer(&[register_ix], Some(&prover_keypair.pubkey()));

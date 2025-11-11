@@ -20,6 +20,7 @@ pub fn process_register_prover(
     program_id: &Pubkey,
     accounts: &[AccountInfo],
     stake_amount: u64,
+    encryption_pubkey: [u8; 32],
 ) -> ProgramResult {
     let account_info_iter = &mut accounts.iter();
 
@@ -62,6 +63,12 @@ pub fn process_register_prover(
             config.min_stake_amount
         );
         return Err(CypherLinkProgramError::InsufficientStake.into());
+    }
+
+    // Validate encryption_pubkey is not all zeros
+    if encryption_pubkey == [0u8; 32] {
+        msg!("Invalid encryption_pubkey: cannot be all zeros");
+        return Err(CypherLinkProgramError::InvalidAccount.into());
     }
 
     // Get current timestamp
@@ -111,6 +118,7 @@ pub fn process_register_prover(
         *prover_authority_info.key,
         stake_amount,
         current_timestamp,
+        encryption_pubkey,
         bump,
     );
 
@@ -129,6 +137,7 @@ pub fn process_register_prover(
     msg!("  Authority: {}", prover_authority_info.key);
     msg!("  Stake: {} lamports", stake_amount);
     msg!("  Initial reputation: {}", prover.reputation_score);
+    msg!("  Encryption pubkey: {:?}", &encryption_pubkey[..8]);
 
     Ok(())
 }

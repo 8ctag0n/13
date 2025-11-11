@@ -45,9 +45,9 @@ pub fn process(
                 default_job_timeout_seconds,
             )
         }
-        MarketplaceInstruction::RegisterProver { stake_amount } => {
+        MarketplaceInstruction::RegisterProver { stake_amount, encryption_pubkey } => {
             msg!("Instruction: RegisterProver");
-            process_register_prover(program_id, accounts, stake_amount)
+            process_register_prover(program_id, accounts, stake_amount, encryption_pubkey)
         }
         MarketplaceInstruction::CreateJob {
             circuit_type,

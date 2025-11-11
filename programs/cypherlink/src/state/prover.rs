@@ -32,6 +32,10 @@ pub struct ProverAccount {
     /// Total earnings in lamports (cumulative)
     pub total_earnings_lamports: u64,
 
+    /// X25519 public key for encrypting witness data
+    /// Clients use this to encrypt witness before uploading
+    pub encryption_pubkey: [u8; 32],
+
     /// Bump seed for PDA derivation
     pub bump: u8,
 }
@@ -46,6 +50,7 @@ impl ProverAccount {
         + 1                      // is_active
         + 8                      // registration_timestamp
         + 8                      // total_earnings_lamports
+        + 32                     // encryption_pubkey
         + 1;                     // bump
 
     /// Create a new prover account
@@ -53,6 +58,7 @@ impl ProverAccount {
         authority: Pubkey,
         stake_amount: u64,
         registration_timestamp: i64,
+        encryption_pubkey: [u8; 32],
         bump: u8,
     ) -> Self {
         Self {
@@ -65,6 +71,7 @@ impl ProverAccount {
             is_active: true,
             registration_timestamp,
             total_earnings_lamports: 0,
+            encryption_pubkey,
             bump,
         }
     }
@@ -131,14 +138,14 @@ mod tests {
 
     #[test]
     fn test_prover_account_len() {
-        let prover = ProverAccount::new(Pubkey::new_unique(), 10_000_000_000, 1000, 255);
+        let prover = ProverAccount::new(Pubkey::new_unique(), 10_000_000_000, 1000, [0u8; 32], 255);
         let serialized = borsh::to_vec(&prover).unwrap();
         assert_eq!(serialized.len(), ProverAccount::LEN);
     }
 
     #[test]
     fn test_prover_can_claim() {
-        let prover = ProverAccount::new(Pubkey::new_unique(), 10_000_000_000, 1000, 255);
+        let prover = ProverAccount::new(Pubkey::new_unique(), 10_000_000_000, 1000, [0u8; 32], 255);
         assert!(prover.can_claim_jobs(500, 5_000_000_000));
 
         let mut low_rep = prover.clone();
@@ -152,7 +159,7 @@ mod tests {
 
     #[test]
     fn test_prover_job_completion() {
-        let mut prover = ProverAccount::new(Pubkey::new_unique(), 10_000_000_000, 1000, 255);
+        let mut prover = ProverAccount::new(Pubkey::new_unique(), 10_000_000_000, 1000, [0u8; 32], 255);
 
         prover.on_job_completed(15, 1_000_000);
         assert_eq!(prover.total_jobs_completed, 1);
@@ -162,7 +169,7 @@ mod tests {
 
     #[test]
     fn test_prover_slashing() {
-        let mut prover = ProverAccount::new(Pubkey::new_unique(), 10_000_000_000, 1000, 255);
+        let mut prover = ProverAccount::new(Pubkey::new_unique(), 10_000_000_000, 1000, [0u8; 32], 255);
 
         prover.slash(1_000_000_000, 5_000_000_000); // Slash 1 SOL
         assert_eq!(prover.stake_amount, 9_000_000_000);

@@ -85,7 +85,7 @@ async fn test_e2e_complete_marketplace_workflow() -> Result<()> {
     println!("Phase 3: Registering provers...");
 
     // Register prover 1
-    let reg_p1_ix = client.register_prover_instruction(&prover1.pubkey(), 5_000_000)?;
+    let reg_p1_ix = client.register_prover_instruction(&prover1.pubkey(), 5_000_000, [1u8; 32])?;
     let recent_blockhash = banks_client.get_latest_blockhash().await?;
     let mut tx = Transaction::new_with_payer(&[reg_p1_ix], Some(&prover1.pubkey()));
     tx.sign(&[&prover1], recent_blockhash);
@@ -99,7 +99,7 @@ async fn test_e2e_complete_marketplace_workflow() -> Result<()> {
     println!("✓ Prover 1 registered (stake: 5M lamports)");
 
     // Register prover 2
-    let reg_p2_ix = client.register_prover_instruction(&prover2.pubkey(), 10_000_000)?;
+    let reg_p2_ix = client.register_prover_instruction(&prover2.pubkey(), 10_000_000, [2u8; 32])?;
     let recent_blockhash = banks_client.get_latest_blockhash().await?;
     let mut tx = Transaction::new_with_payer(&[reg_p2_ix], Some(&prover2.pubkey()));
     tx.sign(&[&prover2], recent_blockhash);
@@ -387,8 +387,9 @@ async fn test_e2e_concurrent_job_claims() -> Result<()> {
     banks_client.process_transaction(tx).await?;
 
     // Register both provers
-    for prover in [&prover1, &prover2] {
-        let reg_ix = client.register_prover_instruction(&prover.pubkey(), 5_000_000)?;
+    for (i, prover) in [&prover1, &prover2].iter().enumerate() {
+        let enc_key = [(i + 1) as u8; 32];
+        let reg_ix = client.register_prover_instruction(&prover.pubkey(), 5_000_000, enc_key)?;
         let recent_blockhash = banks_client.get_latest_blockhash().await?;
         let mut tx = Transaction::new_with_payer(&[reg_ix], Some(&prover.pubkey()));
         tx.sign(&[prover], recent_blockhash);

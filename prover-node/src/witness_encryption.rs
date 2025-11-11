@@ -65,8 +65,8 @@ impl WitnessEncryption {
     }
 
     /// Get public key to share with clients (32 bytes)
-    pub fn public_key(&self) -> Vec<u8> {
-        self.public_key.as_bytes().to_vec()
+    pub fn public_key(&self) -> [u8; 32] {
+        *self.public_key.as_bytes()
     }
 
     /// Get public key as fixed-size array

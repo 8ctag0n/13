@@ -12,24 +12,29 @@ use tokio::time::sleep;
 
 mod halo2_prover;
 mod witness_encryption;
+mod witness_fetcher;
 
 use halo2_prover::{Halo2Prover, OrchardWitness};
 use witness_encryption::WitnessEncryption;
+use witness_fetcher::WitnessFetcher;
 
 /// CypherLink Prover Node - Autonomous ZK proof generation daemon
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
+    #[command(subcommand)]
+    command: Option<Command>,
+
     /// Solana RPC URL
-    #[arg(short, long, default_value = "http://localhost:8899")]
+    #[arg(short, long, default_value = "http://localhost:8899", global = true)]
     rpc_url: String,
 
     /// CypherLink program ID
-    #[arg(short, long)]
-    program_id: String,
+    #[arg(short, long, global = true)]
+    program_id: Option<String>,
 
     /// Path to prover keypair file
-    #[arg(short, long, default_value = "~/.config/solana/id.json")]
+    #[arg(short, long, default_value = "~/.config/solana/id.json", global = true)]
     keypair: String,
 
     /// Polling interval in seconds
@@ -47,6 +52,26 @@ struct Args {
     /// Maximum concurrent jobs
     #[arg(long, default_value = "3")]
     max_concurrent_jobs: usize,
+
+    /// Witness storage backend URL
+    #[arg(long, default_value = "http://localhost:3030")]
+    witness_backend_url: String,
+}
+
+#[derive(Parser, Debug)]
+enum Command {
+    /// Run the prover daemon (default)
+    Run,
+
+    /// Register as a prover on-chain
+    Register {
+        /// Stake amount in lamports
+        #[arg(long, default_value = "10000000000")]
+        stake_amount: u64,
+    },
+
+    /// Show encryption public key
+    ShowPubkey,
 }
 
 /// Prover node configuration
@@ -59,23 +84,27 @@ struct ProverConfig {
     min_price: u64,
     mock_proving_time: Duration,
     max_concurrent_jobs: usize,
+    witness_backend_url: String,
 }
 
 impl ProverConfig {
-    fn from_args(args: Args) -> Result<Self> {
+    fn from_args(args: &Args) -> Result<Self> {
         let program_id = args
             .program_id
+            .as_ref()
+            .context("Program ID is required")?
             .parse()
             .context("Invalid program ID format")?;
 
         Ok(Self {
-            rpc_url: args.rpc_url,
+            rpc_url: args.rpc_url.clone(),
             program_id,
             keypair_path: args.keypair.replace("~", &std::env::var("HOME").unwrap_or_default()),
             poll_interval: Duration::from_secs(args.poll_interval),
             min_price: args.min_price,
             mock_proving_time: Duration::from_secs(args.mock_proving_time),
             max_concurrent_jobs: args.max_concurrent_jobs,
+            witness_backend_url: args.witness_backend_url.clone(),
         })
     }
 }
@@ -88,6 +117,7 @@ struct ProverNode {
     active_jobs: Arc<tokio::sync::Mutex<Vec<solana_sdk::pubkey::Pubkey>>>,
     halo2_prover: Arc<Halo2Prover>,
     witness_encryption: Arc<WitnessEncryption>,
+    witness_fetcher: Arc<WitnessFetcher>,
 }
 
 impl ProverNode {
@@ -113,6 +143,11 @@ impl ProverNode {
         let pubkey = witness_encryption.public_key();
         info!("Witness encryption ready (pubkey: {})", hex::encode(&pubkey));
 
+        // Initialize witness fetcher
+        info!("Initializing witness fetcher...");
+        let witness_fetcher = WitnessFetcher::new(config.witness_backend_url.clone());
+        info!("Witness fetcher ready (backend: {})", config.witness_backend_url);
+
         Ok(Self {
             client: Arc::new(client),
             keypair: Arc::new(keypair),
@@ -120,6 +155,7 @@ impl ProverNode {
             active_jobs: Arc::new(tokio::sync::Mutex::new(Vec::new())),
             halo2_prover: Arc::new(halo2_prover),
             witness_encryption: Arc::new(witness_encryption),
+            witness_fetcher: Arc::new(witness_fetcher),
         })
     }
 
@@ -195,6 +231,8 @@ impl ProverNode {
             let halo2_prover = self.halo2_prover.clone();
             let witness_encryption = self.witness_encryption.clone();
 
+            let witness_fetcher = self.witness_fetcher.clone();
+
             tokio::spawn(async move {
                 if let Err(e) =
                     Self::process_job(
@@ -203,9 +241,11 @@ impl ProverNode {
                         job_pda,
                         job.id,
                         job.circuit_type,
+                        job.witness_commitment,
                         mock_proving_time,
                         halo2_prover,
                         witness_encryption,
+                        witness_fetcher,
                     )
                     .await
                 {
@@ -230,9 +270,11 @@ impl ProverNode {
         job_pda: solana_sdk::pubkey::Pubkey,
         job_id: u64,
         circuit_type: CircuitType,
+        witness_commitment: [u8; 32],
         _mock_proving_time: Duration,
         halo2_prover: Arc<Halo2Prover>,
         witness_encryption: Arc<WitnessEncryption>,
+        witness_fetcher: Arc<WitnessFetcher>,
     ) -> Result<()> {
         info!("[Job {}] Starting processing", job_id);
 
@@ -261,30 +303,34 @@ impl ProverNode {
             return Ok(());
         }
 
-        // Step 2: Generate proof (REAL Halo2)
+        // Step 2: Download and decrypt witness
+        info!("[Job {}] Downloading encrypted witness from backend...", job_id);
+
+        let encrypted_witness = witness_fetcher
+            .download_witness(&witness_commitment)
+            .await
+            .context("Failed to download witness from backend")?;
+
+        info!(
+            "[Job {}] Downloaded encrypted witness ({} bytes)",
+            job_id,
+            encrypted_witness.len()
+        );
+
+        // Decrypt witness
+        info!("[Job {}] Decrypting witness data...", job_id);
+
+        let witness = witness_encryption
+            .decrypt_witness(&encrypted_witness)
+            .context("Failed to decrypt witness data")?;
+
+        info!("[Job {}] Witness decrypted successfully", job_id);
+
+        // Step 3: Generate proof (REAL Halo2)
         info!(
             "[Job {}] Generating proof (circuit: {:?})...",
             job_id, circuit_type
         );
-
-        // Decrypt witness from job data
-        // In production, job.witness_data would contain the encrypted witness
-        // For now, we'll simulate this by encrypting a dummy witness for demonstration
-        info!("[Job {}] Decrypting witness data...", job_id);
-
-        // TODO: Replace this with actual encrypted witness from job.witness_data
-        // For now, simulate encryption/decryption with dummy data
-        let dummy_witness = OrchardWitness::dummy();
-        let simulated_encrypted = WitnessEncryption::encrypt_witness(
-            &dummy_witness,
-            &witness_encryption.public_key()
-        ).context("Failed to simulate witness encryption")?;
-
-        let witness = witness_encryption
-            .decrypt_witness(&simulated_encrypted)
-            .context("Failed to decrypt witness data")?;
-
-        info!("[Job {}] Witness decrypted successfully", job_id);
 
         // Validate witness
         witness
@@ -300,7 +346,7 @@ impl ProverNode {
             proof_bytes.len()
         );
 
-        // Step 3: Submit proof
+        // Step 4: Submit proof
         info!("[Job {}] Submitting proof...", job_id);
 
         // Generate proof commitment (hash of actual proof)
@@ -371,11 +417,88 @@ async fn main() -> Result<()> {
 
     // Parse command line arguments
     let args = Args::parse();
-    let config = ProverConfig::from_args(args)?;
 
-    // Create and run prover node
-    let prover = ProverNode::new(config)?;
-    prover.run().await?;
+    match args.command.as_ref().unwrap_or(&Command::Run) {
+        Command::Run => {
+            let config = ProverConfig::from_args(&args)?;
+            let prover = ProverNode::new(config)?;
+            prover.run().await?;
+        }
+        Command::Register { stake_amount } => {
+            register_prover(&args, *stake_amount).await?;
+        }
+        Command::ShowPubkey => {
+            show_pubkey(&args)?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Register this prover on-chain
+async fn register_prover(args: &Args, stake_amount: u64) -> Result<()> {
+    let program_id = args
+        .program_id
+        .as_ref()
+        .context("Program ID is required (--program-id)")?
+        .parse()
+        .context("Invalid program ID format")?;
+
+    let keypair_path = args.keypair.replace("~", &std::env::var("HOME").unwrap_or_default());
+    let keypair = read_keypair_file(&keypair_path)
+        .map_err(|e| anyhow::anyhow!("Failed to read keypair file: {}", e))?;
+
+    // Initialize witness encryption to get pubkey
+    let witness_encryption = WitnessEncryption::new()?;
+    let encryption_pubkey = witness_encryption.public_key();
+
+    // Create client
+    let client = MarketplaceClient::new_with_commitment(
+        args.rpc_url.clone(),
+        program_id,
+        CommitmentConfig::confirmed(),
+    );
+
+    info!("Registering prover...");
+    info!("  Authority: {}", keypair.pubkey());
+    info!("  Stake: {} lamports ({} SOL)", stake_amount, stake_amount as f64 / 1_000_000_000.0);
+    info!("  Encryption pubkey: {}", hex::encode(&encryption_pubkey));
+
+    // Create register instruction
+    let ix = client.register_prover_instruction(
+        &keypair.pubkey(),
+        stake_amount,
+        encryption_pubkey,
+    )?;
+
+    // Send transaction
+    let sig = client.send_and_confirm_transaction(&[ix], &[&keypair])?;
+
+    info!("Prover registered successfully!");
+    info!("  Signature: {}", sig);
+
+    // Verify registration
+    let (prover_pda, _) = client.get_prover_pda(&keypair.pubkey());
+    info!("  Prover PDA: {}", prover_pda);
+
+    Ok(())
+}
+
+/// Show the encryption public key for this prover
+fn show_pubkey(args: &Args) -> Result<()> {
+    let witness_encryption = WitnessEncryption::new()?;
+    let encryption_pubkey = witness_encryption.public_key();
+
+    let keypair_path = args.keypair.replace("~", &std::env::var("HOME").unwrap_or_default());
+    let keypair = read_keypair_file(&keypair_path)
+        .map_err(|e| anyhow::anyhow!("Failed to read keypair file: {}", e))?;
+
+    println!("Prover Encryption Public Key");
+    println!("=============================");
+    println!("Authority:       {}", keypair.pubkey());
+    println!("Encryption Key:  {}", hex::encode(&encryption_pubkey));
+    println!();
+    println!("Clients should use this key to encrypt witness data before uploading.");
 
     Ok(())
 }

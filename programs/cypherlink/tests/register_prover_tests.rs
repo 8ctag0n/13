@@ -48,6 +48,7 @@ async fn test_register_prover() {
 
     let register_instruction = MarketplaceInstruction::RegisterProver {
         stake_amount: 5_000_000_000,
+        encryption_pubkey: [1u8; 32],
     };
 
     let register_ix = solana_program::instruction::Instruction {
@@ -124,6 +125,7 @@ async fn test_register_prover_insufficient_stake() {
 
     let register_instruction = MarketplaceInstruction::RegisterProver {
         stake_amount: 3_000_000_000,
+        encryption_pubkey: [1u8; 32],
     };
 
     let register_ix = solana_program::instruction::Instruction {
@@ -176,6 +178,7 @@ async fn test_register_prover_marketplace_not_initialized() {
 
     let register_instruction = MarketplaceInstruction::RegisterProver {
         stake_amount: 5_000_000_000,
+        encryption_pubkey: [1u8; 32],
     };
 
     let register_ix = solana_program::instruction::Instruction {

@@ -91,6 +91,7 @@ impl MarketplaceClient {
         &self,
         prover_authority: &Pubkey,
         stake_amount: u64,
+        encryption_pubkey: [u8; 32],
     ) -> Result<Instruction> {
         let (config_pda, _) = Pubkey::find_program_address(&[b"config"], &self.program_id);
         let (prover_pda, _) =
@@ -100,11 +101,13 @@ impl MarketplaceClient {
         struct RegisterProverData {
             discriminator: u8,
             stake_amount: u64,
+            encryption_pubkey: [u8; 32],
         }
 
         let data = RegisterProverData {
             discriminator: 1, // RegisterProver = 1
             stake_amount,
+            encryption_pubkey,
         };
 
         Ok(Instruction {

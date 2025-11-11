@@ -3,6 +3,7 @@ members = [
     "programs/cypherlink",
     "sdk",
     "prover-node",
+    "witness-storage",
     "shared/types",
     "shared/crypto",
 ]

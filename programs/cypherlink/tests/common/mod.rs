@@ -82,7 +82,10 @@ pub async fn register_prover(
     banks_client.process_transaction(fund_tx).await?;
 
     // Register prover
-    let register_instruction = MarketplaceInstruction::RegisterProver { stake_amount };
+    let register_instruction = MarketplaceInstruction::RegisterProver {
+        stake_amount,
+        encryption_pubkey: [1u8; 32],
+    };
 
     let register_ix = solana_program::instruction::Instruction {
         program_id: *program_id,

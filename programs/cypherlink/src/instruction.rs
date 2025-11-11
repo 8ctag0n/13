@@ -31,6 +31,8 @@ pub enum MarketplaceInstruction {
     RegisterProver {
         /// Amount of SOL to stake (must meet minimum)
         stake_amount: u64,
+        /// X25519 public key for encrypting witness data
+        encryption_pubkey: [u8; 32],
     },
 
     /// Create a new proving job
@@ -144,6 +146,7 @@ mod tests {
     fn test_register_prover_serialization() {
         let instruction = MarketplaceInstruction::RegisterProver {
             stake_amount: 10_000_000_000,
+            encryption_pubkey: [1u8; 32],
         };
 
         let packed = instruction.pack().unwrap();
