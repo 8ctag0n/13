@@ -4,6 +4,7 @@ pub mod create_job;
 pub mod claim_job;
 pub mod submit_proof;
 pub mod cancel_job;
+pub mod slash_prover;
 
 pub use initialize::*;
 pub use register_prover::*;
@@ -11,6 +12,7 @@ pub use create_job::*;
 pub use claim_job::*;
 pub use submit_proof::*;
 pub use cancel_job::*;
+pub use slash_prover::*;
 
 use solana_program::{
     account_info::AccountInfo, entrypoint::ProgramResult, msg, pubkey::Pubkey,
@@ -80,10 +82,9 @@ pub fn process(
             msg!("Instruction: CancelJob");
             process_cancel_job(program_id, accounts)
         }
-        MarketplaceInstruction::SlashProver { .. } => {
+        MarketplaceInstruction::SlashProver { slash_amount } => {
             msg!("Instruction: SlashProver");
-            // TODO: Implement in Day 3
-            Ok(())
+            process_slash_prover(program_id, accounts, slash_amount)
         }
     }
 }
