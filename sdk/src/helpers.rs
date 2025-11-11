@@ -7,84 +7,57 @@ use solana_sdk::pubkey::Pubkey;
 pub use cypherlink_types::{CircuitType, JobStatus};
 
 /// Marketplace configuration account
+/// IMPORTANT: Field order must match programs/cypherlink/src/state/config.rs
 #[derive(Debug, Clone, BorshDeserialize)]
 pub struct MarketplaceConfig {
     pub authority: Pubkey,
+    pub fee_basis_points: u16,
+    pub min_stake_amount: u64,
+    pub min_reputation_score: u32,
+    pub default_job_timeout_seconds: i64,
     pub protocol_fee_recipient: Pubkey,
     pub next_job_id: u64,
     pub total_provers: u64,
     pub total_jobs_created: u64,
     pub total_jobs_completed: u64,
-    pub fee_basis_points: u16,
-    pub min_stake_amount: u64,
-    pub min_reputation_score: u32,
-    pub default_job_timeout_seconds: i64,
 }
 
 /// Prover account
+/// IMPORTANT: Field order must match programs/cypherlink/src/state/prover.rs
 #[derive(Debug, Clone, BorshDeserialize)]
 pub struct ProverAccount {
     pub authority: Pubkey,
     pub stake_amount: u64,
-    pub total_jobs_completed: u64,
     pub reputation_score: u32,
-    pub registered_at: i64,
+    pub total_jobs_completed: u64,
+    pub total_jobs_failed: u64,
+    pub avg_completion_time_secs: u32,
+    pub is_active: bool,
+    pub registration_timestamp: i64,
+    pub total_earnings_lamports: u64,
     pub bump: u8,
 }
 
 /// Job account
-#[derive(Debug, Clone)]
+/// IMPORTANT: Field order must match programs/cypherlink/src/state/job.rs
+#[derive(Debug, Clone, BorshDeserialize)]
 pub struct JobAccount {
     pub id: u64,
     pub creator: Pubkey,
+    pub prover: Option<Pubkey>,
+    pub status: JobStatus,
     pub circuit_type: CircuitType,
     pub witness_commitment: [u8; 32],
     pub witness_size: u32,
-    pub price_lamports: u64,
-    pub timeout_seconds: i64,
-    pub status: JobStatus,
-    pub prover: Option<Pubkey>,
     pub proof_commitment: Option<[u8; 32]>,
     pub proof_size: Option<u32>,
+    pub price_lamports: u64,
+    pub escrow_account: Pubkey,
     pub created_at: i64,
     pub claimed_at: Option<i64>,
     pub completed_at: Option<i64>,
-}
-
-impl BorshDeserialize for JobAccount {
-    fn deserialize_reader<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
-        let id = u64::deserialize_reader(reader)?;
-        let creator = Pubkey::deserialize_reader(reader)?;
-        let circuit_type = CircuitType::deserialize_reader(reader)?;
-        let witness_commitment = <[u8; 32]>::deserialize_reader(reader)?;
-        let witness_size = u32::deserialize_reader(reader)?;
-        let price_lamports = u64::deserialize_reader(reader)?;
-        let timeout_seconds = i64::deserialize_reader(reader)?;
-        let status = JobStatus::deserialize_reader(reader)?;
-        let prover = Option::<Pubkey>::deserialize_reader(reader)?;
-        let proof_commitment = Option::<[u8; 32]>::deserialize_reader(reader)?;
-        let proof_size = Option::<u32>::deserialize_reader(reader)?;
-        let created_at = i64::deserialize_reader(reader)?;
-        let claimed_at = Option::<i64>::deserialize_reader(reader)?;
-        let completed_at = Option::<i64>::deserialize_reader(reader)?;
-
-        Ok(Self {
-            id,
-            creator,
-            circuit_type,
-            witness_commitment,
-            witness_size,
-            price_lamports,
-            timeout_seconds,
-            status,
-            prover,
-            proof_commitment,
-            proof_size,
-            created_at,
-            claimed_at,
-            completed_at,
-        })
-    }
+    pub timeout_at: i64,
+    pub bump: u8,
 }
 
 // ============================================================================
@@ -346,19 +319,13 @@ pub fn parse_events_from_logs(logs: &[String]) -> Vec<MarketplaceEvent> {
 
 /// Check if a job has timed out
 pub fn is_job_timed_out(job: &JobAccount, current_timestamp: i64) -> bool {
-    if let Some(claimed_at) = job.claimed_at {
-        let elapsed = current_timestamp - claimed_at;
-        elapsed > job.timeout_seconds
-    } else {
-        false
-    }
+    current_timestamp > job.timeout_at
 }
 
 /// Calculate estimated time remaining for a job
 pub fn get_time_remaining(job: &JobAccount, current_timestamp: i64) -> Option<i64> {
-    if let Some(claimed_at) = job.claimed_at {
-        let elapsed = current_timestamp - claimed_at;
-        let remaining = job.timeout_seconds - elapsed;
+    if job.claimed_at.is_some() {
+        let remaining = job.timeout_at - current_timestamp;
         Some(remaining.max(0))
     } else {
         None
@@ -395,18 +362,20 @@ mod tests {
         let mut job = JobAccount {
             id: 0,
             creator: Pubkey::default(),
+            prover: Some(Pubkey::default()),
+            status: JobStatus::Claimed,
             circuit_type: CircuitType::ZcashOrchard,
             witness_commitment: [0u8; 32],
             witness_size: 1024,
-            price_lamports: 1_000_000,
-            timeout_seconds: 600,
-            status: JobStatus::Claimed,
-            prover: Some(Pubkey::default()),
             proof_commitment: None,
             proof_size: None,
+            price_lamports: 1_000_000,
+            escrow_account: Pubkey::default(),
             created_at: 1000,
             claimed_at: Some(1000),
             completed_at: None,
+            timeout_at: 1600, // Timeout at timestamp 1600 (600 seconds after claim at 1000)
+            bump: 0,
         };
 
         // 300 seconds elapsed, 300 remaining

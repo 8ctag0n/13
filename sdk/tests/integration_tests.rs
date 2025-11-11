@@ -355,18 +355,20 @@ fn test_timeout_calculations() {
     let job = JobAccount {
         id: 0,
         creator: Pubkey::new_unique(),
+        prover: Some(Pubkey::new_unique()),
+        status: JobStatus::Claimed,
         circuit_type: CircuitType::ZcashOrchard,
         witness_commitment: [0u8; 32],
         witness_size: 1024,
-        price_lamports: 1_000_000,
-        timeout_seconds: 600,
-        status: JobStatus::Claimed,
-        prover: Some(Pubkey::new_unique()),
         proof_commitment: None,
         proof_size: None,
+        price_lamports: 1_000_000,
+        escrow_account: Pubkey::new_unique(),
         created_at: 1000,
         claimed_at: Some(1000),
         completed_at: None,
+        timeout_at: 1600, // 600 seconds timeout from claimed_at (1000)
+        bump: 0,
     };
 
     // Not timed out yet
