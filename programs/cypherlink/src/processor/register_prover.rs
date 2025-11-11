@@ -52,8 +52,7 @@ pub fn process_register_prover(
     }
 
     // Load and verify marketplace config
-    let config_data = config_info.try_borrow_data()?;
-    let config: MarketplaceConfig = borsh::from_slice(&config_data)?;
+    let mut config: MarketplaceConfig = borsh::from_slice(&config_info.data.borrow())?;
 
     // Verify minimum stake requirement
     if stake_amount < config.min_stake_amount {
@@ -118,6 +117,13 @@ pub fn process_register_prover(
     // Serialize prover to account data
     let mut prover_data = prover_info.try_borrow_mut_data()?;
     borsh::to_writer(&mut prover_data[..], &prover)?;
+
+    // Update marketplace statistics
+    config.total_provers = config.total_provers.saturating_add(1);
+
+    // Save updated config
+    let mut config_data = config_info.try_borrow_mut_data()?;
+    borsh::to_writer(&mut config_data[..], &config)?;
 
     msg!("Prover registered successfully");
     msg!("  Authority: {}", prover_authority_info.key);

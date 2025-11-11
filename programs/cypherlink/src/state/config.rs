@@ -87,8 +87,8 @@ impl MarketplaceConfig {
     /// Increment job counter and return new job ID
     pub fn next_job_id(&mut self) -> u64 {
         let id = self.next_job_id;
-        self.next_job_id += 1;
-        self.total_jobs_created += 1;
+        self.next_job_id = self.next_job_id.saturating_add(1);
+        self.total_jobs_created = self.total_jobs_created.saturating_add(1);
         id
     }
 }

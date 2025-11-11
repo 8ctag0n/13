@@ -30,7 +30,7 @@ pub fn process_submit_proof(
     let job_creator_info = next_account_info(account_info_iter)?;
     let protocol_fee_recipient_info = next_account_info(account_info_iter)?;
     let config_info = next_account_info(account_info_iter)?;
-    let system_program_info = next_account_info(account_info_iter)?;
+    let _system_program_info = next_account_info(account_info_iter)?;
 
     // Verify prover authority is signer
     if !prover_authority_info.is_signer {
@@ -97,7 +97,7 @@ pub fn process_submit_proof(
     }
 
     // Verify escrow PDA
-    let (escrow_pda, escrow_bump) =
+    let (escrow_pda, _escrow_bump) =
         Pubkey::find_program_address(&[b"escrow", job_info.key.as_ref()], program_id);
 
     if escrow_info.key != &escrow_pda {
@@ -146,10 +146,10 @@ pub fn process_submit_proof(
     job.complete(proof_commitment, proof_size, current_time);
 
     // Update prover statistics
-    prover.total_jobs_completed += 1;
+    prover.total_jobs_completed = prover.total_jobs_completed.saturating_add(1);
 
     // Update marketplace statistics
-    config.total_jobs_completed += 1;
+    config.total_jobs_completed = config.total_jobs_completed.saturating_add(1);
 
     // Serialize updated states
     let mut job_data = job_info.try_borrow_mut_data()?;

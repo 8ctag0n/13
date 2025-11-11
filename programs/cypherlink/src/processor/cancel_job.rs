@@ -48,7 +48,7 @@ pub fn process_cancel_job(program_id: &Pubkey, accounts: &[AccountInfo]) -> Prog
     }
 
     // Verify escrow PDA
-    let (escrow_pda, escrow_bump) =
+    let (escrow_pda, _escrow_bump) =
         Pubkey::find_program_address(&[b"escrow", job_info.key.as_ref()], program_id);
 
     if escrow_info.key != &escrow_pda {
