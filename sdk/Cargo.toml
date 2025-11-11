@@ -18,3 +18,4 @@ cypherlink-types = { path = "../shared/types" }
 [dev-dependencies]
 solana-program-test.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
+cypherlink = { path = "../programs/cypherlink", features = ["no-entrypoint"] }

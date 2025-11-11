@@ -1,11 +1,10 @@
 use anyhow::Result;
 use borsh::BorshDeserialize;
-use cypherlink_types::JobStatus;
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::pubkey::Pubkey;
 
 // Re-export types from cypherlink program
-pub use cypherlink_types::CircuitType;
+pub use cypherlink_types::{CircuitType, JobStatus};
 
 /// Marketplace configuration account
 #[derive(Debug, Clone, BorshDeserialize)]

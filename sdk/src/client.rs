@@ -201,7 +201,7 @@ impl MarketplaceClient {
         })
     }
 
-    /// Build SubmitProof instruction
+    /// Build SubmitProof instruction with protocol fee recipient lookup
     pub fn submit_proof_instruction(
         &self,
         prover_authority: &Pubkey,
@@ -210,18 +210,42 @@ impl MarketplaceClient {
         proof_commitment: [u8; 32],
         proof_size: u32,
     ) -> Result<Instruction> {
+        // Get protocol fee recipient from config via RPC
+        let (config_pda, _) = Pubkey::find_program_address(&[b"config"], &self.program_id);
+        let config_account = self.rpc_client.get_account(&config_pda)?;
+        // Offset: authority(32) + fee_basis_points(2) + min_stake(8) + min_rep(4) + timeout(8) = 54
+        let protocol_fee_recipient = if config_account.data.len() >= 86 {
+            Pubkey::try_from(&config_account.data[54..86])?
+        } else {
+            return Err(anyhow::anyhow!("Invalid config account"));
+        };
+
+        self.submit_proof_instruction_with_recipient(
+            prover_authority,
+            job_pda,
+            job_creator,
+            &protocol_fee_recipient,
+            proof_commitment,
+            proof_size,
+        )
+    }
+
+    /// Build SubmitProof instruction with provided protocol fee recipient
+    /// Use this version when you already know the protocol fee recipient
+    /// (e.g., in tests or when you have the config cached)
+    pub fn submit_proof_instruction_with_recipient(
+        &self,
+        prover_authority: &Pubkey,
+        job_pda: &Pubkey,
+        job_creator: &Pubkey,
+        protocol_fee_recipient: &Pubkey,
+        proof_commitment: [u8; 32],
+        proof_size: u32,
+    ) -> Result<Instruction> {
         let (config_pda, _) = Pubkey::find_program_address(&[b"config"], &self.program_id);
         let (prover_pda, _) =
             Pubkey::find_program_address(&[b"prover", prover_authority.as_ref()], &self.program_id);
         let (escrow_pda, _) = Pubkey::find_program_address(&[b"escrow", job_pda.as_ref()], &self.program_id);
-
-        // Get protocol fee recipient from config
-        let config_account = self.rpc_client.get_account(&config_pda)?;
-        let protocol_fee_recipient = if config_account.data.len() >= 40 {
-            Pubkey::try_from(&config_account.data[8..40])?
-        } else {
-            return Err(anyhow::anyhow!("Invalid config account"));
-        };
 
         #[derive(borsh::BorshSerialize)]
         struct SubmitProofData {
@@ -244,7 +268,7 @@ impl MarketplaceClient {
                 AccountMeta::new(*job_pda, false),
                 AccountMeta::new(escrow_pda, false),
                 AccountMeta::new(*job_creator, false),
-                AccountMeta::new(protocol_fee_recipient, false),
+                AccountMeta::new(*protocol_fee_recipient, false),
                 AccountMeta::new(config_pda, false),
                 AccountMeta::new_readonly(solana_sdk::system_program::id(), false),
             ],
