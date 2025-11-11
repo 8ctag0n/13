@@ -10,6 +10,12 @@ use solana_sdk::{
 use std::{sync::Arc, time::Duration};
 use tokio::time::sleep;
 
+mod halo2_prover;
+mod witness_encryption;
+
+use halo2_prover::{Halo2Prover, OrchardWitness};
+use witness_encryption::WitnessEncryption;
+
 /// CypherLink Prover Node - Autonomous ZK proof generation daemon
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -80,6 +86,8 @@ struct ProverNode {
     keypair: Arc<Keypair>,
     config: ProverConfig,
     active_jobs: Arc<tokio::sync::Mutex<Vec<solana_sdk::pubkey::Pubkey>>>,
+    halo2_prover: Arc<Halo2Prover>,
+    witness_encryption: Arc<WitnessEncryption>,
 }
 
 impl ProverNode {
@@ -93,11 +101,25 @@ impl ProverNode {
             CommitmentConfig::confirmed(),
         );
 
+        // Initialize Halo2 prover
+        info!("Initializing Halo2 proving system...");
+        let mut halo2_prover = Halo2Prover::new()?;
+        halo2_prover.setup()?;
+        info!("Halo2 prover ready");
+
+        // Initialize witness encryption
+        info!("Initializing witness encryption system...");
+        let witness_encryption = WitnessEncryption::new()?;
+        let pubkey = witness_encryption.public_key();
+        info!("Witness encryption ready (pubkey: {})", hex::encode(&pubkey));
+
         Ok(Self {
             client: Arc::new(client),
             keypair: Arc::new(keypair),
             config,
             active_jobs: Arc::new(tokio::sync::Mutex::new(Vec::new())),
+            halo2_prover: Arc::new(halo2_prover),
+            witness_encryption: Arc::new(witness_encryption),
         })
     }
 
@@ -170,11 +192,22 @@ impl ProverNode {
             let keypair = self.keypair.clone();
             let active_jobs = self.active_jobs.clone();
             let mock_proving_time = self.config.mock_proving_time;
+            let halo2_prover = self.halo2_prover.clone();
+            let witness_encryption = self.witness_encryption.clone();
 
             tokio::spawn(async move {
                 if let Err(e) =
-                    Self::process_job(client, keypair, job_pda, job.id, job.circuit_type, mock_proving_time)
-                        .await
+                    Self::process_job(
+                        client,
+                        keypair,
+                        job_pda,
+                        job.id,
+                        job.circuit_type,
+                        mock_proving_time,
+                        halo2_prover,
+                        witness_encryption,
+                    )
+                    .await
                 {
                     error!("Failed to process job {}: {}", job.id, e);
                 }
@@ -197,7 +230,9 @@ impl ProverNode {
         job_pda: solana_sdk::pubkey::Pubkey,
         job_id: u64,
         circuit_type: CircuitType,
-        mock_proving_time: Duration,
+        _mock_proving_time: Duration,
+        halo2_prover: Arc<Halo2Prover>,
+        witness_encryption: Arc<WitnessEncryption>,
     ) -> Result<()> {
         info!("[Job {}] Starting processing", job_id);
 
@@ -226,22 +261,51 @@ impl ProverNode {
             return Ok(());
         }
 
-        // Step 2: Generate proof (mock)
+        // Step 2: Generate proof (REAL Halo2)
         info!(
-            "[Job {}] Generating proof (circuit: {:?}, time: {:?})...",
-            job_id, circuit_type, mock_proving_time
+            "[Job {}] Generating proof (circuit: {:?})...",
+            job_id, circuit_type
         );
 
-        Self::mock_generate_proof(&circuit_type, mock_proving_time).await?;
+        // Decrypt witness from job data
+        // In production, job.witness_data would contain the encrypted witness
+        // For now, we'll simulate this by encrypting a dummy witness for demonstration
+        info!("[Job {}] Decrypting witness data...", job_id);
 
-        info!("[Job {}] Proof generated successfully", job_id);
+        // TODO: Replace this with actual encrypted witness from job.witness_data
+        // For now, simulate encryption/decryption with dummy data
+        let dummy_witness = OrchardWitness::dummy();
+        let simulated_encrypted = WitnessEncryption::encrypt_witness(
+            &dummy_witness,
+            &witness_encryption.public_key()
+        ).context("Failed to simulate witness encryption")?;
+
+        let witness = witness_encryption
+            .decrypt_witness(&simulated_encrypted)
+            .context("Failed to decrypt witness data")?;
+
+        info!("[Job {}] Witness decrypted successfully", job_id);
+
+        // Validate witness
+        witness
+            .validate()
+            .context("Invalid witness data")?;
+
+        // Generate real Halo2 proof
+        let proof_bytes = Self::real_generate_proof(halo2_prover.clone(), witness).await?;
+
+        info!(
+            "[Job {}] Proof generated successfully ({} bytes)",
+            job_id,
+            proof_bytes.len()
+        );
 
         // Step 3: Submit proof
         info!("[Job {}] Submitting proof...", job_id);
 
-        // Generate mock proof commitment
-        let proof_commitment = Self::generate_mock_proof_commitment(job_id);
-        let proof_size = Self::estimate_proof_size(&circuit_type);
+        // Generate proof commitment (hash of actual proof)
+        let proof_commitment = Self::generate_proof_commitment(&proof_bytes);
+        let proof_size = proof_bytes.len() as u32;
 
         // Fetch config to get protocol fee recipient
         let (config_pda, _) = client.get_config_pda();
@@ -281,38 +345,22 @@ impl ProverNode {
         Ok(())
     }
 
-    /// Mock proof generation (simulates computation time)
-    async fn mock_generate_proof(circuit_type: &CircuitType, duration: Duration) -> Result<()> {
-        debug!("Mock proving for circuit {:?}...", circuit_type);
-
-        // Simulate proof generation time
-        sleep(duration).await;
-
-        // In a real implementation, this would:
-        // 1. Download witness data from IPFS/Arweave
-        // 2. Run the actual ZK proof generation
-        // 3. Upload the proof to storage
-        // 4. Return the proof commitment
-
-        Ok(())
+    /// Generate real Halo2 proof (CPU-intensive, runs in blocking thread)
+    async fn real_generate_proof(
+        prover: Arc<Halo2Prover>,
+        witness: OrchardWitness,
+    ) -> Result<Vec<u8>> {
+        // Run in blocking thread since Halo2 is CPU-intensive
+        tokio::task::spawn_blocking(move || prover.generate_orchard_proof(witness))
+            .await
+            .context("Proof generation task panicked")?
     }
 
-    /// Generate a mock proof commitment (deterministic based on job_id)
-    fn generate_mock_proof_commitment(job_id: u64) -> [u8; 32] {
-        let mut commitment = [0u8; 32];
-        commitment[0..8].copy_from_slice(&job_id.to_le_bytes());
-        commitment[8..16].copy_from_slice(b"MOCKPROF");
-        commitment
-    }
-
-    /// Estimate proof size based on circuit type
-    fn estimate_proof_size(circuit_type: &CircuitType) -> u32 {
-        match circuit_type {
-            CircuitType::ZcashOrchard => 2048,
-            CircuitType::AnonymousVote => 1024,
-            CircuitType::Credential => 1536,
-            CircuitType::Custom(_) => 2048,
-        }
+    /// Generate proof commitment (hash of actual proof)
+    fn generate_proof_commitment(proof: &[u8]) -> [u8; 32] {
+        use solana_sdk::hash::hash;
+        let hash_result = hash(proof);
+        hash_result.to_bytes()
     }
 }
 
