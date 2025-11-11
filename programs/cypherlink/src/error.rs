@@ -63,6 +63,12 @@ pub enum CypherLinkProgramError {
 
     #[error("Marketplace paused")]
     MarketplacePaused,
+
+    #[error("Marketplace not initialized")]
+    MarketplaceNotInitialized,
+
+    #[error("Invalid price")]
+    InvalidPrice,
 }
 
 impl From<CypherLinkProgramError> for ProgramError {

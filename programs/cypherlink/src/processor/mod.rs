@@ -1,8 +1,10 @@
 pub mod initialize;
 pub mod register_prover;
+pub mod create_job;
 
 pub use initialize::*;
 pub use register_prover::*;
+pub use create_job::*;
 
 use solana_program::{
     account_info::AccountInfo, entrypoint::ProgramResult, msg, pubkey::Pubkey,
@@ -39,10 +41,23 @@ pub fn process(
             msg!("Instruction: RegisterProver");
             process_register_prover(program_id, accounts, stake_amount)
         }
-        MarketplaceInstruction::CreateJob { .. } => {
+        MarketplaceInstruction::CreateJob {
+            circuit_type,
+            witness_commitment,
+            witness_size,
+            price_lamports,
+            timeout_seconds,
+        } => {
             msg!("Instruction: CreateJob");
-            // TODO: Implement in Day 3
-            Ok(())
+            process_create_job(
+                program_id,
+                accounts,
+                circuit_type,
+                witness_commitment,
+                witness_size,
+                price_lamports,
+                timeout_seconds,
+            )
         }
         MarketplaceInstruction::ClaimJob => {
             msg!("Instruction: ClaimJob");
