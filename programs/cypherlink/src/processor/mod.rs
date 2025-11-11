@@ -1,10 +1,12 @@
 pub mod initialize;
 pub mod register_prover;
 pub mod create_job;
+pub mod claim_job;
 
 pub use initialize::*;
 pub use register_prover::*;
 pub use create_job::*;
+pub use claim_job::*;
 
 use solana_program::{
     account_info::AccountInfo, entrypoint::ProgramResult, msg, pubkey::Pubkey,
@@ -61,8 +63,7 @@ pub fn process(
         }
         MarketplaceInstruction::ClaimJob => {
             msg!("Instruction: ClaimJob");
-            // TODO: Implement in Day 3
-            Ok(())
+            process_claim_job(program_id, accounts)
         }
         MarketplaceInstruction::SubmitProof { .. } => {
             msg!("Instruction: SubmitProof");
