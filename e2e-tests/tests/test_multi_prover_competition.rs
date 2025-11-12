@@ -16,6 +16,7 @@ use solana_sdk::{
 use std::str::FromStr;
 use std::time::Duration;
 use tokio::task::JoinHandle;
+use tokio::time::sleep;
 
 /// Helper to register a prover
 async fn register_prover(
@@ -261,7 +262,14 @@ async fn test_three_provers_three_jobs_concurrent() -> Result<()> {
     let client3 = Keypair::new();
 
     let (job1_pda, job1_id) = create_job(&rpc_client, &sdk_client, &client1).await?;
+
+    // Small delay to ensure config updates between job creations
+    sleep(Duration::from_millis(500)).await;
+
     let (job2_pda, job2_id) = create_job(&rpc_client, &sdk_client, &client2).await?;
+
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
     let (job3_pda, job3_id) = create_job(&rpc_client, &sdk_client, &client3).await?;
 
     println!("  ✓ Job 1: {} (PDA: {})", job1_id, job1_pda);
@@ -385,6 +393,10 @@ async fn test_five_provers_two_jobs() -> Result<()> {
     let client2 = Keypair::new();
 
     let (job1_pda, job1_id) = create_job(&rpc_client, &sdk_client, &client1).await?;
+
+    // Small delay to ensure config updates between job creations
+    sleep(Duration::from_millis(500)).await;
+
     let (job2_pda, job2_id) = create_job(&rpc_client, &sdk_client, &client2).await?;
 
     println!("  ✓ Job 1: {} (PDA: {})", job1_id, job1_pda);
