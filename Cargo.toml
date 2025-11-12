@@ -1,6 +1,5 @@
 [workspace]
 members = [
-    "programs/cypherlink",
     "sdk",
     "prover-node",
     "witness-storage",
@@ -9,6 +8,9 @@ members = [
     "e2e-tests",
 ]
 resolver = "2"
+
+# Note: programs/ has its own separate workspace for Solana BPF compilation
+# See programs/Cargo.toml
 
 [workspace.package]
 version = "0.1.0"
@@ -48,8 +50,11 @@ env_logger = "0.11"
 # Testing
 solana-program-test = "2.1"
 
-# Light Protocol (ZK Compression)
-light-sdk = "0.13.0"
+# TODO: Re-enable for zkCompression integration (https://www.zkcompression.com/)
+# When adding back light-sdk, also add getrandom patch:
+# [patch.crates-io]
+# getrandom = { git = "https://github.com/solana-labs/getrandom", rev = "..." }
+# light-sdk = "0.13.0"
 
 [profile.release]
 overflow-checks = true
@@ -60,3 +65,4 @@ codegen-units = 1
 opt-level = 3
 incremental = false
 codegen-units = 1
+

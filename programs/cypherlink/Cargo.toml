@@ -17,7 +17,8 @@ test-sbf = []
 solana-program.workspace = true
 borsh.workspace = true
 thiserror.workspace = true
-light-sdk.workspace = true
+# TODO: Re-enable light-sdk when integrating zkCompression
+# light-sdk.workspace = true
 
 # Shared types
 cypherlink-types = { path = "../../shared/types" }

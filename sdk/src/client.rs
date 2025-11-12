@@ -1,5 +1,4 @@
 use anyhow::Result;
-use borsh::to_vec;
 use cypherlink_types::CircuitType;
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::{
@@ -9,6 +8,8 @@ use solana_sdk::{
     signature::{Keypair, Signature, Signer},
     transaction::Transaction,
 };
+
+use crate::instruction::MarketplaceInstruction;
 
 /// Client for interacting with the CypherLink marketplace program
 pub struct MarketplaceClient {
@@ -58,17 +59,7 @@ impl MarketplaceClient {
     ) -> Result<Instruction> {
         let (config_pda, _) = Pubkey::find_program_address(&[b"config"], &self.program_id);
 
-        #[derive(borsh::BorshSerialize)]
-        struct InitializeData {
-            discriminator: u8,
-            fee_basis_points: u16,
-            min_stake_amount: u64,
-            min_reputation_score: u32,
-            default_job_timeout_seconds: i64,
-        }
-
-        let data = InitializeData {
-            discriminator: 0, // Initialize = 0
+        let instruction_data = MarketplaceInstruction::Initialize {
             fee_basis_points,
             min_stake_amount,
             min_reputation_score,
@@ -82,7 +73,7 @@ impl MarketplaceClient {
                 AccountMeta::new(config_pda, false),
                 AccountMeta::new_readonly(solana_sdk::system_program::id(), false),
             ],
-            data: to_vec(&data)?,
+            data: instruction_data.pack()?,
         })
     }
 
@@ -97,15 +88,7 @@ impl MarketplaceClient {
         let (prover_pda, _) =
             Pubkey::find_program_address(&[b"prover", prover_authority.as_ref()], &self.program_id);
 
-        #[derive(borsh::BorshSerialize)]
-        struct RegisterProverData {
-            discriminator: u8,
-            stake_amount: u64,
-            encryption_pubkey: [u8; 32],
-        }
-
-        let data = RegisterProverData {
-            discriminator: 1, // RegisterProver = 1
+        let instruction_data = MarketplaceInstruction::RegisterProver {
             stake_amount,
             encryption_pubkey,
         };
@@ -118,7 +101,7 @@ impl MarketplaceClient {
                 AccountMeta::new(config_pda, false),
                 AccountMeta::new_readonly(solana_sdk::system_program::id(), false),
             ],
-            data: to_vec(&data)?,
+            data: instruction_data.pack()?,
         })
     }
 
@@ -141,18 +124,7 @@ impl MarketplaceClient {
         );
         let (escrow_pda, _) = Pubkey::find_program_address(&[b"escrow", job_pda.as_ref()], &self.program_id);
 
-        #[derive(borsh::BorshSerialize)]
-        struct CreateJobData {
-            discriminator: u8,
-            circuit_type: CircuitType,
-            witness_commitment: [u8; 32],
-            witness_size: u32,
-            price_lamports: u64,
-            timeout_seconds: i64,
-        }
-
-        let data = CreateJobData {
-            discriminator: 2, // CreateJob = 2
+        let instruction_data = MarketplaceInstruction::CreateJob {
             circuit_type,
             witness_commitment,
             witness_size,
@@ -169,7 +141,7 @@ impl MarketplaceClient {
                 AccountMeta::new(escrow_pda, false),
                 AccountMeta::new_readonly(solana_sdk::system_program::id(), false),
             ],
-            data: to_vec(&data)?,
+            data: instruction_data.pack()?,
         })
     }
 
@@ -183,14 +155,7 @@ impl MarketplaceClient {
         let (prover_pda, _) =
             Pubkey::find_program_address(&[b"prover", prover_authority.as_ref()], &self.program_id);
 
-        #[derive(borsh::BorshSerialize)]
-        struct ClaimJobData {
-            discriminator: u8,
-        }
-
-        let data = ClaimJobData {
-            discriminator: 3, // ClaimJob = 3
-        };
+        let instruction_data = MarketplaceInstruction::ClaimJob;
 
         Ok(Instruction {
             program_id: self.program_id,
@@ -200,7 +165,7 @@ impl MarketplaceClient {
                 AccountMeta::new(*job_pda, false),
                 AccountMeta::new_readonly(config_pda, false),
             ],
-            data: to_vec(&data)?,
+            data: instruction_data.pack()?,
         })
     }
 
@@ -250,15 +215,7 @@ impl MarketplaceClient {
             Pubkey::find_program_address(&[b"prover", prover_authority.as_ref()], &self.program_id);
         let (escrow_pda, _) = Pubkey::find_program_address(&[b"escrow", job_pda.as_ref()], &self.program_id);
 
-        #[derive(borsh::BorshSerialize)]
-        struct SubmitProofData {
-            discriminator: u8,
-            proof_commitment: [u8; 32],
-            proof_size: u32,
-        }
-
-        let data = SubmitProofData {
-            discriminator: 4, // SubmitProof = 4
+        let instruction_data = MarketplaceInstruction::SubmitProof {
             proof_commitment,
             proof_size,
         };
@@ -275,7 +232,7 @@ impl MarketplaceClient {
                 AccountMeta::new(config_pda, false),
                 AccountMeta::new_readonly(solana_sdk::system_program::id(), false),
             ],
-            data: to_vec(&data)?,
+            data: instruction_data.pack()?,
         })
     }
 
@@ -287,14 +244,7 @@ impl MarketplaceClient {
     ) -> Result<Instruction> {
         let (escrow_pda, _) = Pubkey::find_program_address(&[b"escrow", job_pda.as_ref()], &self.program_id);
 
-        #[derive(borsh::BorshSerialize)]
-        struct CancelJobData {
-            discriminator: u8,
-        }
-
-        let data = CancelJobData {
-            discriminator: 5, // CancelJob = 5
-        };
+        let instruction_data = MarketplaceInstruction::CancelJob;
 
         Ok(Instruction {
             program_id: self.program_id,
@@ -303,7 +253,7 @@ impl MarketplaceClient {
                 AccountMeta::new(*job_pda, false),
                 AccountMeta::new(escrow_pda, false),
             ],
-            data: to_vec(&data)?,
+            data: instruction_data.pack()?,
         })
     }
 
@@ -319,13 +269,8 @@ impl MarketplaceClient {
             Pubkey::find_program_address(&[b"prover", prover_authority.as_ref()], &self.program_id);
         let (escrow_pda, _) = Pubkey::find_program_address(&[b"escrow", job_pda.as_ref()], &self.program_id);
 
-        #[derive(borsh::BorshSerialize)]
-        struct SlashProverData {
-            discriminator: u8,
-        }
-
-        let data = SlashProverData {
-            discriminator: 6, // SlashProver = 6
+        let instruction_data = MarketplaceInstruction::SlashProver {
+            slash_amount: 0, // TODO: Make this a parameter
         };
 
         Ok(Instruction {
@@ -337,7 +282,7 @@ impl MarketplaceClient {
                 AccountMeta::new(escrow_pda, false),
                 AccountMeta::new_readonly(config_pda, false),
             ],
-            data: to_vec(&data)?,
+            data: instruction_data.pack()?,
         })
     }
 
