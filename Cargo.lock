@@ -1801,6 +1801,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "bincode",
  "blake2",
  "borsh 1.5.7",
  "cypherlink-prover",
@@ -1811,8 +1812,10 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "sha3",
  "solana-client",
  "solana-sdk",
+ "tfhe 0.10.0",
  "tokio",
 ]
 
