@@ -135,6 +135,14 @@ cargo run --release --quiet --bin cypherlink-prover -- \
     --stake-amount $STAKE_AMOUNT 2>&1 | grep -E "Prover registered|Signature|Prover PDA" || true
 log_success "Prover registered (stake: 0.1 SOL)"
 
+# Get prover encryption public key for clients
+log_info "Saving prover encryption public key..."
+ENCRYPTION_PUBKEY=$(cargo run --release --quiet --bin cypherlink-prover -- \
+    --keypair "$KEYPAIR_PATH" \
+    show-pubkey 2>&1 | grep "Encryption Key:" | awk '{print $3}')
+echo "$ENCRYPTION_PUBKEY" > "$LOGS_DIR/prover_encryption_pubkey.txt"
+log_success "Prover pubkey saved: ${ENCRYPTION_PUBKEY:0:16}..."
+
 # Step 3: Register Prover (already done above)
 
 # Step 4: Start Witness Storage

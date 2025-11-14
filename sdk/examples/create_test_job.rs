@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Result, Context};
 use cypherlink_sdk::MarketplaceClient;
 use cypherlink_types::{CircuitType, FheOperation};
 use solana_sdk::{
@@ -9,6 +9,80 @@ use solana_sdk::{
 use std::env;
 use reqwest::Client;
 use serde_json;
+use borsh::{BorshSerialize, BorshDeserialize};
+use x25519_dalek::{EphemeralSecret, PublicKey};
+use chacha20poly1305::{
+    aead::{Aead, AeadCore, KeyInit, OsRng as AeadRng},
+    ChaCha20Poly1305,
+};
+use rand::rngs::OsRng;
+use sha2::{Sha256, Digest};
+
+/// Encrypted witness envelope (must match prover format)
+#[derive(BorshSerialize, BorshDeserialize)]
+struct EncryptedWitness {
+    ephemeral_public_key: [u8; 32],
+    nonce: [u8; 12],
+    ciphertext: Vec<u8>,
+}
+
+/// Dummy Orchard witness for testing (matches prover structure)
+#[derive(BorshSerialize, BorshDeserialize)]
+struct OrchardWitness {
+    spend_auth_sig: [u8; 64],
+    note_value: u64,
+    note_rho: [u8; 32],
+    note_rseed: [u8; 32],
+    merkle_path: Vec<[u8; 32]>,
+    merkle_position: u32,
+    recipient_address: [u8; 43],
+    output_value: u64,
+    rcv: [u8; 32],
+}
+
+/// Encrypt witness data for a recipient (same logic as prover)
+fn encrypt_witness(witness: &OrchardWitness, recipient_pubkey: &[u8; 32]) -> Result<Vec<u8>> {
+    // Parse recipient public key
+    let recipient_pubkey = PublicKey::from(*recipient_pubkey);
+
+    // Generate ephemeral keypair for this encryption
+    let ephemeral_private = EphemeralSecret::random_from_rng(OsRng);
+    let ephemeral_public = PublicKey::from(&ephemeral_private);
+
+    // Perform X25519 key exchange to derive shared secret
+    let shared_secret = ephemeral_private.diffie_hellman(&recipient_pubkey);
+
+    // Derive encryption key from shared secret using SHA-256
+    let mut hasher = Sha256::new();
+    hasher.update(shared_secret.as_bytes());
+    let encryption_key: [u8; 32] = hasher.finalize().into();
+
+    // Serialize witness using borsh
+    let witness_bytes = borsh::to_vec(&witness)
+        .context("Failed to serialize witness")?;
+
+    // Generate random nonce (12 bytes for ChaCha20-Poly1305)
+    let nonce = ChaCha20Poly1305::generate_nonce(&mut AeadRng);
+
+    // Encrypt witness with ChaCha20-Poly1305 AEAD
+    let cipher = ChaCha20Poly1305::new(&encryption_key.into());
+    let ciphertext = cipher
+        .encrypt(&nonce, witness_bytes.as_ref())
+        .map_err(|e| anyhow::anyhow!("Encryption failed: {}", e))?;
+
+    // Package everything into encrypted envelope
+    let encrypted = EncryptedWitness {
+        ephemeral_public_key: *ephemeral_public.as_bytes(),
+        nonce: nonce.into(),
+        ciphertext,
+    };
+
+    // Serialize encrypted envelope
+    let encrypted_bytes = borsh::to_vec(&encrypted)
+        .context("Failed to serialize encrypted witness")?;
+
+    Ok(encrypted_bytes)
+}
 
 /// Simple example to create a test job
 /// Usage: cargo run --example create_test_job -- [zk|fhe] [price_in_lamports]
@@ -75,18 +149,48 @@ async fn main() -> Result<()> {
     println!("  Price: {} lamports ({:.4} SOL)", price, price as f64 / 1e9);
     println!();
 
-    // Generate dummy witness data
-    let witness_data = vec![42u8; 128];
+    // Load prover's encryption public key
+    println!("🔑 Loading prover encryption public key...");
+    let prover_pubkey_hex = std::fs::read_to_string("../logs/prover_encryption_pubkey.txt")
+        .context("Failed to read prover public key. Run ./demo/01-setup.sh first.")?;
+    let prover_pubkey_bytes = hex::decode(prover_pubkey_hex.trim())
+        .context("Invalid prover public key hex")?;
 
-    // Upload witness to storage backend
-    println!("📤 Uploading witness to storage...");
+    if prover_pubkey_bytes.len() != 32 {
+        anyhow::bail!("Invalid prover public key length: expected 32, got {}", prover_pubkey_bytes.len());
+    }
+
+    let mut prover_pubkey = [0u8; 32];
+    prover_pubkey.copy_from_slice(&prover_pubkey_bytes);
+    println!("  Prover pubkey: {}...", &prover_pubkey_hex.trim()[..16]);
+
+    // Create a dummy witness for testing
+    let witness = OrchardWitness {
+        spend_auth_sig: [0u8; 64],
+        note_value: 100_000_000, // 0.1 ZEC
+        note_rho: [1u8; 32],
+        note_rseed: [2u8; 32],
+        merkle_path: vec![[3u8; 32]; 32],
+        merkle_position: 0,
+        recipient_address: [4u8; 43],
+        output_value: 100_000_000,
+        rcv: [5u8; 32],
+    };
+
+    // Encrypt witness with prover's public key
+    println!("🔐 Encrypting witness with prover's public key...");
+    let encrypted_witness = encrypt_witness(&witness, &prover_pubkey)?;
+    println!("  Encrypted witness: {} bytes", encrypted_witness.len());
+
+    // Upload encrypted witness to storage backend
+    println!("📤 Uploading encrypted witness to storage...");
     let http_client = Client::new();
     let witness_url = env::var("WITNESS_BACKEND_URL")
         .unwrap_or_else(|_| "http://localhost:3030".to_string());
 
     let upload_response = http_client
         .post(format!("{}/witness", witness_url))
-        .body(witness_data.clone())
+        .body(encrypted_witness.clone())
         .send()
         .await?;
 
@@ -119,7 +223,7 @@ async fn main() -> Result<()> {
         job_id,
         circuit_type,
         witness_commitment,
-        witness_data.len() as u32,
+        encrypted_witness.len() as u32,
         price,
         600, // 10 minutes timeout
         None, // No FHE consensus config for now
@@ -136,12 +240,9 @@ async fn main() -> Result<()> {
         recent_blockhash,
     );
 
-    println!("📤 Sending transaction...");
-
     // Send transaction
-    let signature = client
-        .rpc_client
-        .send_and_confirm_transaction_with_spinner(&tx)?;
+    println!("📤 Sending transaction...");
+    let signature = client.rpc_client.send_and_confirm_transaction_with_spinner(&tx)?;
 
     println!("✅ Transaction confirmed!");
     println!();
@@ -154,7 +255,6 @@ async fn main() -> Result<()> {
     println!();
     println!("  👀 Watch the Prover logs to see it being processed!");
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    println!();
 
     Ok(())
 }

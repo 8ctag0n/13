@@ -1618,17 +1618,21 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "borsh 1.5.7",
+ "chacha20poly1305",
  "cypherlink",
  "cypherlink-types",
  "hex",
+ "rand 0.8.5",
  "reqwest 0.11.27",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "solana-client",
  "solana-program-test",
  "solana-sdk",
  "thiserror 1.0.69",
  "tokio",
+ "x25519-dalek",
 ]
 
 [[package]]
