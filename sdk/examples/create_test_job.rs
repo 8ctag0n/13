@@ -16,7 +16,6 @@ use chacha20poly1305::{
     ChaCha20Poly1305,
 };
 use rand::rngs::OsRng;
-use sha2::{Sha256, Digest};
 
 /// Encrypted witness envelope (must match prover format)
 #[derive(BorshSerialize, BorshDeserialize)]
@@ -52,10 +51,11 @@ fn encrypt_witness(witness: &OrchardWitness, recipient_pubkey: &[u8; 32]) -> Res
     // Perform X25519 key exchange to derive shared secret
     let shared_secret = ephemeral_private.diffie_hellman(&recipient_pubkey);
 
-    // Derive encryption key from shared secret using SHA-256
-    let mut hasher = Sha256::new();
-    hasher.update(shared_secret.as_bytes());
-    let encryption_key: [u8; 32] = hasher.finalize().into();
+    // Derive encryption key from shared secret using Solana's hash function
+    // MUST match prover's derive_encryption_key() function
+    use solana_sdk::hash::hash;
+    let hash_result = hash(shared_secret.as_bytes());
+    let encryption_key: [u8; 32] = hash_result.to_bytes();
 
     // Serialize witness using borsh
     let witness_bytes = borsh::to_vec(&witness)
