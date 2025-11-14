@@ -7,10 +7,13 @@ use solana_sdk::{
     transaction::Transaction,
 };
 use std::env;
+use reqwest::Client;
+use serde_json;
 
 /// Simple example to create a test job
 /// Usage: cargo run --example create_test_job -- [zk|fhe] [price_in_lamports]
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     // Parse arguments
     let args: Vec<String> = env::args().collect();
     let job_type = args.get(1).map(|s| s.as_str()).unwrap_or("zk");
@@ -75,11 +78,34 @@ fn main() -> Result<()> {
     // Generate dummy witness data
     let witness_data = vec![42u8; 128];
 
-    // Calculate witness commitment (simple hash)
-    use solana_sdk::hash::hash;
-    let witness_hash = hash(&witness_data);
+    // Upload witness to storage backend
+    println!("📤 Uploading witness to storage...");
+    let http_client = Client::new();
+    let witness_url = env::var("WITNESS_BACKEND_URL")
+        .unwrap_or_else(|_| "http://localhost:3030".to_string());
+
+    let upload_response = http_client
+        .post(format!("{}/witness", witness_url))
+        .body(witness_data.clone())
+        .send()
+        .await?;
+
+    if !upload_response.status().is_success() {
+        anyhow::bail!("Failed to upload witness: {}", upload_response.status());
+    }
+
+    let upload_result: serde_json::Value = upload_response.json().await?;
+    let commitment_hex = upload_result["commitment"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("No commitment in response"))?;
+
+    // Convert hex commitment to bytes
+    let commitment_bytes = hex::decode(commitment_hex)?;
     let mut witness_commitment = [0u8; 32];
-    witness_commitment.copy_from_slice(witness_hash.as_ref());
+    witness_commitment.copy_from_slice(&commitment_bytes[..32]);
+
+    println!("  Witness uploaded: {}", commitment_hex);
+    println!();
 
     println!("📝 Creating job...");
 

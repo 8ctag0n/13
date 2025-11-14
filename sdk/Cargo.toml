@@ -17,5 +17,8 @@ cypherlink-types = { path = "../shared/types" }
 
 [dev-dependencies]
 solana-program-test.workspace = true
-tokio = { workspace = true, features = ["test-util"] }
+tokio = { workspace = true, features = ["test-util", "rt-multi-thread", "macros"] }
 cypherlink = { path = "../programs/cypherlink", features = ["no-entrypoint"] }
+reqwest.workspace = true
+hex.workspace = true
+serde_json.workspace = true
