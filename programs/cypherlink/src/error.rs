@@ -69,6 +69,40 @@ pub enum CypherLinkProgramError {
 
     #[error("Invalid price")]
     InvalidPrice,
+
+    // FHE-specific errors
+    #[error("Missing FHE consensus config for FHE job")]
+    MissingFheConfig,
+
+    #[error("Invalid FHE consensus configuration")]
+    InvalidFheConfig,
+
+    #[error("Unexpected FHE config for non-FHE job")]
+    UnexpectedFheConfig,
+
+    #[error("FHE job already fully claimed")]
+    FheJobFullyClaimed,
+
+    #[error("Prover already claimed this FHE job")]
+    ProverAlreadyClaimed,
+
+    #[error("Not an FHE job")]
+    NotFheJob,
+
+    #[error("Prover did not claim this FHE job")]
+    ProverNotClaimed,
+
+    #[error("Result already submitted by this prover")]
+    ResultAlreadySubmitted,
+
+    #[error("Insufficient FHE results for finalization")]
+    InsufficientFheResults,
+
+    #[error("Job already finalized")]
+    AlreadyFinalized,
+
+    #[error("Invalid job status for this operation")]
+    InvalidJobStatus,
 }
 
 impl From<CypherLinkProgramError> for ProgramError {

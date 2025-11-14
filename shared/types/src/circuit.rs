@@ -1,7 +1,8 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
+use crate::fhe::FheOperation;
 
-/// Type of ZK circuit/proof being requested
+/// Type of ZK circuit/proof or FHE computation being requested
 #[derive(
     Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize,
 )]
@@ -15,6 +16,9 @@ pub enum CircuitType {
     /// Private credential proof
     Credential,
 
+    /// FHE (Fully Homomorphic Encryption) computation
+    FheComputation(FheOperation),
+
     /// Custom circuit type (for future extensibility)
     Custom(String),
 }
@@ -26,6 +30,7 @@ impl CircuitType {
             CircuitType::ZcashOrchard => "Zcash Orchard",
             CircuitType::AnonymousVote => "Anonymous Vote",
             CircuitType::Credential => "Credential",
+            CircuitType::FheComputation(op) => op.name(),
             CircuitType::Custom(name) => name,
         }
     }
@@ -37,6 +42,11 @@ impl CircuitType {
             CircuitType::ZcashOrchard => 15,  // 10-15 seconds typical
             CircuitType::AnonymousVote => 5,  // Simpler circuit
             CircuitType::Credential => 8,     // Medium complexity
+            CircuitType::FheComputation(op) => {
+                // Convert milliseconds to seconds (round up)
+                let ms = op.estimated_compute_time_ms();
+                (ms + 999) / 1000  // Ceiling division
+            }
             CircuitType::Custom(_) => 20,     // Conservative estimate
         }
     }
@@ -47,6 +57,7 @@ impl CircuitType {
             CircuitType::ZcashOrchard => 2048,   // ~2KB
             CircuitType::AnonymousVote => 512,   // ~512B
             CircuitType::Credential => 1024,     // ~1KB
+            CircuitType::FheComputation(_) => 65856,  // ~64KB from spike
             CircuitType::Custom(_) => 4096,      // ~4KB conservative
         }
     }

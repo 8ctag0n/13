@@ -1,4 +1,4 @@
-use cypherlink_types::CircuitType;
+use cypherlink_types::{CircuitType, FheConsensusConfig};
 use solana_program::{
     account_info::{next_account_info, AccountInfo},
     entrypoint::ProgramResult,
@@ -26,6 +26,7 @@ pub fn process_create_job(
     witness_size: u32,
     price_lamports: u64,
     timeout_seconds: i64,
+    fhe_config: Option<FheConsensusConfig>,
 ) -> ProgramResult {
     let account_info_iter = &mut accounts.iter();
 
@@ -91,6 +92,34 @@ pub fn process_create_job(
     if price_lamports == 0 {
         msg!("Price must be greater than zero");
         return Err(CypherLinkProgramError::InvalidPrice.into());
+    }
+
+    // Validate FHE configuration
+    match &circuit_type {
+        CircuitType::FheComputation(_) => {
+            // FHE job MUST have config
+            let config = fhe_config
+                .as_ref()
+                .ok_or(CypherLinkProgramError::MissingFheConfig)?;
+
+            // Validate config
+            config.validate()
+                .map_err(|_| CypherLinkProgramError::InvalidFheConfig)?;
+
+            // Validate minimum price for multi-prover
+            let min_price = config.required_provers as u64 * 1_000_000; // 0.001 SOL per prover
+            if price_lamports < min_price {
+                msg!("Price too low for FHE job: {} < {}", price_lamports, min_price);
+                return Err(CypherLinkProgramError::InvalidPrice.into());
+            }
+        }
+        _ => {
+            // Non-FHE job should NOT have config
+            if fhe_config.is_some() {
+                msg!("Non-FHE job should not have FHE config");
+                return Err(CypherLinkProgramError::UnexpectedFheConfig.into());
+            }
+        }
     }
 
     // Get current time
@@ -160,6 +189,7 @@ pub fn process_create_job(
         current_time,
         actual_timeout,
         job_bump,
+        fhe_config,
     );
 
     // Serialize job to account

@@ -1,5 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use cypherlink_types::CircuitType;
+use cypherlink_types::{CircuitType, FheConsensusConfig};
 
 /// Instructions supported by the CypherLink marketplace program
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, PartialEq)]
@@ -55,6 +55,8 @@ pub enum MarketplaceInstruction {
         price_lamports: u64,
         /// Job timeout in seconds (0 = use default)
         timeout_seconds: i64,
+        /// FHE consensus config (only for FHE jobs)
+        fhe_config: Option<FheConsensusConfig>,
     },
 
     /// Claim a pending job
@@ -109,6 +111,31 @@ pub enum MarketplaceInstruction {
         /// Amount to slash (in lamports)
         slash_amount: u64,
     },
+
+    /// Submit FHE computation result (prover → chain)
+    ///
+    /// Accounts expected:
+    /// 0. `[writable, signer]` Prover authority
+    /// 1. `[writable]` Job account (PDA)
+    /// 2. `[]` Clock sysvar
+    SubmitFheResult {
+        /// Hash of encrypted result
+        result_hash: [u8; 32],
+    },
+
+    /// Finalize FHE job after consensus reached
+    ///
+    /// Accounts expected:
+    /// 0. `[writable, signer]` Finalizer (can be anyone)
+    /// 1. `[writable]` Job account (PDA)
+    /// 2. `[writable]` Escrow account (PDA)
+    /// 3. `[writable]` Job creator account
+    /// 4. `[writable]` Protocol fee recipient
+    /// 5. `[]` MarketplaceConfig account
+    /// 6. `[]` System program
+    /// 7. `[]` Clock sysvar
+    /// 8..N. `[writable]` Prover accounts (PDA) - dynamic list based on fhe_results
+    FinalizeFheJob,
 }
 
 impl MarketplaceInstruction {

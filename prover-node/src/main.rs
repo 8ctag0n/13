@@ -10,10 +10,12 @@ use solana_sdk::{
 use std::{sync::Arc, time::Duration};
 use tokio::time::sleep;
 
+mod fhe_engine;
 mod halo2_prover;
 mod witness_encryption;
 mod witness_fetcher;
 
+use fhe_engine::FheEngine;
 use halo2_prover::{Halo2Prover, OrchardWitness};
 use witness_encryption::WitnessEncryption;
 use witness_fetcher::WitnessFetcher;
@@ -56,6 +58,10 @@ struct Args {
     /// Witness storage backend URL
     #[arg(long, default_value = "http://localhost:3030")]
     witness_backend_url: String,
+
+    /// FHE server key file path (required for FHE jobs)
+    #[arg(long)]
+    fhe_server_key_path: Option<String>,
 }
 
 #[derive(Parser, Debug)]
@@ -85,6 +91,7 @@ struct ProverConfig {
     mock_proving_time: Duration,
     max_concurrent_jobs: usize,
     witness_backend_url: String,
+    fhe_server_key_path: Option<String>,
 }
 
 impl ProverConfig {
@@ -105,6 +112,8 @@ impl ProverConfig {
             mock_proving_time: Duration::from_secs(args.mock_proving_time),
             max_concurrent_jobs: args.max_concurrent_jobs,
             witness_backend_url: args.witness_backend_url.clone(),
+            fhe_server_key_path: args.fhe_server_key_path.clone()
+                .map(|p| p.replace("~", &std::env::var("HOME").unwrap_or_default())),
         })
     }
 }
@@ -118,6 +127,7 @@ struct ProverNode {
     halo2_prover: Arc<Halo2Prover>,
     witness_encryption: Arc<WitnessEncryption>,
     witness_fetcher: Arc<WitnessFetcher>,
+    fhe_engine: Option<Arc<FheEngine>>,
 }
 
 impl ProverNode {
@@ -148,6 +158,21 @@ impl ProverNode {
         let witness_fetcher = WitnessFetcher::new(config.witness_backend_url.clone());
         info!("Witness fetcher ready (backend: {})", config.witness_backend_url);
 
+        // Initialize FHE engine if server key is provided
+        let fhe_engine = if let Some(ref key_path) = config.fhe_server_key_path {
+            info!("Initializing FHE engine with server key from: {}", key_path);
+            let server_key_bytes = std::fs::read(key_path)
+                .context("Failed to read FHE server key file")?;
+            let server_key = fhe_engine::deserialize_server_key(&server_key_bytes)
+                .context("Failed to deserialize FHE server key")?;
+            let engine = FheEngine::new(server_key);
+            info!("FHE engine ready");
+            Some(Arc::new(engine))
+        } else {
+            info!("FHE engine not initialized (no server key provided)");
+            None
+        };
+
         Ok(Self {
             client: Arc::new(client),
             keypair: Arc::new(keypair),
@@ -156,6 +181,7 @@ impl ProverNode {
             halo2_prover: Arc::new(halo2_prover),
             witness_encryption: Arc::new(witness_encryption),
             witness_fetcher: Arc::new(witness_fetcher),
+            fhe_engine,
         })
     }
 
@@ -232,6 +258,7 @@ impl ProverNode {
             let witness_encryption = self.witness_encryption.clone();
 
             let witness_fetcher = self.witness_fetcher.clone();
+            let fhe_engine = self.fhe_engine.clone();
 
             tokio::spawn(async move {
                 if let Err(e) =
@@ -246,6 +273,7 @@ impl ProverNode {
                         halo2_prover,
                         witness_encryption,
                         witness_fetcher,
+                        fhe_engine,
                     )
                     .await
                 {
@@ -275,6 +303,7 @@ impl ProverNode {
         halo2_prover: Arc<Halo2Prover>,
         witness_encryption: Arc<WitnessEncryption>,
         witness_fetcher: Arc<WitnessFetcher>,
+        fhe_engine: Option<Arc<FheEngine>>,
     ) -> Result<()> {
         info!("[Job {}] Starting processing", job_id);
 
@@ -326,22 +355,72 @@ impl ProverNode {
 
         info!("[Job {}] Witness decrypted successfully", job_id);
 
-        // Step 3: Generate proof (REAL Halo2)
+        // Step 3: Generate proof based on circuit type
         info!(
             "[Job {}] Generating proof (circuit: {:?})...",
             job_id, circuit_type
         );
 
-        // Validate witness
-        witness
-            .validate()
-            .context("Invalid witness data")?;
+        let proof_bytes = match circuit_type {
+            CircuitType::ZcashOrchard => {
+                // Validate witness
+                witness
+                    .validate()
+                    .context("Invalid witness data")?;
 
-        // Generate real Halo2 proof
-        let proof_bytes = Self::real_generate_proof(halo2_prover.clone(), witness).await?;
+                // Generate real Halo2 proof
+                let proof = Self::real_generate_proof(halo2_prover.clone(), witness).await?;
+                info!(
+                    "[Job {}] Halo2 proof generated successfully ({} bytes)",
+                    job_id,
+                    proof.len()
+                );
+                proof
+            }
+            CircuitType::FheComputation(ref operation) => {
+                // Handle FHE computation
+                let engine = fhe_engine
+                    .as_ref()
+                    .context("FHE engine not initialized - server key required for FHE jobs")?;
+
+                info!("[Job {}] Executing FHE operation: {:?}", job_id, operation);
+
+                // For FHE jobs, the encrypted witness should be used directly as input
+                // The witness for FHE is the serialized encrypted FheUint8 bytes
+                // For now, we'll use the encrypted witness bytes directly
+                let encrypted_input_bytes = &encrypted_witness;
+
+                // Perform FHE computation
+                let result_bytes = Self::execute_fhe_computation(
+                    engine.clone(),
+                    encrypted_input_bytes,
+                    operation,
+                )
+                .await?;
+
+                // Hash result for consensus
+                let result_hash = FheEngine::hash_result(&result_bytes);
+
+                info!(
+                    "[Job {}] FHE computation complete ({} bytes, hash: {})",
+                    job_id,
+                    result_bytes.len(),
+                    hex::encode(&result_hash[..8])
+                );
+
+                // For FHE, the "proof" is the encrypted result
+                result_bytes
+            }
+            _ => {
+                return Err(anyhow::anyhow!(
+                    "Unsupported circuit type: {:?}",
+                    circuit_type
+                ));
+            }
+        };
 
         info!(
-            "[Job {}] Proof generated successfully ({} bytes)",
+            "[Job {}] Result generated successfully ({} bytes)",
             job_id,
             proof_bytes.len()
         );
@@ -400,6 +479,29 @@ impl ProverNode {
         tokio::task::spawn_blocking(move || prover.generate_orchard_proof(witness))
             .await
             .context("Proof generation task panicked")?
+    }
+
+    /// Execute FHE computation (runs in blocking thread since it's CPU-intensive)
+    async fn execute_fhe_computation(
+        engine: Arc<FheEngine>,
+        encrypted_input: &[u8],
+        operation: &cypherlink_types::FheOperation,
+    ) -> Result<Vec<u8>> {
+        use cypherlink_types::FheOperation;
+
+        // encrypted_input contains serialized FheUint8 ciphertext
+        let input_bytes = encrypted_input.to_vec();
+        let operation = operation.clone();
+
+        // Run in blocking thread since FHE computation is CPU-intensive
+        tokio::task::spawn_blocking(move || {
+            match operation {
+                FheOperation::Add(constant) => engine.compute_add(&input_bytes, constant),
+                FheOperation::Multiply(constant) => engine.compute_multiply(&input_bytes, constant),
+            }
+        })
+        .await
+        .context("FHE computation task panicked")?
     }
 
     /// Generate proof commitment (hash of actual proof)

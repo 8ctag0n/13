@@ -1,4 +1,5 @@
 use borsh::BorshDeserialize;
+use cypherlink_types::CircuitType;
 use solana_program::{
     account_info::{next_account_info, AccountInfo},
     entrypoint::ProgramResult,
@@ -96,8 +97,42 @@ pub fn process_claim_job(program_id: &Pubkey, accounts: &[AccountInfo]) -> Progr
     let clock = Clock::get()?;
     let current_time = clock.unix_timestamp;
 
-    // Claim the job
-    job.claim(*prover_authority_info.key, current_time);
+    // Handle FHE multi-prover claiming vs ZK single-prover claiming
+    match &job.circuit_type {
+        CircuitType::FheComputation(_) => {
+            // FHE job: multi-prover support
+            let config = job.fhe_config.as_ref()
+                .ok_or(CypherLinkProgramError::MissingFheConfig)?;
+
+            // Check if job is already fully claimed
+            if job.claimed_provers.len() >= config.required_provers as usize {
+                msg!("FHE job already fully claimed");
+                return Err(CypherLinkProgramError::FheJobFullyClaimed.into());
+            }
+
+            // Check if this prover already claimed
+            if job.claimed_provers.contains(prover_authority_info.key) {
+                msg!("Prover already claimed this FHE job");
+                return Err(CypherLinkProgramError::ProverAlreadyClaimed.into());
+            }
+
+            // Add prover to claimed list
+            job.claimed_provers.push(*prover_authority_info.key);
+
+            // If this was the last required prover, mark as Claimed
+            if job.claimed_provers.len() == config.required_provers as usize {
+                job.status = cypherlink_types::JobStatus::Claimed;
+                job.claimed_at = Some(current_time);
+                msg!("FHE job fully claimed by {} provers", config.required_provers);
+            } else {
+                msg!("FHE job partially claimed: {}/{}", job.claimed_provers.len(), config.required_provers);
+            }
+        }
+        _ => {
+            // ZK job: single prover (existing logic)
+            job.claim(*prover_authority_info.key, current_time);
+        }
+    }
 
     // Serialize updated job back to account
     let mut job_data = job_info.try_borrow_mut_data()?;

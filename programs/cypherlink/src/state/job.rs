@@ -1,5 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use cypherlink_types::{CircuitType, JobStatus};
+use cypherlink_types::{CircuitType, JobStatus, FheConsensusConfig, FheJobResult};
 use solana_program::pubkey::Pubkey;
 
 /// On-chain job account
@@ -55,6 +55,24 @@ pub struct JobAccount {
 
     /// Bump seed for PDA derivation
     pub bump: u8,
+
+    // ========== FHE-SPECIFIC FIELDS ==========
+
+    /// FHE consensus configuration (only for FHE jobs)
+    /// For ZK jobs, this is None
+    pub fhe_config: Option<FheConsensusConfig>,
+
+    /// Provers who have claimed this FHE job
+    /// Empty for ZK jobs
+    pub claimed_provers: Vec<Pubkey>,
+
+    /// Results submitted by provers (only for FHE jobs)
+    /// Empty for ZK jobs
+    pub fhe_results: Vec<FheJobResult>,
+
+    /// Consensus hash (once consensus achieved)
+    /// None if no consensus yet or if ZK job
+    pub fhe_consensus_hash: Option<[u8; 32]>,
 }
 
 impl JobAccount {
@@ -74,10 +92,15 @@ impl JobAccount {
         + 1 + 8                          // claimed_at (Option<i64>)
         + 1 + 8                          // completed_at (Option<i64>)
         + 8                              // timeout_at
-        + 1;                             // bump
+        + 1                              // bump
+        + 1 + 20                         // fhe_config (Option<FheConsensusConfig>)
+        + 4                              // claimed_provers (Vec len)
+        + 4                              // fhe_results (Vec len)
+        + 1 + 32;                        // fhe_consensus_hash (Option<[u8; 32]>)
 
-    // Total with some padding for circuit_type variants
-    pub const LEN: usize = Self::BASE_LEN + 64; // Extra space for Custom circuit names
+    // Total with padding for dynamic fields
+    // Allow for up to 5 provers: 5 * (32 + 73) = 525 bytes
+    pub const LEN: usize = Self::BASE_LEN + 64 + 525;
 
     /// Create a new job account with Light Protocol compression
     #[allow(clippy::too_many_arguments)]
@@ -92,6 +115,7 @@ impl JobAccount {
         created_at: i64,
         timeout_seconds: i64,
         bump: u8,
+        fhe_config: Option<FheConsensusConfig>,
     ) -> Self {
         Self {
             id,
@@ -110,6 +134,10 @@ impl JobAccount {
             completed_at: None,
             timeout_at: created_at + timeout_seconds,
             bump,
+            fhe_config,
+            claimed_provers: Vec::new(),
+            fhe_results: Vec::new(),
+            fhe_consensus_hash: None,
         }
     }
 

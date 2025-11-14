@@ -459,6 +459,15 @@ api-docs/generated/
 docs/api/
 
 # ============================================
+# Internal Planning & Strategy Docs
+# ============================================
+
+# Internal planning documents (not for public repo)
+docs/internal/
+docs/planning/
+docs/strategy-internal/
+
+# ============================================
 # Misc
 # ============================================
 

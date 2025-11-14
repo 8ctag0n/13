@@ -5,6 +5,8 @@ pub mod claim_job;
 pub mod submit_proof;
 pub mod cancel_job;
 pub mod slash_prover;
+pub mod submit_fhe_result;
+pub mod finalize_fhe_job;
 
 pub use initialize::*;
 pub use register_prover::*;
@@ -13,6 +15,8 @@ pub use claim_job::*;
 pub use submit_proof::*;
 pub use cancel_job::*;
 pub use slash_prover::*;
+pub use submit_fhe_result::*;
+pub use finalize_fhe_job::*;
 
 use solana_program::{
     account_info::AccountInfo, entrypoint::ProgramResult, msg, pubkey::Pubkey,
@@ -55,6 +59,7 @@ pub fn process(
             witness_size,
             price_lamports,
             timeout_seconds,
+            fhe_config,
         } => {
             msg!("Instruction: CreateJob");
             process_create_job(
@@ -65,6 +70,7 @@ pub fn process(
                 witness_size,
                 price_lamports,
                 timeout_seconds,
+                fhe_config,
             )
         }
         MarketplaceInstruction::ClaimJob => {
@@ -85,6 +91,14 @@ pub fn process(
         MarketplaceInstruction::SlashProver { slash_amount } => {
             msg!("Instruction: SlashProver");
             process_slash_prover(program_id, accounts, slash_amount)
+        }
+        MarketplaceInstruction::SubmitFheResult { result_hash } => {
+            msg!("Instruction: SubmitFheResult");
+            process_submit_fhe_result(program_id, accounts, result_hash)
+        }
+        MarketplaceInstruction::FinalizeFheJob => {
+            msg!("Instruction: FinalizeFheJob");
+            process_finalize_fhe_job(program_id, accounts)
         }
     }
 }
