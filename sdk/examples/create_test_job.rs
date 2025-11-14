@@ -9,6 +9,15 @@ use solana_sdk::{
 use std::env;
 use reqwest::Client;
 use serde_json;
+use borsh::BorshSerialize;
+
+/// Encrypted witness envelope (must match prover format)
+#[derive(BorshSerialize)]
+struct EncryptedWitness {
+    ephemeral_public_key: [u8; 32],
+    nonce: [u8; 12],
+    ciphertext: Vec<u8>,
+}
 
 /// Simple example to create a test job
 /// Usage: cargo run --example create_test_job -- [zk|fhe] [price_in_lamports]
@@ -75,8 +84,18 @@ async fn main() -> Result<()> {
     println!("  Price: {} lamports ({:.4} SOL)", price, price as f64 / 1e9);
     println!();
 
-    // Generate dummy witness data
-    let witness_data = vec![42u8; 128];
+    // Generate dummy encrypted witness in the format the prover expects
+    // This is a simplified version - in production, this would be properly encrypted
+    // with the prover's public key
+    let encrypted_witness = EncryptedWitness {
+        ephemeral_public_key: [0u8; 32], // Dummy ephemeral key
+        nonce: [0u8; 12],                // Dummy nonce
+        ciphertext: vec![42u8; 256],     // Dummy ciphertext (would be actual encrypted witness)
+    };
+
+    // Serialize the encrypted witness using Borsh (same as prover expects)
+    let witness_data = borsh::to_vec(&encrypted_witness)?;
+    println!("  Generated encrypted witness: {} bytes", witness_data.len());
 
     // Upload witness to storage backend
     println!("📤 Uploading witness to storage...");
