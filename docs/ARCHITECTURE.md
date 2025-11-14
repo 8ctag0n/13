@@ -2,7 +2,28 @@
 
 ## System Overview
 
-CypherLink is a decentralized marketplace for ZK compute, enabling resource-constrained devices (mobile) to offload proof generation to powerful nodes (desktop) through a trustless, encrypted coordination layer.
+CypherLink is a decentralized marketplace for **secure computation**, enabling resource-constrained devices (mobile) to offload compute-intensive operations to powerful nodes (desktop) through a trustless, encrypted coordination layer.
+
+### Supported Compute Types
+
+**Phase 1 (Current):**
+- **ZK Proofs** - Zero-knowledge proof generation (Halo2)
+  - Zcash Orchard shielded transactions
+  - Anonymous voting circuits
+  - Private credentials
+
+**Phase 1.5 (Week 1):**
+- **FHE Compute** - Fully Homomorphic Encryption operations (Concrete)
+  - Encrypted arithmetic (add, multiply)
+  - Privacy-preserving computations
+  - Multi-prover consensus validation
+
+**Future Phases:**
+- **MPC** - Multi-Party Computation
+- **TEE** - Trusted Execution Environment tasks
+- **Custom** - Developer-defined secure compute types
+
+**Vision:** Platform for ANY secure computation, not just ZK proofs
 
 ### High-Level Architecture
 
