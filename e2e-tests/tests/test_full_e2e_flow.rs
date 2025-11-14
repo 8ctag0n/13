@@ -190,6 +190,7 @@ async fn test_complete_marketplace_flow() -> Result<()> {
         witness_data.len() as u32,
         2_000_000_000, // 2 SOL price
         3600,          // 1 hour timeout
+        None,
     )?;
 
     let recent_blockhash = rpc_client.get_latest_blockhash()?;

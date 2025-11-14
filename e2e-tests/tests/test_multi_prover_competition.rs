@@ -111,6 +111,7 @@ async fn create_job(
         witness_data.len() as u32,
         2_000_000_000,
         600,
+        None,
     )?;
 
     let recent_blockhash = rpc_client.get_latest_blockhash()?;

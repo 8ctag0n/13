@@ -147,6 +147,7 @@ async fn test_cancel_pending_job() -> Result<()> {
         witness_size,
         price_lamports,
         600,
+        None,
     )?;
 
     let recent_blockhash = rpc_client.get_latest_blockhash()?;
@@ -314,6 +315,7 @@ async fn test_cannot_cancel_claimed_job() -> Result<()> {
         2048,
         2_000_000_000,
         600,
+        None,
     )?;
 
     let recent_blockhash = rpc_client.get_latest_blockhash()?;

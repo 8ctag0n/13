@@ -1,5 +1,5 @@
 use anyhow::Result;
-use cypherlink_types::CircuitType;
+use cypherlink_types::{CircuitType, FheConsensusConfig};
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::{
     commitment_config::CommitmentConfig,
@@ -115,6 +115,7 @@ impl MarketplaceClient {
         witness_size: u32,
         price_lamports: u64,
         timeout_seconds: i64,
+        fhe_config: Option<FheConsensusConfig>,
     ) -> Result<Instruction> {
         let (config_pda, _) = Pubkey::find_program_address(&[b"config"], &self.program_id);
         let job_id_bytes = job_id.to_le_bytes();
@@ -130,6 +131,7 @@ impl MarketplaceClient {
             witness_size,
             price_lamports,
             timeout_seconds,
+            fhe_config,
         };
 
         Ok(Instruction {
@@ -286,6 +288,105 @@ impl MarketplaceClient {
         })
     }
 
+    /// Build SubmitFheResult instruction
+    ///
+    /// Accounts:
+    /// 0. [writable, signer] Prover authority
+    /// 1. [writable] Job account (PDA)
+    pub fn submit_fhe_result_instruction(
+        &self,
+        prover_authority: &Pubkey,
+        job_pda: &Pubkey,
+        result_hash: [u8; 32],
+    ) -> Result<Instruction> {
+        let instruction_data = MarketplaceInstruction::SubmitFheResult { result_hash };
+
+        Ok(Instruction {
+            program_id: self.program_id,
+            accounts: vec![
+                AccountMeta::new(*prover_authority, true),
+                AccountMeta::new(*job_pda, false),
+            ],
+            data: instruction_data.pack()?,
+        })
+    }
+
+    /// Build FinalizeFheJob instruction
+    ///
+    /// Accounts:
+    /// 0. [signer] Finalizer (can be anyone)
+    /// 1. [writable] Job account (PDA)
+    /// 2. [writable] Escrow account (PDA)
+    /// 3. [writable] Job creator account
+    /// 4. [writable] Protocol fee recipient
+    /// 5. [] MarketplaceConfig account
+    /// 6. [] System program
+    /// 7. [] Clock sysvar
+    /// 8..N. [writable] Prover accounts (matching provers)
+    pub fn finalize_fhe_job_instruction(
+        &self,
+        finalizer: &Pubkey,
+        job_pda: &Pubkey,
+        job_creator: &Pubkey,
+        prover_accounts: &[Pubkey],
+    ) -> Result<Instruction> {
+        // Get protocol fee recipient from config via RPC
+        let (config_pda, _) = Pubkey::find_program_address(&[b"config"], &self.program_id);
+        let config_account = self.rpc_client.get_account(&config_pda)?;
+        // Offset: authority(32) + fee_basis_points(2) + min_stake(8) + min_rep(4) + timeout(8) = 54
+        let protocol_fee_recipient = if config_account.data.len() >= 86 {
+            Pubkey::try_from(&config_account.data[54..86])?
+        } else {
+            return Err(anyhow::anyhow!("Invalid config account"));
+        };
+
+        self.finalize_fhe_job_instruction_with_recipient(
+            finalizer,
+            job_pda,
+            job_creator,
+            &protocol_fee_recipient,
+            prover_accounts,
+        )
+    }
+
+    /// Build FinalizeFheJob instruction with provided protocol fee recipient
+    /// Use this version when you already know the protocol fee recipient
+    pub fn finalize_fhe_job_instruction_with_recipient(
+        &self,
+        finalizer: &Pubkey,
+        job_pda: &Pubkey,
+        job_creator: &Pubkey,
+        protocol_fee_recipient: &Pubkey,
+        prover_accounts: &[Pubkey],
+    ) -> Result<Instruction> {
+        let (config_pda, _) = Pubkey::find_program_address(&[b"config"], &self.program_id);
+        let (escrow_pda, _) = Pubkey::find_program_address(&[b"escrow", job_pda.as_ref()], &self.program_id);
+
+        let instruction_data = MarketplaceInstruction::FinalizeFheJob;
+
+        let mut accounts = vec![
+            AccountMeta::new(*finalizer, true),
+            AccountMeta::new(*job_pda, false),
+            AccountMeta::new(escrow_pda, false),
+            AccountMeta::new(*job_creator, false),
+            AccountMeta::new(*protocol_fee_recipient, false),
+            AccountMeta::new_readonly(config_pda, false),
+            AccountMeta::new_readonly(solana_sdk::system_program::id(), false),
+            AccountMeta::new_readonly(solana_sdk::sysvar::clock::id(), false),
+        ];
+
+        // Add prover accounts (dynamic)
+        for prover in prover_accounts {
+            accounts.push(AccountMeta::new(*prover, false));
+        }
+
+        Ok(Instruction {
+            program_id: self.program_id,
+            accounts,
+            data: instruction_data.pack()?,
+        })
+    }
+
     // ============================================================================
     // Transaction Helpers
     // ============================================================================
@@ -305,6 +406,64 @@ impl MarketplaceClient {
             .send_and_confirm_transaction_with_spinner(&transaction)?;
 
         Ok(signature)
+    }
+
+    // ============================================================================
+    // High-Level FHE Methods
+    // ============================================================================
+
+    /// Submit FHE computation result
+    pub fn submit_fhe_result(
+        &self,
+        prover: &Keypair,
+        job_pda: &Pubkey,
+        result_hash: [u8; 32],
+    ) -> Result<Signature> {
+        let ix = self.submit_fhe_result_instruction(
+            &prover.pubkey(),
+            job_pda,
+            result_hash,
+        )?;
+
+        self.send_and_confirm_transaction(&[ix], &[prover])
+    }
+
+    /// Finalize FHE job and distribute payments
+    pub fn finalize_fhe_job(
+        &self,
+        finalizer: &Keypair,
+        job_pda: &Pubkey,
+        job_creator: &Pubkey,
+        matching_prover_pubkeys: &[Pubkey],
+    ) -> Result<Signature> {
+        let ix = self.finalize_fhe_job_instruction(
+            &finalizer.pubkey(),
+            job_pda,
+            job_creator,
+            matching_prover_pubkeys,
+        )?;
+
+        self.send_and_confirm_transaction(&[ix], &[finalizer])
+    }
+
+    /// Finalize FHE job with provided protocol fee recipient
+    pub fn finalize_fhe_job_with_recipient(
+        &self,
+        finalizer: &Keypair,
+        job_pda: &Pubkey,
+        job_creator: &Pubkey,
+        protocol_fee_recipient: &Pubkey,
+        matching_prover_pubkeys: &[Pubkey],
+    ) -> Result<Signature> {
+        let ix = self.finalize_fhe_job_instruction_with_recipient(
+            &finalizer.pubkey(),
+            job_pda,
+            job_creator,
+            protocol_fee_recipient,
+            matching_prover_pubkeys,
+        )?;
+
+        self.send_and_confirm_transaction(&[ix], &[finalizer])
     }
 
     // ============================================================================

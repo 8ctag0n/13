@@ -270,6 +270,7 @@ async fn test_complete_prover_integration() -> Result<()> {
         witness_data.len() as u32,
         price_lamports,
         600,
+        None,
     )?;
 
     let recent_blockhash = rpc_client.get_latest_blockhash()?;

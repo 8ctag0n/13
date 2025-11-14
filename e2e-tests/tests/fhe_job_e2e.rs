@@ -141,8 +141,6 @@ async fn test_create_fhe_job() -> Result<()> {
         operation: FheOperation::Add(10),
     };
 
-    // Note: SDK may not support FHE yet, this tests the design
-    // For now, test with ZK job and document FHE extension needed
     let create_job_ix = sdk_client.create_job_instruction(
         &client.pubkey(),
         job_id,
@@ -151,6 +149,7 @@ async fn test_create_fhe_job() -> Result<()> {
         encrypted_input.len() as u32,
         3_000_000, // 0.003 SOL (enough for 3 provers)
         600,
+        Some(fhe_config.clone()),
     )?;
 
     let recent_blockhash = rpc_client.get_latest_blockhash()?;

@@ -152,6 +152,7 @@ async fn test_slash_prover_reduces_stake() -> Result<()> {
         2048,
         2_000_000_000,
         600,
+        None,
     )?;
 
     let recent_blockhash = rpc_client.get_latest_blockhash()?;
@@ -308,6 +309,7 @@ async fn test_unauthorized_cannot_slash() -> Result<()> {
         2048,
         2_000_000_000,
         600,
+        None,
     )?;
 
     let recent_blockhash = rpc_client.get_latest_blockhash()?;

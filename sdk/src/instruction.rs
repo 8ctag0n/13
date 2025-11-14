@@ -1,5 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use cypherlink_types::CircuitType;
+use cypherlink_types::{CircuitType, FheConsensusConfig};
 
 /// Instructions supported by the CypherLink marketplace program
 ///
@@ -29,6 +29,7 @@ pub enum MarketplaceInstruction {
         witness_size: u32,
         price_lamports: u64,
         timeout_seconds: i64,
+        fhe_config: Option<FheConsensusConfig>,
     },
 
     /// Claim a pending job
@@ -47,6 +48,14 @@ pub enum MarketplaceInstruction {
     SlashProver {
         slash_amount: u64,
     },
+
+    /// Submit FHE computation result
+    SubmitFheResult {
+        result_hash: [u8; 32],
+    },
+
+    /// Finalize FHE job after consensus reached
+    FinalizeFheJob,
 }
 
 impl MarketplaceInstruction {

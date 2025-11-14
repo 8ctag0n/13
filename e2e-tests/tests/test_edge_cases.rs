@@ -160,6 +160,7 @@ async fn test_create_job_zero_price() -> Result<()> {
         2048,
         0, // Zero price - should fail
         600,
+        None,
     )?;
 
     let recent_blockhash = rpc_client.get_latest_blockhash()?;
@@ -273,6 +274,7 @@ async fn test_claim_job_twice() -> Result<()> {
         2048,
         2_000_000_000,
         600,
+        None,
     )?;
 
     let recent_blockhash = rpc_client.get_latest_blockhash()?;

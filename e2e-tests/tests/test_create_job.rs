@@ -165,6 +165,7 @@ async fn test_create_job() -> Result<()> {
         witness_size,
         price_lamports,
         timeout_seconds,
+        None,
     )?;
 
     // Get recent blockhash
