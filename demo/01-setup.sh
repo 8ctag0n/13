@@ -56,7 +56,7 @@ echo -e "${CYAN}╚════════════════════�
 echo ""
 
 # Step 1: Start Solana Validator
-log_step "1/3" "Starting Solana Test Validator"
+log_step "1/4" "Starting Solana Test Validator"
 
 log_info "Starting validator on port 8899..."
 solana-test-validator \
@@ -86,7 +86,7 @@ SLOT=$(solana slot --url localhost 2>/dev/null || echo "0")
 log_success "Validator ready (slot: $SLOT)"
 
 # Step 2: Deploy Program
-log_step "2/3" "Building & Deploying CypherLink Program"
+log_step "2/4" "Building & Deploying CypherLink Program"
 
 cd "$PROJECT_ROOT"
 
@@ -123,8 +123,22 @@ export PROGRAM_ID="$PROGRAM_ID"
 cargo run --example initialize_program --quiet 2>&1 | grep -v "warning:"
 log_success "Program initialized"
 
-# Step 3: Start Witness Storage
-log_step "3/3" "Starting Witness Storage Backend"
+# Register prover
+log_info "Registering prover..."
+cd "$PROJECT_ROOT/prover-node"
+STAKE_AMOUNT=100000000  # 0.1 SOL
+cargo run --release --quiet --bin cypherlink-prover -- \
+    --rpc-url "$RPC_URL" \
+    --program-id "$PROGRAM_ID" \
+    --keypair "$KEYPAIR_PATH" \
+    register \
+    --stake-amount $STAKE_AMOUNT 2>&1 | grep -E "Prover registered|Signature|Prover PDA" || true
+log_success "Prover registered (stake: 0.1 SOL)"
+
+# Step 3: Register Prover (already done above)
+
+# Step 4: Start Witness Storage
+log_step "4/4" "Starting Witness Storage Backend"
 
 cd "$PROJECT_ROOT/witness-storage"
 
