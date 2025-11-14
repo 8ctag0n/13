@@ -52,7 +52,7 @@ keypair.json
 program-keypair.json
 authority-keypair.json
 payer-keypair.json
-
+internal
 # ============================================
 # Flutter / Dart
 # ============================================
@@ -499,3 +499,7 @@ lib-cov/
 # ============================================
 # End of .gitignore
 # ============================================
+
+# Spike/prototype directories
+spike-fhe-prover/
+cypherlink-fhe/
