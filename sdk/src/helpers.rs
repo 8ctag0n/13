@@ -20,6 +20,8 @@ pub struct MarketplaceConfig {
     pub total_provers: u64,
     pub total_jobs_created: u64,
     pub total_jobs_completed: u64,
+    pub is_paused: bool,
+    pub bump: u8,
 }
 
 /// Prover account

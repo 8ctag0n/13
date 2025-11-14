@@ -48,19 +48,23 @@ async fn register_prover(
         std::thread::sleep(Duration::from_millis(500));
     }
 
-    // Register
+    // Register using new wallet-compatible SDK
     let encryption_key = [99u8; 32];
-    let register_ix = sdk_client.register_prover_instruction(
-        &prover.pubkey(),
+    let register_ix = sdk_client.register_prover_ix(
+        prover.pubkey(),
         stake_amount,
         encryption_key,
     )?;
 
-    let recent_blockhash = rpc_client.get_latest_blockhash()?;
-    let mut tx = Transaction::new_with_payer(&[register_ix], Some(&prover.pubkey()));
-    tx.sign(&[prover], recent_blockhash);
+    let tx = sdk_client.build_transaction(vec![register_ix], prover.pubkey())?;
+    let signed_tx = {
+        let recent_blockhash = rpc_client.get_latest_blockhash()?;
+        let mut tx_to_sign = tx;
+        tx_to_sign.sign(&[prover], recent_blockhash);
+        tx_to_sign
+    };
 
-    rpc_client.send_and_confirm_transaction(&tx)?;
+    rpc_client.send_and_confirm_transaction(&signed_tx)?;
     Ok(())
 }
 
@@ -93,32 +97,6 @@ async fn test_create_fhe_job() -> Result<()> {
         std::thread::sleep(Duration::from_millis(500));
     }
 
-    // Get next job ID
-    let (config_pda, _) = sdk_client.get_config_pda();
-    let config_account = rpc_client.get_account(&config_pda)?;
-
-    use borsh::BorshDeserialize;
-
-    #[derive(Debug, BorshDeserialize)]
-    #[allow(dead_code)]
-    struct MarketplaceConfigData {
-        authority: solana_sdk::pubkey::Pubkey,
-        fee_basis_points: u16,
-        min_stake_amount: u64,
-        min_reputation_score: u32,
-        default_job_timeout_seconds: i64,
-        protocol_fee_recipient: solana_sdk::pubkey::Pubkey,
-        next_job_id: u64,
-        total_provers: u64,
-        total_jobs_created: u64,
-        total_jobs_completed: u64,
-        is_paused: bool,
-        bump: u8,
-    }
-
-    let config_data = MarketplaceConfigData::try_from_slice(&config_account.data)?;
-    let job_id = config_data.next_job_id;
-
     // Generate FHE keys and encrypt input
     println!("  2. Generating FHE keys...");
     let (client_key, _server_key) = setup_fhe_keys()?;
@@ -132,8 +110,8 @@ async fn test_create_fhe_job() -> Result<()> {
     hasher.update(&encrypted_input);
     let witness_commitment: [u8; 32] = hasher.finalize().into();
 
-    // Create FHE job
-    println!("  4. Creating FHE job...");
+    // Create FHE job using new wallet-compatible SDK
+    println!("  4. Creating FHE job with new SDK...");
     let fhe_config = FheConsensusConfig {
         required_provers: 3,
         consensus_threshold: 2,
@@ -141,28 +119,35 @@ async fn test_create_fhe_job() -> Result<()> {
         operation: FheOperation::Add(10),
     };
 
-    let create_job_ix = sdk_client.create_job_instruction(
-        &client.pubkey(),
-        job_id,
-        CircuitType::FheComputation(FheOperation::Add(10)),
+    // Use new high-level method that handles job_id fetching automatically
+    let create_job_ix = sdk_client.create_fhe_job_ix(
+        client.pubkey(),
+        FheOperation::Add(10),
         witness_commitment,
         encrypted_input.len() as u32,
-        3_000_000, // 0.003 SOL (enough for 3 provers)
-        600,
-        Some(fhe_config.clone()),
+        3, // required_provers
+        2, // consensus_threshold
     )?;
 
-    let recent_blockhash = rpc_client.get_latest_blockhash()?;
-    let mut tx = Transaction::new_with_payer(&[create_job_ix], Some(&client.pubkey()));
-    tx.sign(&[&client], recent_blockhash);
+    // Build and sign transaction using new SDK
+    let tx = sdk_client.build_transaction(vec![create_job_ix], client.pubkey())?;
+    let signed_tx = {
+        let recent_blockhash = rpc_client.get_latest_blockhash()?;
+        let mut tx_to_sign = tx;
+        tx_to_sign.sign(&[&client], recent_blockhash);
+        tx_to_sign
+    };
 
-    let result = rpc_client.send_and_confirm_transaction(&tx);
+    let result = rpc_client.send_and_confirm_transaction(&signed_tx);
 
     match result {
         Ok(_) => {
-            println!("  ✓ FHE job created successfully");
-            println!("    Job ID: {}", job_id);
+            println!("  ✓ FHE job created successfully using new SDK");
+            println!("    Operation: Add(10)");
             println!("    Config: {:?}", fhe_config);
+            println!("    SDK Features Used:");
+            println!("      - create_fhe_job_ix() (auto job_id)");
+            println!("      - build_transaction() (wallet-compatible)");
         }
         Err(e) => {
             println!("  ✗ FHE job creation failed (expected if not implemented yet)");
