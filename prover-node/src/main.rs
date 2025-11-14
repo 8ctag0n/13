@@ -327,9 +327,31 @@ impl ProverNode {
         let job = fetch_job(&client.rpc_client, &job_pda)
             .context("Failed to fetch job after claim")?;
 
-        if job.status != JobStatus::Claimed || job.prover != Some(keypair.pubkey()) {
-            warn!("[Job {}] Job not claimed by us, aborting", job_id);
-            return Ok(());
+        // For ZK jobs: verify we claimed it exclusively
+        if let CircuitType::ZcashOrchard = circuit_type {
+            if job.status != JobStatus::Claimed || job.prover != Some(keypair.pubkey()) {
+                warn!("[Job {}] ZK job not claimed by us, aborting", job_id);
+                return Ok(());
+            }
+        }
+
+        // For FHE jobs: verify we're in the claimed_provers list
+        if let CircuitType::FheComputation(_) = circuit_type {
+            if job.status != JobStatus::Claimed {
+                warn!("[Job {}] FHE job not in Claimed status, aborting", job_id);
+                return Ok(());
+            }
+
+            if !job.claimed_provers.contains(&keypair.pubkey()) {
+                warn!("[Job {}] We are not in the claimed_provers list, aborting", job_id);
+                return Ok(());
+            }
+
+            // Check if we already submitted a result
+            if job.fhe_results.iter().any(|r| r.prover == keypair.pubkey()) {
+                info!("[Job {}] Already submitted FHE result, skipping", job_id);
+                return Ok(());
+            }
         }
 
         // Step 2: Download and decrypt witness
@@ -425,47 +447,119 @@ impl ProverNode {
             proof_bytes.len()
         );
 
-        // Step 4: Submit proof
-        info!("[Job {}] Submitting proof...", job_id);
+        // Step 4: Submit result based on job type
+        match circuit_type {
+            CircuitType::ZcashOrchard => {
+                info!("[Job {}] Submitting ZK proof...", job_id);
 
-        // Generate proof commitment (hash of actual proof)
-        let proof_commitment = Self::generate_proof_commitment(&proof_bytes);
-        let proof_size = proof_bytes.len() as u32;
+                // Generate proof commitment (hash of actual proof)
+                let proof_commitment = Self::generate_proof_commitment(&proof_bytes);
+                let proof_size = proof_bytes.len() as u32;
 
-        // Fetch config to get protocol fee recipient
-        let (config_pda, _) = client.get_config_pda();
-        let config_account = client.rpc_client.get_account(&config_pda)
-            .context("Failed to fetch config account")?;
+                // Fetch config to get protocol fee recipient
+                let (config_pda, _) = client.get_config_pda();
+                let config_account = client.rpc_client.get_account(&config_pda)
+                    .context("Failed to fetch config account")?;
 
-        // Extract protocol_fee_recipient from config
-        // Offset: authority(32) + fee_basis_points(2) + min_stake(8) + min_reputation(4) + timeout(8) = 54
-        let protocol_fee_recipient = if config_account.data.len() >= 86 {
-            solana_sdk::pubkey::Pubkey::try_from(&config_account.data[54..86])?
-        } else {
-            return Err(anyhow::anyhow!("Invalid config account"));
-        };
+                // Extract protocol_fee_recipient from config
+                let protocol_fee_recipient = if config_account.data.len() >= 86 {
+                    solana_sdk::pubkey::Pubkey::try_from(&config_account.data[54..86])?
+                } else {
+                    return Err(anyhow::anyhow!("Invalid config account"));
+                };
 
-        let submit_ix = client
-            .submit_proof_instruction_with_recipient(
-                &keypair.pubkey(),
-                &job_pda,
-                &job.creator,
-                &protocol_fee_recipient,
-                proof_commitment,
-                proof_size,
-            )
-            .context("Failed to build submit proof instruction")?;
+                let submit_ix = client
+                    .submit_proof_instruction_with_recipient(
+                        &keypair.pubkey(),
+                        &job_pda,
+                        &job.creator,
+                        &protocol_fee_recipient,
+                        proof_commitment,
+                        proof_size,
+                    )
+                    .context("Failed to build submit proof instruction")?;
 
-        match client.send_and_confirm_transaction(&[submit_ix], &[&*keypair]) {
-            Ok(sig) => {
-                info!("[Job {}] Proof submitted successfully (sig: {})", job_id, sig);
-                info!("[Job {}] Completed! 🎉", job_id);
+                match client.send_and_confirm_transaction(&[submit_ix], &[&*keypair]) {
+                    Ok(sig) => {
+                        info!("[Job {}] ZK proof submitted successfully (sig: {})", job_id, sig);
+                    }
+                    Err(e) => {
+                        error!("[Job {}] Failed to submit ZK proof: {}", job_id, e);
+                        return Err(e.into());
+                    }
+                }
             }
-            Err(e) => {
-                error!("[Job {}] Failed to submit proof: {}", job_id, e);
-                return Err(e.into());
+
+            CircuitType::FheComputation(_) => {
+                info!("[Job {}] Submitting FHE result...", job_id);
+
+                // Hash result for consensus
+                let result_hash = FheEngine::hash_result(&proof_bytes);
+
+                info!(
+                    "[Job {}] FHE result hash: {}",
+                    job_id,
+                    hex::encode(&result_hash[..8])
+                );
+
+                // Store encrypted result in witness backend
+                info!("[Job {}] Uploading encrypted result to witness backend...", job_id);
+
+                let witness_backend_url = std::env::var("WITNESS_BACKEND_URL")
+                    .unwrap_or_else(|_| "http://localhost:3030".to_string());
+
+                let upload_url = format!("{}/fhe-result", witness_backend_url);
+
+                let response = reqwest::blocking::Client::new()
+                    .post(&upload_url)
+                    .body(proof_bytes.clone())
+                    .send()
+                    .context("Failed to upload FHE result to witness backend")?;
+
+                if !response.status().is_success() {
+                    return Err(anyhow::anyhow!(
+                        "Failed to upload FHE result: HTTP {}",
+                        response.status()
+                    ));
+                }
+
+                let upload_response: serde_json::Value = response.json()
+                    .context("Failed to parse upload response")?;
+
+                let stored_commitment = upload_response["commitment"]
+                    .as_str()
+                    .context("Missing commitment in response")?;
+
+                info!(
+                    "[Job {}] FHE result stored with commitment: {}",
+                    job_id, stored_commitment
+                );
+
+                // Build SubmitFheResult instruction
+                let submit_ix = client
+                    .submit_fhe_result_instruction(&keypair.pubkey(), &job_pda, result_hash)
+                    .context("Failed to build submit FHE result instruction")?;
+
+                match client.send_and_confirm_transaction(&[submit_ix], &[&*keypair]) {
+                    Ok(sig) => {
+                        info!("[Job {}] FHE result submitted successfully (sig: {})", job_id, sig);
+                    }
+                    Err(e) => {
+                        error!("[Job {}] Failed to submit FHE result: {}", job_id, e);
+                        return Err(e.into());
+                    }
+                }
+            }
+
+            _ => {
+                return Err(anyhow::anyhow!(
+                    "Unsupported circuit type: {:?}",
+                    circuit_type
+                ));
             }
         }
+
+        info!("[Job {}] Completed!", job_id);
 
         Ok(())
     }

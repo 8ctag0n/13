@@ -155,6 +155,14 @@ pub fn process_finalize_fhe_job(
 
                 let prover_account_info = &prover_accounts[i];
 
+                // SECURITY: Verify prover account matches the result
+                if prover_account_info.key != &matching_result.prover {
+                    msg!("Prover account mismatch: expected {}, got {}",
+                         matching_result.prover,
+                         prover_account_info.key);
+                    return Err(CypherLinkProgramError::InvalidAccount.into());
+                }
+
                 // Transfer SOL from escrow to prover
                 **escrow_info.try_borrow_mut_lamports()? = escrow_info
                     .lamports()

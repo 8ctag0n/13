@@ -197,6 +197,7 @@ mod tests {
             1000,
             600,
             255,
+            None, // No FHE config for ZK jobs
         );
 
         assert_eq!(job.id, 1);
@@ -219,6 +220,7 @@ mod tests {
             1000,
             600,
             255,
+            None, // No FHE config for ZK jobs
         );
 
         let prover = Pubkey::new_unique();
@@ -242,6 +244,7 @@ mod tests {
             1000,
             600,
             255,
+            None, // No FHE config for ZK jobs
         );
 
         job.claim(Pubkey::new_unique(), 1100);
@@ -269,6 +272,7 @@ mod tests {
             1000,
             600,
             255,
+            None, // No FHE config for ZK jobs
         );
 
         job.claim(Pubkey::new_unique(), 1100);
@@ -291,6 +295,7 @@ mod tests {
             1000,
             600,
             255,
+            None, // No FHE config for ZK jobs
         );
 
         let serialized = borsh::to_vec(&job).unwrap();

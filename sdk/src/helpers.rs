@@ -4,7 +4,7 @@ use solana_client::rpc_client::RpcClient;
 use solana_sdk::pubkey::Pubkey;
 
 // Re-export types from cypherlink program
-pub use cypherlink_types::{CircuitType, JobStatus};
+pub use cypherlink_types::{CircuitType, JobStatus, FheConsensusConfig, FheJobResult};
 
 /// Marketplace configuration account
 /// IMPORTANT: Field order must match programs/cypherlink/src/state/config.rs
@@ -37,6 +37,7 @@ pub struct ProverAccount {
     pub is_active: bool,
     pub registration_timestamp: i64,
     pub total_earnings_lamports: u64,
+    pub encryption_pubkey: [u8; 32],
     pub bump: u8,
 }
 
@@ -60,6 +61,11 @@ pub struct JobAccount {
     pub completed_at: Option<i64>,
     pub timeout_at: i64,
     pub bump: u8,
+    // ========== FHE-SPECIFIC FIELDS ==========
+    pub fhe_config: Option<FheConsensusConfig>,
+    pub claimed_provers: Vec<Pubkey>,
+    pub fhe_results: Vec<FheJobResult>,
+    pub fhe_consensus_hash: Option<[u8; 32]>,
 }
 
 // ============================================================================
@@ -378,6 +384,10 @@ mod tests {
             completed_at: None,
             timeout_at: 1600, // Timeout at timestamp 1600 (600 seconds after claim at 1000)
             bump: 0,
+            fhe_config: None,
+            claimed_provers: Vec::new(),
+            fhe_results: Vec::new(),
+            fhe_consensus_hash: None,
         };
 
         // 300 seconds elapsed, 300 remaining

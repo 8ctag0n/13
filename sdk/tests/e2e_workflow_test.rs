@@ -141,6 +141,7 @@ async fn test_e2e_complete_marketplace_workflow() -> Result<()> {
             1024,
             *price,
             3600,
+            None, // No FHE config for ZK jobs
         )?;
 
         let recent_blockhash = banks_client.get_latest_blockhash().await?;
@@ -331,6 +332,7 @@ async fn test_e2e_job_cancellation() -> Result<()> {
         1024,
         5_000_000,
         3600,
+        None, // No FHE config for ZK jobs
     )?;
     let recent_blockhash = banks_client.get_latest_blockhash().await?;
     let mut tx = Transaction::new_with_payer(&[create_ix], Some(&job_creator.pubkey()));
@@ -407,6 +409,7 @@ async fn test_e2e_concurrent_job_claims() -> Result<()> {
         1024,
         2_000_000,
         3600,
+        None, // No FHE config for ZK jobs
     )?;
     let recent_blockhash = banks_client.get_latest_blockhash().await?;
     let mut tx = Transaction::new_with_payer(&[create_ix], Some(&job_creator.pubkey()));

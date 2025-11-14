@@ -190,6 +190,7 @@ mod tests {
             witness_size: 2048,
             price_lamports: 1_000_000,
             timeout_seconds: 600,
+            fhe_config: None, // No FHE config for ZK jobs
         };
 
         let packed = instruction.pack().unwrap();

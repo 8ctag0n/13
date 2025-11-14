@@ -193,10 +193,9 @@ impl InstructionBuilder {
             accounts: vec![
                 AccountMeta::new(creator, true),
                 AccountMeta::new(job_pda, false),
-                AccountMeta::new(escrow_pda, false),
                 AccountMeta::new_readonly(config_pda, false),
+                AccountMeta::new(escrow_pda, false),
                 AccountMeta::new_readonly(system_program::id(), false),
-                AccountMeta::new_readonly(sysvar::clock::id(), false),
             ],
             data: instruction_data.pack()?,
         })
@@ -219,10 +218,9 @@ impl InstructionBuilder {
             program_id: self.program_id,
             accounts: vec![
                 AccountMeta::new(prover, true),
-                AccountMeta::new(job_pda, false),
                 AccountMeta::new_readonly(prover_pda, false),
+                AccountMeta::new(job_pda, false),
                 AccountMeta::new_readonly(config_pda, false),
-                AccountMeta::new_readonly(sysvar::clock::id(), false),
             ],
             data: instruction_data.pack()?,
         })
@@ -235,16 +233,22 @@ impl InstructionBuilder {
     /// # Arguments
     /// * `prover` - Prover pubkey (will sign)
     /// * `job_pda` - Job account PDA
+    /// * `job_creator` - Job creator pubkey
+    /// * `protocol_fee_recipient` - Protocol fee recipient pubkey
     /// * `proof_commitment` - Hash commitment of proof
     /// * `proof_size` - Size of proof in bytes
     pub fn submit_proof(
         &self,
         prover: Pubkey,
         job_pda: Pubkey,
+        job_creator: Pubkey,
+        protocol_fee_recipient: Pubkey,
         proof_commitment: [u8; 32],
         proof_size: u32,
     ) -> Result<Instruction> {
         let (prover_pda, _) = self.prover_pda(&prover);
+        let (escrow_pda, _) = self.escrow_pda(&job_pda);
+        let (config_pda, _) = self.config_pda();
 
         let instruction_data = MarketplaceInstruction::SubmitProof {
             proof_commitment,
@@ -255,9 +259,13 @@ impl InstructionBuilder {
             program_id: self.program_id,
             accounts: vec![
                 AccountMeta::new(prover, true),
-                AccountMeta::new(job_pda, false),
                 AccountMeta::new(prover_pda, false),
-                AccountMeta::new_readonly(sysvar::clock::id(), false),
+                AccountMeta::new(job_pda, false),
+                AccountMeta::new(escrow_pda, false),
+                AccountMeta::new(job_creator, false),
+                AccountMeta::new(protocol_fee_recipient, false),
+                AccountMeta::new_readonly(config_pda, false),
+                AccountMeta::new_readonly(system_program::id(), false),
             ],
             data: instruction_data.pack()?,
         })

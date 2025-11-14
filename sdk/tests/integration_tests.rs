@@ -123,6 +123,7 @@ async fn test_create_job() {
             2048,
             1_000_000,
             600,
+            None, // No FHE config for ZK jobs
         )
         .unwrap();
 
@@ -185,6 +186,7 @@ async fn test_full_job_lifecycle() {
             2048,
             1_000_000,
             600,
+            None, // No FHE config for ZK jobs
         )
         .unwrap();
     let recent_blockhash = banks_client.get_latest_blockhash().await.unwrap();
@@ -255,6 +257,7 @@ async fn test_cancel_job() {
             2048,
             1_000_000,
             600,
+            None, // No FHE config for ZK jobs
         )
         .unwrap();
     let recent_blockhash = banks_client.get_latest_blockhash().await.unwrap();
@@ -303,6 +306,7 @@ async fn test_multiple_jobs() {
                 2048,
                 1_000_000,
                 600,
+                None, // No FHE config for ZK jobs
             )
             .unwrap();
 
@@ -369,6 +373,10 @@ fn test_timeout_calculations() {
         completed_at: None,
         timeout_at: 1600, // 600 seconds timeout from claimed_at (1000)
         bump: 0,
+        fhe_config: None,
+        claimed_provers: vec![],
+        fhe_results: vec![],
+        fhe_consensus_hash: None,
     };
 
     // Not timed out yet
