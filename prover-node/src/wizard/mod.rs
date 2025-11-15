@@ -1,4 +1,5 @@
 pub mod steps;
+pub mod terms;
 pub mod ui;
 pub mod validation;
 
@@ -46,7 +47,11 @@ impl SetupWizard {
         // Step 4: Balance check and funding
         steps::step_balance_check(&client, &keypair, &network, self.stake_amount).await?;
 
-        // Step 5: Register prover
+        // Step 5: Terms & Conditions acceptance
+        const TERMS_BACKEND_URL: &str = "https://api.zyberlink.io";
+        steps::step_terms_acceptance(&keypair, TERMS_BACKEND_URL).await?;
+
+        // Step 6: Register prover
         let prover_pda = steps::step_register_prover(
             &client,
             &keypair,

@@ -177,3 +177,53 @@ pub fn print_completion_screen(config_path: &str, prover_pubkey: &str) {
     println!("\n{}", style("Need help? Visit https://docs.zyberlink.io").dim());
     println!();
 }
+
+/// Generate Solana Pay URL for funding request
+pub fn generate_solana_pay_url(
+    recipient: &str,
+    amount_lamports: u64,
+    label: &str,
+    message: &str,
+) -> String {
+    let amount_sol = amount_lamports as f64 / 1_000_000_000.0;
+    format!(
+        "solana:{}?amount={}&label={}&message={}",
+        recipient,
+        amount_sol,
+        urlencoding::encode(label),
+        urlencoding::encode(message)
+    )
+}
+
+/// Display Solana Pay QR code in terminal
+pub fn print_solana_pay_qr(url: &str) -> anyhow::Result<()> {
+    use qr2term::print_qr;
+
+    println!("\n{}", style("Scan QR code with Solana wallet:").bold());
+    println!();
+
+    print_qr(url)?;
+
+    println!();
+    Ok(())
+}
+
+/// Print Solana Pay funding instructions
+pub fn print_funding_instructions(url: &str, recipient: &str, amount_sol: f64) {
+    println!("\n{}", style("━".repeat(60)).cyan());
+    println!("{}", style("💰 Fund Your Prover Wallet").cyan().bold());
+    println!("{}", style("━".repeat(60)).cyan());
+
+    println!("\n{}", style("Option 1: Scan QR Code").bold());
+    println!("  Use any Solana wallet app to scan the QR code above");
+
+    println!("\n{}", style("Option 2: Use Solana Pay Link").bold());
+    println!("  {}", style(url).cyan());
+
+    println!("\n{}", style("Option 3: Manual Transfer").bold());
+    println!("  Recipient: {}", style(recipient).cyan());
+    println!("  Amount:    {} SOL", style(format!("{:.4}", amount_sol)).green().bold());
+
+    println!("\n{}", style("━".repeat(60)).cyan());
+    println!();
+}

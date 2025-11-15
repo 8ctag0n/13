@@ -68,3 +68,5 @@ indicatif = "0.17"
 dirs = "5.0"
 shellexpand = "3.1"
 chrono = { version = "0.4", features = ["serde"] }
+qr2term = "0.3"
+urlencoding = "2.1"

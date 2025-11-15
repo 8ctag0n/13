@@ -1,4 +1,4 @@
-use super::{ui, validation};
+use super::{terms, ui, validation};
 use anyhow::{Context, Result};
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::{
@@ -54,7 +54,7 @@ impl Network {
 
 /// Step 1: Validate system requirements
 pub async fn step_system_validation() -> Result<()> {
-    ui::print_step_header(1, 5, "System Requirements Check");
+    ui::print_step_header(1, 6, "System Requirements Check");
 
     let spinner = ui::Spinner::new("Checking system requirements...");
     let results = validation::validate_system().await?;
@@ -79,7 +79,7 @@ pub async fn step_system_validation() -> Result<()> {
 
 /// Step 2: Setup Solana keypair
 pub async fn step_keypair_setup() -> Result<(Keypair, PathBuf)> {
-    ui::print_step_header(2, 5, "Solana Keypair Setup");
+    ui::print_step_header(2, 6, "Solana Keypair Setup");
 
     let choice = ui::select(
         "Do you have an existing Solana keypair?",
@@ -148,7 +148,7 @@ async fn generate_new_keypair() -> Result<(Keypair, PathBuf)> {
 
 /// Step 3: Network configuration
 pub async fn step_network_setup() -> Result<(Network, String, RpcClient)> {
-    ui::print_step_header(3, 5, "Network Configuration");
+    ui::print_step_header(3, 6, "Network Configuration");
 
     let choice = ui::select(
         "Select Solana network:",
@@ -204,7 +204,7 @@ pub async fn step_balance_check(
     network: &Network,
     required_lamports: u64,
 ) -> Result<()> {
-    ui::print_step_header(4, 5, "Balance Check & Funding");
+    ui::print_step_header(4, 6, "Balance Check & Funding");
 
     let balance = client.get_balance(&keypair.pubkey())
         .context("Failed to fetch balance")?;
@@ -225,32 +225,46 @@ pub async fn step_balance_check(
         return Ok(());
     }
 
-    // Insufficient balance
+    // Insufficient balance - show Solana Pay funding
     let shortfall = (required_lamports - balance) as f64 / 1_000_000_000.0;
     ui::print_warning(&format!("⚠ Insufficient balance! Need {:.4} more SOL", shortfall));
 
+    // Generate Solana Pay URL
+    let solana_pay_url = ui::generate_solana_pay_url(
+        &keypair.pubkey().to_string(),
+        required_lamports - balance,
+        "ZyberLink Prover Stake",
+        "Fund your prover node to start earning",
+    );
+
+    // Display QR code and funding instructions
+    ui::print_solana_pay_qr(&solana_pay_url)?;
+    ui::print_funding_instructions(
+        &solana_pay_url,
+        &keypair.pubkey().to_string(),
+        shortfall,
+    );
+
+    // For devnet/testnet, still offer airdrop as fallback
     if network.supports_airdrop() {
-        println!("\n{}", console::style("Funding options:").bold());
+        println!("{}", console::style("Devnet/Testnet Options:").bold());
         let choice = ui::select(
-            "How would you like to fund your wallet?",
+            "How would you like to proceed?",
             &[
+                "Wait for Solana Pay transfer",
                 &format!("Request airdrop ({} only)", network.name()),
-                "I'll transfer SOL manually (wait)",
                 "Skip funding (exit wizard)",
             ],
         )?;
 
         match choice {
-            0 => request_airdrop(client, keypair, required_lamports - balance).await?,
-            1 => wait_for_manual_funding(client, keypair, required_lamports).await?,
+            0 => wait_for_manual_funding(client, keypair, required_lamports).await?,
+            1 => request_airdrop(client, keypair, required_lamports - balance).await?,
             2 => return Err(anyhow::anyhow!("User canceled funding")),
             _ => unreachable!(),
         }
     } else {
-        ui::print_warning("Please transfer SOL to your wallet:");
-        println!("  Destination: {}", keypair.pubkey());
-        println!("  Amount: {:.4} SOL", shortfall);
-
+        // Mainnet - only wait for transfer
         wait_for_manual_funding(client, keypair, required_lamports).await?;
     }
 
@@ -319,7 +333,7 @@ async fn wait_for_manual_funding(
     Ok(())
 }
 
-/// Step 5: Register prover on-chain
+/// Step 6: Register prover on-chain
 pub async fn step_register_prover(
     client: &RpcClient,
     keypair: &Keypair,
@@ -327,7 +341,7 @@ pub async fn step_register_prover(
     stake_amount: u64,
     witness_encryption: &crate::witness_encryption::WitnessEncryption,
 ) -> Result<Pubkey> {
-    ui::print_step_header(5, 5, "Prover Registration");
+    ui::print_step_header(6, 6, "Prover Registration");
 
     let encryption_pubkey = witness_encryption.public_key();
 
@@ -375,4 +389,69 @@ pub async fn step_register_prover(
     ui::wait_for_enter()?;
 
     Ok(prover_pda)
+}
+
+/// Step 5: Accept Terms & Conditions
+pub async fn step_terms_acceptance(
+    keypair: &Keypair,
+    backend_url: &str,
+) -> Result<()> {
+    ui::print_step_header(5, 6, "Terms & Conditions");
+
+    // Fetch latest terms
+    let spinner = ui::Spinner::new("Fetching latest Terms & Conditions...");
+    let terms_response = terms::fetch_terms(backend_url).await?;
+    spinner.success("Terms loaded");
+
+    println!();
+    println!("{}", console::style("━".repeat(60)).cyan());
+    println!("{}", console::style("ZYBERLINK PROVER TERMS & CONDITIONS").cyan().bold());
+    println!("{}", console::style("━".repeat(60)).cyan());
+    println!();
+    println!("{}", console::style(format!("Version: {}", terms_response.version)).dim());
+    println!("{}", console::style(format!("Updated: {}", terms_response.updated_at)).dim());
+    println!();
+    println!("{}", console::style("━".repeat(60)).cyan());
+    println!();
+
+    // Display terms (first 500 chars with scroll option)
+    let preview = if terms_response.terms.len() > 500 {
+        format!("{}...\n\n(Full terms available at https://zyberlink.io/terms)", &terms_response.terms[..500])
+    } else {
+        terms_response.terms.clone()
+    };
+
+    println!("{}", preview);
+    println!();
+    println!("{}", console::style("━".repeat(60)).cyan());
+    println!();
+
+    // Ask for acceptance
+    if !ui::confirm("Do you accept these Terms & Conditions?")? {
+        return Err(anyhow::anyhow!("User declined Terms & Conditions"));
+    }
+
+    // Sign terms
+    let spinner = ui::Spinner::new("Signing Terms & Conditions...");
+    let signature = terms::sign_terms(keypair, &terms_response.hash)?;
+    spinner.success("Terms signed");
+
+    // Save acceptance
+    let acceptance = terms::TermsAcceptance {
+        version: terms_response.version.clone(),
+        accepted_at: chrono::Utc::now().to_rfc3339(),
+        terms_hash: terms_response.hash,
+        signature,
+        signer_pubkey: keypair.pubkey().to_string(),
+    };
+
+    let path = terms::save_acceptance(&acceptance).await?;
+
+    println!();
+    ui::print_success("✓ Terms & Conditions accepted and signed!");
+    println!("  Acceptance saved to: {}", path.display());
+
+    ui::wait_for_enter()?;
+
+    Ok(())
 }
