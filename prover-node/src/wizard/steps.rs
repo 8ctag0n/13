@@ -237,10 +237,17 @@ pub async fn step_balance_check(
         "Fund your prover node to start earning",
     );
 
+    // Generate Solana Blink URL
+    let blink_url = ui::generate_blink_url(
+        &keypair.pubkey().to_string(),
+        required_lamports - balance,
+    );
+
     // Display QR code and funding instructions
     ui::print_solana_pay_qr(&solana_pay_url)?;
     ui::print_funding_instructions(
         &solana_pay_url,
+        &blink_url,
         &keypair.pubkey().to_string(),
         shortfall,
     );

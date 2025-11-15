@@ -208,8 +208,36 @@ pub fn print_solana_pay_qr(url: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Print Solana Pay funding instructions
-pub fn print_funding_instructions(url: &str, recipient: &str, amount_sol: f64) {
+/// Generate Solana Action/Blink URL for funding request
+pub fn generate_blink_url(
+    recipient: &str,
+    amount_lamports: u64,
+) -> String {
+    let amount_sol = amount_lamports as f64 / 1_000_000_000.0;
+    let blink_server = std::env::var("BLINK_SERVER_URL")
+        .unwrap_or_else(|_| "https://blink.zyberlink.io".to_string());
+
+    let action_url = format!(
+        "{}/api/actions/fund-prover?pubkey={}&amount={}",
+        blink_server,
+        recipient,
+        amount_sol
+    );
+
+    // Encode action URL for dial.to
+    format!(
+        "https://dial.to/?action={}",
+        urlencoding::encode(&action_url)
+    )
+}
+
+/// Print Solana Pay funding instructions with Blink
+pub fn print_funding_instructions(
+    solana_pay_url: &str,
+    blink_url: &str,
+    recipient: &str,
+    amount_sol: f64,
+) {
     println!("\n{}", style("━".repeat(60)).cyan());
     println!("{}", style("💰 Fund Your Prover Wallet").cyan().bold());
     println!("{}", style("━".repeat(60)).cyan());
@@ -217,10 +245,16 @@ pub fn print_funding_instructions(url: &str, recipient: &str, amount_sol: f64) {
     println!("\n{}", style("Option 1: Scan QR Code").bold());
     println!("  Use any Solana wallet app to scan the QR code above");
 
-    println!("\n{}", style("Option 2: Use Solana Pay Link").bold());
-    println!("  {}", style(url).cyan());
+    println!("\n{}", style("Option 2: Use Solana Blink (Recommended)").bold());
+    println!("  {}", style(blink_url).cyan());
+    println!("  {}", style("  → Works in any browser with wallet extension").dim());
+    println!("  {}", style("  → Shareable on Twitter, Discord, etc.").dim());
 
-    println!("\n{}", style("Option 3: Manual Transfer").bold());
+    println!("\n{}", style("Option 3: Solana Pay Link").bold());
+    println!("  {}", style(solana_pay_url).cyan());
+    println!("  {}", style("  → Direct wallet app link").dim());
+
+    println!("\n{}", style("Option 4: Manual Transfer").bold());
     println!("  Recipient: {}", style(recipient).cyan());
     println!("  Amount:    {} SOL", style(format!("{:.4}", amount_sol)).green().bold());
 
