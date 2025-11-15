@@ -105,21 +105,37 @@ pub fn find_jobs_by_status(
 ) -> Result<Vec<(Pubkey, JobAccount)>> {
     let accounts = rpc_client.get_program_accounts(program_id)?;
 
+    eprintln!("[DEBUG] find_jobs_by_status: Looking for status {:?}", status);
+    eprintln!("[DEBUG] Total program accounts: {}", accounts.len());
+
     let mut jobs = Vec::new();
-    for (pubkey, account) in accounts {
+    for (i, (pubkey, account)) in accounts.iter().enumerate() {
+        eprintln!("[DEBUG] Account #{}: {} ({} bytes)", i, pubkey, account.data.len());
+
         // Skip if account is too small to be a job
         if account.data.len() < 100 {
+            eprintln!("[DEBUG]   -> Skipped (too small)");
             continue;
         }
 
         // Try to deserialize as job
-        if let Ok(job) = JobAccount::deserialize(&mut &account.data[..]) {
-            if job.status == status {
-                jobs.push((pubkey, job));
+        match JobAccount::deserialize(&mut &account.data[..]) {
+            Ok(job) => {
+                eprintln!("[DEBUG]   -> JobAccount! ID={}, Status={:?}, Circuit={:?}", job.id, job.status, job.circuit_type);
+                if job.status == status {
+                    eprintln!("[DEBUG]   -> ✓ MATCH! Adding to results");
+                    jobs.push((pubkey.clone(), job));
+                } else {
+                    eprintln!("[DEBUG]   -> Status mismatch (want {:?}, got {:?})", status, job.status);
+                }
+            }
+            Err(e) => {
+                eprintln!("[DEBUG]   -> Failed to deserialize as JobAccount: {}", e);
             }
         }
     }
 
+    eprintln!("[DEBUG] Returning {} jobs with status {:?}", jobs.len(), status);
     Ok(jobs)
 }
 
