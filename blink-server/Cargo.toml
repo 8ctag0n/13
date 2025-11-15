@@ -1,0 +1,38 @@
+[package]
+name = "zyberlink-blink-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "blink-server"
+path = "src/main.rs"
+
+[dependencies]
+# Web framework
+actix-web = "4.5"
+actix-cors = "0.7"
+
+# Async runtime
+tokio = { workspace = true, features = ["full"] }
+
+# Serialization
+serde = { workspace = true, features = ["derive"] }
+serde_json = "1.0"
+
+# Solana
+solana-sdk = { workspace = true }
+solana-client = { workspace = true }
+
+# Logging
+log = { workspace = true }
+env_logger = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+
+# Encoding
+bs58 = "0.5"
+base64 = "0.22"
+bincode = "1.3"

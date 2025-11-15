@@ -3,6 +3,7 @@ members = [
     "sdk",
     "prover-node",
     "witness-storage",
+    "blink-server",
     "shared/types",
     "shared/crypto",
     "e2e-tests", "spike-fhe-prover", "cypherlink-fhe",
