@@ -14,6 +14,7 @@ mod fhe_engine;
 mod halo2_prover;
 mod witness_encryption;
 mod witness_fetcher;
+mod tui;
 
 use fhe_engine::FheEngine;
 use halo2_prover::{Halo2Prover, OrchardWitness};
@@ -62,6 +63,10 @@ struct Args {
     /// FHE server key file path (required for FHE jobs)
     #[arg(long)]
     fhe_server_key_path: Option<String>,
+
+    /// Enable TUI (Terminal User Interface) mode
+    #[arg(long)]
+    tui_mode: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -147,9 +152,10 @@ impl ProverNode {
         halo2_prover.setup()?;
         info!("Halo2 prover ready");
 
-        // Initialize witness encryption
+        // Initialize witness encryption (derived from Solana keypair for determinism)
         info!("Initializing witness encryption system...");
-        let witness_encryption = WitnessEncryption::new()?;
+        let encryption_seed = derive_encryption_seed(&keypair);
+        let witness_encryption = WitnessEncryption::from_seed(encryption_seed)?;
         let pubkey = witness_encryption.public_key();
         info!("Witness encryption ready (pubkey: {})", hex::encode(&pubkey));
 
@@ -617,8 +623,15 @@ async fn main() -> Result<()> {
     match args.command.as_ref().unwrap_or(&Command::Run) {
         Command::Run => {
             let config = ProverConfig::from_args(&args)?;
-            let prover = ProverNode::new(config)?;
-            prover.run().await?;
+
+            if args.tui_mode {
+                // Run with TUI
+                run_with_tui(config).await?;
+            } else {
+                // Run headless
+                let prover = ProverNode::new(config)?;
+                prover.run().await?;
+            }
         }
         Command::Register { stake_amount } => {
             register_prover(&args, *stake_amount).await?;
@@ -629,6 +642,49 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Run prover node with TUI interface
+async fn run_with_tui(config: ProverConfig) -> Result<()> {
+    use std::sync::Arc;
+
+    // Create shared TUI state
+    let tui_state = Arc::new(tui::TUIState::new());
+
+    // Setup terminal
+    let mut terminal = tui::setup_terminal()?;
+
+    // Create TUI app
+    let mut tui_app = tui::TUIApp::new(Arc::clone(&tui_state));
+
+    // Start prover node in background task
+    let prover_state = Arc::clone(&tui_state);
+    let prover_handle = tokio::spawn(async move {
+        let prover = ProverNode::new(config)?;
+
+        // TODO: Pass tui_state to prover to update stats
+        // For now, just run the prover
+        prover.run().await
+    });
+
+    // Run TUI in main thread (needs to be on main thread for terminal control)
+    let tui_result = tui_app.run(&mut terminal);
+
+    // Cleanup terminal
+    tui::restore_terminal(&mut terminal)?;
+
+    // Signal prover to quit
+    tui_state.set_quit();
+
+    // Wait for prover to finish
+    match tokio::time::timeout(Duration::from_secs(5), prover_handle).await {
+        Ok(Ok(Ok(_))) => info!("Prover shut down cleanly"),
+        Ok(Ok(Err(e))) => error!("Prover error: {}", e),
+        Ok(Err(e)) => error!("Prover task panicked: {}", e),
+        Err(_) => warn!("Prover shutdown timeout"),
+    }
+
+    tui_result
 }
 
 /// Register this prover on-chain
@@ -680,14 +736,30 @@ async fn register_prover(args: &Args, stake_amount: u64) -> Result<()> {
     Ok(())
 }
 
+/// Derive a deterministic encryption seed from the Solana keypair
+/// This ensures the same keypair always generates the same encryption key
+fn derive_encryption_seed(keypair: &Keypair) -> [u8; 32] {
+    use solana_sdk::hash::hash;
+
+    // Hash the secret key bytes to derive encryption seed
+    // This provides domain separation from the signing key
+    let mut seed_material = b"CYPHERLINK_WITNESS_ENCRYPTION_V1:".to_vec();
+    seed_material.extend_from_slice(&keypair.to_bytes());
+
+    let hash_result = hash(&seed_material);
+    hash_result.to_bytes()
+}
+
 /// Show the encryption public key for this prover
 fn show_pubkey(args: &Args) -> Result<()> {
-    let witness_encryption = WitnessEncryption::new()?;
-    let encryption_pubkey = witness_encryption.public_key();
-
     let keypair_path = args.keypair.replace("~", &std::env::var("HOME").unwrap_or_default());
     let keypair = read_keypair_file(&keypair_path)
         .map_err(|e| anyhow::anyhow!("Failed to read keypair file: {}", e))?;
+
+    // Derive encryption seed from Solana keypair (deterministic)
+    let encryption_seed = derive_encryption_seed(&keypair);
+    let witness_encryption = WitnessEncryption::from_seed(encryption_seed)?;
+    let encryption_pubkey = witness_encryption.public_key();
 
     println!("Prover Encryption Public Key");
     println!("=============================");

@@ -49,7 +49,6 @@ impl WitnessEncryption {
     }
 
     /// Generate keypair from seed (for deterministic key generation)
-    #[allow(dead_code)]
     pub fn from_seed(seed: [u8; 32]) -> Result<Self> {
         info!("Generating X25519 keypair from seed");
 
