@@ -133,10 +133,16 @@ struct ProverNode {
     witness_encryption: Arc<WitnessEncryption>,
     witness_fetcher: Arc<WitnessFetcher>,
     fhe_engine: Option<Arc<FheEngine>>,
+    tui_state: Option<Arc<tui::TUIState>>,
+    start_time: std::time::Instant,
 }
 
 impl ProverNode {
     fn new(config: ProverConfig) -> Result<Self> {
+        Self::new_with_tui(config, None)
+    }
+
+    fn new_with_tui(config: ProverConfig, tui_state: Option<Arc<tui::TUIState>>) -> Result<Self> {
         let keypair = read_keypair_file(&config.keypair_path)
             .map_err(|e| anyhow::anyhow!("Failed to read keypair file: {}", e))?;
 
@@ -188,6 +194,8 @@ impl ProverNode {
             witness_encryption: Arc::new(witness_encryption),
             witness_fetcher: Arc::new(witness_fetcher),
             fhe_engine,
+            tui_state,
+            start_time: std::time::Instant::now(),
         })
     }
 
@@ -236,6 +244,14 @@ impl ProverNode {
             .filter(|(_, job)| job.price_lamports >= self.config.min_price)
             .collect();
 
+        // Update TUI stats with pending jobs count
+        if let Some(ref tui) = self.tui_state {
+            tui.update_stats(|stats| {
+                stats.jobs_pending = suitable_jobs.len() as u32;
+                stats.jobs_claimed = active_count as u32;
+            });
+        }
+
         if suitable_jobs.is_empty() {
             debug!("No suitable jobs available");
             return Ok(());
@@ -265,8 +281,12 @@ impl ProverNode {
 
             let witness_fetcher = self.witness_fetcher.clone();
             let fhe_engine = self.fhe_engine.clone();
+            let tui_state = self.tui_state.clone();
+            let job_price = job.price_lamports;
 
             tokio::spawn(async move {
+                let start_time = std::time::Instant::now();
+
                 if let Err(e) =
                     Self::process_job(
                         client,
@@ -280,10 +300,20 @@ impl ProverNode {
                         witness_encryption,
                         witness_fetcher,
                         fhe_engine,
+                        tui_state.clone(),
+                        job_price,
+                        start_time,
                     )
                     .await
                 {
                     error!("Failed to process job {}: {}", job.id, e);
+
+                    // Update failed job stats
+                    if let Some(ref tui) = tui_state {
+                        tui.update_stats(|stats| {
+                            stats.jobs_failed += 1;
+                        });
+                    }
                 }
 
                 // Remove from active jobs
@@ -310,6 +340,9 @@ impl ProverNode {
         witness_encryption: Arc<WitnessEncryption>,
         witness_fetcher: Arc<WitnessFetcher>,
         fhe_engine: Option<Arc<FheEngine>>,
+        tui_state: Option<Arc<tui::TUIState>>,
+        job_price: u64,
+        start_time: std::time::Instant,
     ) -> Result<()> {
         info!("[Job {}] Starting processing", job_id);
 
@@ -567,6 +600,37 @@ impl ProverNode {
 
         info!("[Job {}] Completed!", job_id);
 
+        // Update TUI stats on successful completion
+        if let Some(ref tui) = tui_state {
+            let duration = start_time.elapsed().as_secs_f64();
+
+            tui.update_stats(|stats| {
+                stats.jobs_completed += 1;
+                stats.total_earnings_lamports += job_price;
+
+                // Update average proof time
+                let total_completed = stats.jobs_completed as f64;
+                let old_avg = stats.avg_proof_time_secs;
+                stats.avg_proof_time_secs =
+                    ((old_avg * (total_completed - 1.0)) + duration) / total_completed;
+            });
+
+            // Add to recent jobs list
+            let circuit_name = match circuit_type {
+                CircuitType::ZcashOrchard => "ZK Proof".to_string(),
+                CircuitType::FheComputation(_) => "FHE Comp".to_string(),
+                _ => "Unknown".to_string(),
+            };
+
+            tui.add_recent_job(tui::RecentJob {
+                id: job_id,
+                job_type: circuit_name,
+                status: "completed".to_string(),
+                duration_secs: duration,
+                earnings_lamports: job_price,
+            });
+        }
+
         Ok(())
     }
 
@@ -658,12 +722,9 @@ async fn run_with_tui(config: ProverConfig) -> Result<()> {
     let mut tui_app = tui::TUIApp::new(Arc::clone(&tui_state));
 
     // Start prover node in background task
-    let prover_state = Arc::clone(&tui_state);
+    let prover_tui_state = Arc::clone(&tui_state);
     let prover_handle = tokio::spawn(async move {
-        let prover = ProverNode::new(config)?;
-
-        // TODO: Pass tui_state to prover to update stats
-        // For now, just run the prover
+        let prover = ProverNode::new_with_tui(config, Some(prover_tui_state))?;
         prover.run().await
     });
 
