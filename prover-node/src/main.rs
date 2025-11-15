@@ -15,6 +15,8 @@ mod halo2_prover;
 mod witness_encryption;
 mod witness_fetcher;
 mod tui;
+mod wizard;
+mod config;
 
 use fhe_engine::FheEngine;
 use halo2_prover::{Halo2Prover, OrchardWitness};
@@ -83,6 +85,13 @@ enum Command {
 
     /// Show encryption public key
     ShowPubkey,
+
+    /// Run interactive setup wizard
+    Setup {
+        /// Stake amount in lamports for registration
+        #[arg(long, default_value = "100000000")]
+        stake_amount: u64,
+    },
 }
 
 /// Prover node configuration
@@ -703,6 +712,9 @@ async fn main() -> Result<()> {
         Command::ShowPubkey => {
             show_pubkey(&args)?;
         }
+        Command::Setup { stake_amount } => {
+            run_setup_wizard(*stake_amount).await?;
+        }
     }
 
     Ok(())
@@ -828,6 +840,19 @@ fn show_pubkey(args: &Args) -> Result<()> {
     println!("Encryption Key:  {}", hex::encode(&encryption_pubkey));
     println!();
     println!("Clients should use this key to encrypt witness data before uploading.");
+
+    Ok(())
+}
+
+/// Run the interactive setup wizard
+async fn run_setup_wizard(stake_amount: u64) -> Result<()> {
+    info!("Starting setup wizard...");
+
+    let mut wizard = wizard::SetupWizard::new(stake_amount);
+    let _config = wizard.run().await?;
+
+    info!("Setup wizard completed successfully!");
+    info!("Configuration saved to: {:?}", config::ProverConfiguration::default_path()?);
 
     Ok(())
 }
