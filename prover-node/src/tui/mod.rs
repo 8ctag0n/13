@@ -13,6 +13,7 @@ use ratatui::{
     Frame, Terminal,
 };
 use std::{
+    env,
     io,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -55,6 +56,40 @@ pub struct TUIState {
     pub should_quit: Arc<AtomicBool>,
 }
 
+/// Detect if terminal supports Unicode/emojis
+fn supports_unicode() -> bool {
+    // Check LANG and LC_CTYPE environment variables
+    env::var("LANG")
+        .or_else(|_| env::var("LC_CTYPE"))
+        .map(|val| val.contains("UTF-8") || val.contains("utf8"))
+        .unwrap_or(false)
+}
+
+/// Get status icon with fallback for non-Unicode terminals
+fn get_status_icon(status: &str, use_emoji: bool) -> &'static str {
+    if use_emoji {
+        match status {
+            "active" => "🟢",
+            "idle" => "🟡",
+            "completed" => "✅",
+            "failed" => "❌",
+            "claimed" => "🔄",
+            "pending" => "⏸",
+            _ => "•",
+        }
+    } else {
+        match status {
+            "active" => "[+]",
+            "idle" => "[ ]",
+            "completed" => "[OK]",
+            "failed" => "[X]",
+            "claimed" => "[..]",
+            "pending" => "[--]",
+            _ => "[-]",
+        }
+    }
+}
+
 impl TUIState {
     pub fn new() -> Self {
         Self {
@@ -95,13 +130,16 @@ impl TUIState {
 pub struct TUIApp {
     state: Arc<TUIState>,
     start_time: Instant,
+    use_emoji: bool,
 }
 
 impl TUIApp {
     pub fn new(state: Arc<TUIState>) -> Self {
+        let use_emoji = supports_unicode();
         Self {
             state,
             start_time: Instant::now(),
+            use_emoji,
         }
     }
 
@@ -167,7 +205,9 @@ impl TUIApp {
     }
 
     fn render_header(&self, f: &mut Frame, area: Rect) {
-        let title = Paragraph::new(" 🔐 Zyberlink Prover Node - LIVE ")
+        let lock_icon = if self.use_emoji { "🔐" } else { "[#]" };
+        let title_text = format!(" {} Zyberlink Prover Node - LIVE ", lock_icon);
+        let title = Paragraph::new(title_text)
             .style(
                 Style::default()
                     .fg(Color::Cyan)
@@ -200,9 +240,13 @@ impl TUIApp {
             .split(area);
 
         // Status line
+        let status_state = if stats.jobs_claimed > 0 { "active" } else { "idle" };
+        let status_icon = get_status_icon(status_state, self.use_emoji);
+        let status_text = if stats.jobs_claimed > 0 { "ACTIVE" } else { "IDLE" };
         let status_line = format!(
-            " Status: {} | RPC: {}ms | Block: {} | Uptime: {}",
-            if stats.jobs_claimed > 0 { "🟢 ACTIVE" } else { "🟡 IDLE" },
+            " Status: {} {} | RPC: {}ms | Block: {} | Uptime: {}",
+            status_icon,
+            status_text,
             stats.rpc_latency_ms,
             stats.current_block,
             format_duration(stats.uptime_secs)
@@ -299,13 +343,7 @@ impl TUIApp {
         let items: Vec<ListItem> = jobs
             .iter()
             .map(|job| {
-                let status_icon = match job.status.as_str() {
-                    "completed" => "✅",
-                    "failed" => "❌",
-                    "claimed" => "🔄",
-                    "pending" => "⏸",
-                    _ => "•",
-                };
+                let status_icon = get_status_icon(job.status.as_str(), self.use_emoji);
 
                 let earnings_sol = job.earnings_lamports as f64 / 1_000_000_000.0;
 
@@ -366,7 +404,30 @@ pub fn setup_terminal() -> Result<Terminal<CrosstermBackend<io::Stdout>>> {
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
-    let terminal = Terminal::new(backend)?;
+    let mut terminal = Terminal::new(backend)?;
+
+    // Check minimum terminal size
+    let size = terminal.size()?;
+    const MIN_WIDTH: u16 = 80;
+    const MIN_HEIGHT: u16 = 24;
+
+    if size.width < MIN_WIDTH || size.height < MIN_HEIGHT {
+        // Restore terminal before error
+        disable_raw_mode()?;
+        execute!(
+            terminal.backend_mut(),
+            LeaveAlternateScreen,
+            DisableMouseCapture
+        )?;
+        anyhow::bail!(
+            "Terminal too small! Minimum size: {}x{}, current: {}x{}",
+            MIN_WIDTH,
+            MIN_HEIGHT,
+            size.width,
+            size.height
+        );
+    }
+
     Ok(terminal)
 }
 
