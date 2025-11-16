@@ -89,13 +89,15 @@ impl SetupWizard {
     async fn ask_program_id(&self) -> Result<solana_sdk::pubkey::Pubkey> {
         ui::print_step_header(0, 0, "Program Configuration");
 
-        let program_id_str = ui::input(
+        let program_id_str = ui::input_with_validation(
             "Enter CypherLink Program ID",
             None,
+            validation::validate_pubkey_string,
+            3, // max retries
         )?;
 
         let program_id = program_id_str.parse()
-            .context("Invalid program ID format")?;
+            .expect("Should be valid after validation");
 
         println!();
         ui::print_info(&format!("Program ID: {}", program_id));

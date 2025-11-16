@@ -102,6 +102,59 @@ pub fn input(prompt: &str, default: Option<&str>) -> Result<String> {
     Ok(input.interact()?)
 }
 
+/// Ask user for text input with validation and retry logic
+///
+/// # Arguments
+/// * `prompt` - The prompt to display
+/// * `default` - Optional default value
+/// * `validator` - Function that validates the input, returns Ok(()) if valid or Err with error message
+/// * `max_retries` - Maximum number of retry attempts (default: 3)
+///
+/// # Returns
+/// The validated input string, or error after max retries exceeded
+pub fn input_with_validation<F>(
+    prompt: &str,
+    default: Option<&str>,
+    validator: F,
+    max_retries: usize,
+) -> Result<String>
+where
+    F: Fn(&str) -> Result<()>,
+{
+    let mut attempts = 0;
+
+    loop {
+        attempts += 1;
+
+        // Get input from user
+        let value = input(prompt, default)?;
+
+        // Validate input
+        match validator(&value) {
+            Ok(()) => return Ok(value),
+            Err(e) if attempts < max_retries => {
+                // Show error and allow retry
+                print_error(&format!("{}", e));
+                println!();
+                print_warning(&format!(
+                    "Please try again ({}/{} attempts remaining)",
+                    max_retries - attempts,
+                    max_retries
+                ));
+                println!();
+            }
+            Err(e) => {
+                // Max retries exceeded
+                print_error(&format!("{}", e));
+                return Err(anyhow::anyhow!(
+                    "Maximum retry attempts ({}) exceeded. Please restart the wizard.",
+                    max_retries
+                ));
+            }
+        }
+    }
+}
+
 /// Print validation check result
 pub fn print_check_result(name: &str, passed: bool, details: Option<&str>) {
     let icon = if passed { "✓" } else { "✗" };

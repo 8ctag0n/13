@@ -106,17 +106,23 @@ pub async fn step_keypair_setup() -> Result<(Keypair, PathBuf)> {
 
 async fn load_existing_keypair() -> Result<(Keypair, PathBuf)> {
     let default_path = shellexpand::tilde("~/.config/solana/id.json").to_string();
-    let path_str = ui::input("Enter path to keypair file", Some(&default_path))?;
+
+    let path_str = ui::input_with_validation(
+        "Enter path to keypair file",
+        Some(&default_path),
+        |input| {
+            let expanded = shellexpand::tilde(input);
+            let path = PathBuf::from(expanded.as_ref());
+            validation::validate_file_path(&path)
+        },
+        3, // max retries
+    )?;
 
     let expanded = shellexpand::tilde(&path_str);
     let path = PathBuf::from(expanded.as_ref());
 
-    if !path.exists() {
-        return Err(anyhow::anyhow!("Keypair file not found: {}", path.display()));
-    }
-
     let keypair = read_keypair_file(&path)
-        .map_err(|e| anyhow::anyhow!("Failed to read keypair file: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to read keypair file: {}\n\nMake sure the file is a valid Solana keypair JSON.", e))?;
 
     Ok((keypair, path))
 }
@@ -169,7 +175,14 @@ pub async fn step_network_setup() -> Result<(Network, String, RpcClient)> {
     };
 
     let default_url = network.default_rpc_url();
-    let rpc_url = ui::input("RPC URL", Some(default_url))?;
+
+    // Get RPC URL with validation
+    let rpc_url = ui::input_with_validation(
+        "RPC URL",
+        Some(default_url),
+        validation::validate_rpc_url,
+        3, // max retries
+    )?;
 
     // Test connection
     let spinner = ui::Spinner::new("Testing connection...");
@@ -184,7 +197,11 @@ pub async fn step_network_setup() -> Result<(Network, String, RpcClient)> {
         }
         Err(e) => {
             spinner.error("Connection failed");
-            return Err(anyhow::anyhow!("Failed to connect to RPC: {}", e));
+            ui::print_error(&format!(
+                "Failed to connect to RPC: {}\n\nTips:\n  - Check if the URL is correct\n  - Verify internet connection\n  - Try a different RPC endpoint",
+                e
+            ));
+            return Err(anyhow::anyhow!("RPC connection failed"));
         }
     }
 

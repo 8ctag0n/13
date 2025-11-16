@@ -95,3 +95,63 @@ pub async fn validate_system() -> Result<Vec<ValidationResult>> {
 pub fn all_passed(results: &[ValidationResult]) -> bool {
     results.iter().all(|r| r.passed)
 }
+
+/// Validate RPC URL format
+pub fn validate_rpc_url(url: &str) -> Result<()> {
+    // Check if URL is not empty
+    if url.trim().is_empty() {
+        anyhow::bail!("RPC URL cannot be empty");
+    }
+
+    // Check if it starts with http:// or https://
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        anyhow::bail!(
+            "RPC URL must start with http:// or https://\nExample: https://api.devnet.solana.com"
+        );
+    }
+
+    // Basic URL parsing check
+    url.parse::<url::Url>()
+        .map_err(|e| anyhow::anyhow!("Invalid URL format: {}\nExample: https://api.devnet.solana.com", e))?;
+
+    Ok(())
+}
+
+/// Validate Solana public key string format
+pub fn validate_pubkey_string(pubkey_str: &str) -> Result<()> {
+    use solana_sdk::pubkey::Pubkey;
+
+    // Check if not empty
+    if pubkey_str.trim().is_empty() {
+        anyhow::bail!("Public key cannot be empty");
+    }
+
+    // Try to parse
+    pubkey_str.parse::<Pubkey>().map_err(|e| {
+        anyhow::anyhow!(
+            "Invalid public key format: {}\n\nExpected: Base58-encoded 32-byte public key (44 characters)\nExample: 11111111111111111111111111111111",
+            e
+        )
+    })?;
+
+    Ok(())
+}
+
+/// Validate file path exists
+pub fn validate_file_path(path: &std::path::Path) -> Result<()> {
+    if !path.exists() {
+        anyhow::bail!(
+            "File not found: {}\n\nPlease check the path and try again.",
+            path.display()
+        );
+    }
+
+    if !path.is_file() {
+        anyhow::bail!(
+            "Path is not a file: {}\n\nExpected a regular file, found a directory.",
+            path.display()
+        );
+    }
+
+    Ok(())
+}
