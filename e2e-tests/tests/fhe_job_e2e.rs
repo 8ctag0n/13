@@ -75,7 +75,11 @@ async fn register_prover(
 /// - Proper circuit type (FheComputation)
 /// - FHE config stored correctly
 /// - Initial status is Pending
+///
+/// NOTE: This test requires external validator running.
+/// Use `test_create_fhe_job_self_executing` in fhe_self_executing.rs for automated testing.
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "Requires external validator - use fhe_self_executing.rs tests instead"]
 async fn test_create_fhe_job() -> Result<()> {
     println!("\n{}", "=".repeat(80));
     println!("TEST 1: Create FHE Job");
@@ -167,8 +171,11 @@ async fn test_create_fhe_job() -> Result<()> {
 /// - Job tracks all claimed provers
 /// - Status changes to Claimed when all slots filled
 /// - Duplicate claims rejected
+///
+/// NOTE: This test requires external validator running.
+/// Use `test_multi_prover_claiming_self_executing` in fhe_self_executing.rs for automated testing.
 #[tokio::test]
-#[ignore] // Requires on-chain FHE support
+#[ignore = "Requires external validator - use fhe_self_executing.rs tests instead"]
 async fn test_multi_prover_claiming() -> Result<()> {
     println!("\n{}", "=".repeat(80));
     println!("TEST 2: Multi-Prover Claiming");
@@ -212,8 +219,11 @@ async fn test_multi_prover_claiming() -> Result<()> {
 /// - Results are hashed correctly
 /// - Results submitted to chain
 /// - Multiple results stored in job
+///
+/// NOTE: This test requires external validator running.
+/// Use `test_fhe_result_submission_self_executing` in fhe_self_executing.rs for automated testing.
 #[tokio::test]
-#[ignore] // Requires on-chain FHE support
+#[ignore = "Requires external validator - use fhe_self_executing.rs tests instead"]
 async fn test_fhe_result_submission() -> Result<()> {
     println!("\n{}", "=".repeat(80));
     println!("TEST 3: FHE Result Submission");
@@ -268,8 +278,11 @@ async fn test_fhe_result_submission() -> Result<()> {
 /// - Matching provers get paid
 /// - Mismatching prover doesn't get paid
 /// - Reputation updates correctly
+///
+/// NOTE: This test requires external validator running.
+/// Use `test_consensus_finalization_self_executing` in fhe_self_executing.rs for automated testing.
 #[tokio::test]
-#[ignore] // Requires on-chain FHE support
+#[ignore = "Requires external validator - use fhe_self_executing.rs tests instead"]
 async fn test_consensus_success_2_of_3() -> Result<()> {
     println!("\n{}", "=".repeat(80));
     println!("TEST 4: Consensus Success (2-of-3)");
@@ -394,8 +407,11 @@ async fn test_consensus_failure_all_different() -> Result<()> {
 /// 5. Provers compute and submit results
 /// 6. Finalize with consensus
 /// 7. Decrypt and verify result
+///
+/// NOTE: This test requires external validator running.
+/// The self-executing tests in fhe_self_executing.rs provide the same coverage with automated setup.
 #[tokio::test]
-#[ignore] // Requires full on-chain FHE implementation
+#[ignore = "Requires external validator - use fhe_self_executing.rs tests instead"]
 async fn test_fhe_e2e_happy_path() -> Result<()> {
     println!("\n{}", "=".repeat(80));
     println!("TEST 6: Full E2E Happy Path");

@@ -501,6 +501,5 @@ lib-cov/
 # End of .gitignore
 # ============================================
 
-# Spike/prototype directories
-spike-fhe-prover/
-cypherlink-fhe/
+# Archived/deprecated code (not for production)
+___dump/

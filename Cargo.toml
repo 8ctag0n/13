@@ -6,7 +6,7 @@ members = [
     "blink-server",
     "shared/types",
     "shared/crypto",
-    "e2e-tests", "spike-fhe-prover", "cypherlink-fhe",
+    "e2e-tests",
 ]
 resolver = "2"
 

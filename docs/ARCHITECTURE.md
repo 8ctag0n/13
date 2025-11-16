@@ -2,150 +2,160 @@
 
 ## System Overview
 
-CypherLink is a decentralized marketplace for **secure computation**, enabling resource-constrained devices (mobile) to offload compute-intensive operations to powerful nodes (desktop) through a trustless, encrypted coordination layer.
+ZyberLink is a decentralized marketplace for **privacy-preserving computations** on Solana. The system enables clients to offload compute-intensive ZK and FHE operations to a network of independent provers, with on-chain consensus ensuring correctness and automated payment distribution.
+
+**Core Innovation:** Multi-prover consensus mechanism that distributes trust across multiple compute providers, eliminating single points of failure while maintaining cryptographic guarantees.
 
 ### Supported Compute Types
 
-**Phase 1 (Current):**
+**Phase 1 (Current - November 2025):**
 - **ZK Proofs** - Zero-knowledge proof generation (Halo2)
-  - Zcash Orchard shielded transactions
-  - Anonymous voting circuits
-  - Private credentials
+  - Groth16/PLONK circuits
+  - ~15 second proving time
+  - Single-prover model
 
-**Phase 1.5 (Week 1):**
-- **FHE Compute** - Fully Homomorphic Encryption operations (Concrete)
-  - Encrypted arithmetic (add, multiply)
-  - Privacy-preserving computations
-  - Multi-prover consensus validation
+- **FHE Computations** - Fully Homomorphic Encryption (TFHE-rs)
+  - Encrypted arithmetic (add, multiply, subtract)
+  - Multi-prover consensus validation (2-of-3 or 3-of-5)
+  - On-chain result verification via hash comparison
+  - ~39 seconds per operation (performance optimization in progress)
 
 **Future Phases:**
 - **MPC** - Multi-Party Computation
 - **TEE** - Trusted Execution Environment tasks
-- **Custom** - Developer-defined secure compute types
+- **Hardware Acceleration** - GPU/FPGA proving
+- **Light Protocol Integration** - ZK Compression for state management
 
-**Vision:** Platform for ANY secure computation, not just ZK proofs
+**Vision:** Generic infrastructure for any privacy-preserving computation
 
 ### High-Level Architecture
 
 ```mermaid
 graph TB
-    subgraph "Mobile Client Layer"
-        MW[Mobile Wallet]
+    subgraph "Client Layer"
+        CL[Client Application]
         WB[Witness Builder]
         ENC[Encryption Module]
-        VER[Proof Verifier]
     end
 
     subgraph "Coordination Layer (Solana)"
         MP[Marketplace Program]
-        JQ[Job Queue - ZK Compressed]
+        JQ[Job Queue]
         PR[Prover Registry]
         ES[Escrow System]
-        REP[Reputation - SAS]
+        CONS[Consensus Verification]
     end
 
-    subgraph "Compute Layer"
-        PN[Prover Node]
-        PP[Proof Generator]
-        HM[Halo2 Module]
+    subgraph "Prover Network"
+        PN1[Prover Node A]
+        PN2[Prover Node B]
+        PN3[Prover Node C]
     end
 
-    subgraph "External Networks"
-        ZN[Zcash Network]
-        SN[Solana Network]
+    subgraph "Compute Engines"
+        FHE1[TFHE Engine]
+        FHE2[TFHE Engine]
+        FHE3[TFHE Engine]
+        ZK1[Halo2 Module]
+        ZK2[Halo2 Module]
+        ZK3[Halo2 Module]
     end
 
-    MW --> WB
+    CL --> WB
     WB --> ENC
     ENC --> MP
     MP --> JQ
-    JQ --> PN
-    PN --> PP
-    PP --> HM
-    HM --> MP
-    MP --> ES
-    ES --> VER
-    VER --> ZN
-    MP -.-> REP
-    REP -.-> PR
+
+    JQ --> PN1
+    JQ --> PN2
+    JQ --> PN3
+
+    PN1 --> FHE1
+    PN1 --> ZK1
+    PN2 --> FHE2
+    PN2 --> ZK2
+    PN3 --> FHE3
+    PN3 --> ZK3
+
+    FHE1 --> CONS
+    FHE2 --> CONS
+    FHE3 --> CONS
+
+    CONS --> ES
+    ES --> CL
+
+    MP -.-> PR
 ```
 
 ---
 
 ## Component Architecture
 
-### 1. Mobile Client (Flutter + Rust)
+### 1. Client SDK (Rust)
 
-#### Responsibilities
-- User interface and interaction
-- Wallet management (keys, addresses, balances)
-- Witness generation (private transaction data)
-- Encryption/decryption
-- Proof verification
-- Transaction broadcasting
+The client SDK provides a high-level interface for applications to interact with the ZyberLink marketplace.
 
 #### Architecture
 
 ```mermaid
 graph LR
-    subgraph "Flutter UI Layer"
-        HS[Home Screen]
-        SS[Send Screen]
-        RS[Receive Screen]
-        TS[Transaction History]
-        JS[Job Status]
+    subgraph "SDK Layers"
+        HL[High-Level API]
+        IL[Instruction Layer]
+        SL[State Layer]
     end
 
-    subgraph "FFI Bridge"
-        FB[Flutter-Rust Bridge]
-    end
-
-    subgraph "Rust Core"
-        WM[Wallet Manager]
-        MC[Marketplace Client]
-        ZC[Zcash Client]
+    subgraph "Core Modules"
+        MC[MarketplaceClient]
+        JB[Job Builder]
+        EP[Event Parser]
         CR[Crypto Module]
     end
 
-    HS --> FB
-    SS --> FB
-    RS --> FB
-    TS --> FB
-    JS --> FB
-
-    FB --> WM
-    FB --> MC
-    FB --> ZC
-    FB --> CR
+    HL --> MC
+    MC --> IL
+    MC --> SL
+    IL --> JB
+    SL --> EP
+    MC --> CR
 ```
 
 #### Key Modules
 
-**Wallet Manager (Rust)**
-- HD key derivation (ZIP-32)
-- Address generation (shielded + transparent)
-- Balance synchronization
-- Transaction building
-- Signature generation
+**MarketplaceClient**
+```rust
+pub struct MarketplaceClient {
+    rpc_client: RpcClient,
+    payer: Keypair,
+    program_id: Pubkey,
+}
 
-**Marketplace Client (Rust)**
-- RPC communication with Solana
-- Instruction serialization
-- Job creation and status polling
-- Prover selection
-- Payment handling
+impl MarketplaceClient {
+    pub async fn create_job(...) -> Result<Signature>;
+    pub async fn get_job(...) -> Result<JobAccount>;
+    pub async fn query_jobs(...) -> Result<Vec<JobAccount>>;
+    pub async fn submit_fhe_result(...) -> Result<Signature>;
+    pub async fn finalize_fhe_job(...) -> Result<Signature>;
+}
+```
 
-**Zcash Client (Rust)**
-- Light client protocol (compact blocks)
-- Merkle tree management
-- Note commitment tracking
-- Transaction broadcasting
+**Instruction Builders**
+- Type-safe instruction construction
+- Automatic PDA derivation
+- Parameter validation
+- Account metadata generation
 
-**Crypto Module (Rust)**
-- ML-KEM (Kyber) key exchange
-- AES-256-GCM encryption
-- Signature verification
-- Random number generation
+**State Deserializers**
+- JobAccount parsing
+- ProverAccount parsing
+- MarketplaceConfig parsing
+- Event log parsing
+
+**Crypto Module**
+- ML-KEM post-quantum key exchange
+- AES-256-GCM encryption/decryption
+- Ed25519 signature verification
+- Secure random number generation
 
 ---
 
@@ -184,7 +194,7 @@ pub struct Job {
     pub prover: Option<Pubkey>,
     pub status: JobStatus,
     pub circuit_type: CircuitType,
-    pub encrypted_witness: Vec<u8>,   // ZK compressed
+    pub encrypted_witness: Vec<u8>,   // Encrypted data
     pub encrypted_proof: Option<Vec<u8>>,
     pub price_lamports: u64,
     pub escrow_account: Pubkey,
@@ -265,21 +275,19 @@ pub fn create_job(
     price_lamports: u64,
     timeout_seconds: i64,
 ) -> Result<()> {
-    // Compress encrypted witness using Light Protocol
-    let compressed_witness = compress_data(&encrypted_witness)?;
-
-    // Initialize job account (compressed)
+    // Initialize job account
     let job = &mut ctx.accounts.job;
     job.id = ctx.accounts.config.next_job_id;
     job.creator = ctx.accounts.creator.key();
     job.status = JobStatus::Pending;
     job.circuit_type = circuit_type;
-    job.encrypted_witness = compressed_witness;
+    job.encrypted_witness = encrypted_witness;
     job.price_lamports = price_lamports;
     job.created_at = Clock::get()?.unix_timestamp;
     job.timeout_at = job.created_at + timeout_seconds;
 
-    // Create escrow account
+    // Create escrow PDA
+    // Transfer payment to escrow
     // ... (escrow setup logic)
 
     // Increment job counter
@@ -356,11 +364,8 @@ pub fn submit_proof(
         ErrorCode::UnauthorizedProver
     );
 
-    // Compress proof
-    let compressed_proof = compress_data(&encrypted_proof)?;
-
-    // Store proof
-    job.encrypted_proof = Some(compressed_proof);
+    // Store encrypted proof
+    job.encrypted_proof = Some(encrypted_proof);
     job.completed_at = Some(Clock::get()?.unix_timestamp);
 
     // Note: Verification happens client-side or via separate instruction
@@ -896,12 +901,246 @@ sequenceDiagram
 - 1M jobs = 5 GB
 - Cost: ~35,000 SOL (~$770K)
 
-**With ZK Compression:**
+**With ZK Compression (Future - Phase 2):**
 - 32 bytes per job commitment
 - 1M jobs = 32 MB
 - Cost: ~700 SOL (~$15.4K)
 
-**50x improvement**
+**Potential 50x improvement** (requires Light Protocol integration)
+
+---
+
+## FHE Multi-Prover Consensus
+
+### Overview
+
+For FHE (Fully Homomorphic Encryption) computations, ZyberLink implements a multi-prover consensus mechanism to ensure correctness without revealing the encrypted data.
+
+### Architecture
+
+```
+Client encrypts input → Multiple provers claim job →
+Compute in parallel → Submit result hashes →
+On-chain consensus → Matching provers get paid
+```
+
+### Consensus Algorithm
+
+**1. Job Creation**
+```rust
+pub struct FheJob {
+    pub required_provers: u8,        // e.g., 3
+    pub consensus_threshold: u8,      // e.g., 2 (2-of-3)
+    pub encrypted_input: Vec<u8>,
+    pub operation: FheOperation,      // Add, Multiply, Subtract
+    pub claimed_provers: Vec<Pubkey>,
+    pub results: Vec<FheJobResult>,
+}
+```
+
+**2. Multi-Prover Claiming**
+- FHE jobs allow multiple provers to claim (unlike ZK jobs)
+- Job status changes to Claimed when `claimed_provers.len() == required_provers`
+- First N provers to submit valid claims get the job
+
+**3. Parallel Computation**
+- Each prover independently computes the FHE operation
+- Provers never see plaintext (data remains encrypted)
+- Computation time: ~39 seconds per operation (TFHE-rs)
+
+**4. Result Submission**
+```rust
+pub struct FheJobResult {
+    pub prover: Pubkey,
+    pub result_hash: [u8; 32],        // Hash of encrypted result
+    pub encrypted_result: Vec<u8>,     // Full encrypted output
+    pub submitted_at: i64,
+}
+```
+
+**5. On-Chain Consensus**
+```rust
+pub fn finalize_fhe_job(ctx: Context<FinalizeFheJob>) -> Result<()> {
+    let job = &ctx.accounts.job;
+
+    // Count matching result hashes
+    let mut hash_counts: HashMap<[u8; 32], Vec<Pubkey>> = HashMap::new();
+    for result in &job.results {
+        hash_counts.entry(result.result_hash)
+            .or_insert(Vec::new())
+            .push(result.prover);
+    }
+
+    // Find consensus (majority hash)
+    let consensus = hash_counts.iter()
+        .max_by_key(|(_, provers)| provers.len())
+        .unwrap();
+
+    // Verify threshold met
+    require!(
+        consensus.1.len() >= job.consensus_threshold as usize,
+        ErrorCode::ConsensusNotReached
+    );
+
+    // Pay matching provers
+    let payment_per_prover = job.price_lamports / consensus.1.len() as u64;
+    for prover_key in consensus.1 {
+        pay_prover(prover_key, payment_per_prover)?;
+    }
+
+    // Penalize non-matching provers (slash stake)
+    for result in &job.results {
+        if !consensus.1.contains(&result.prover) {
+            slash_prover(&result.prover, SlashReason::InvalidResult)?;
+        }
+    }
+
+    Ok(())
+}
+```
+
+### Security Properties
+
+**Byzantine Fault Tolerance:**
+- With 3 provers, 2-of-3 consensus, tolerates 1 malicious prover
+- With 5 provers, 3-of-5 consensus, tolerates 2 malicious provers
+
+**Economic Security:**
+- Dishonest provers lose their stake
+- Honest provers earn rewards
+- Rational actors will compute correctly
+
+**Cryptographic Security:**
+- Data never leaves encrypted form
+- Even malicious provers can't see plaintext
+- Result correctness guaranteed by majority
+
+### Performance
+
+**Current (TFHE-rs):**
+- Single operation: ~39 seconds
+- 3-prover consensus: ~45 seconds total (parallel)
+- Bottleneck: FHE computation, not consensus
+
+**Future (Concrete):**
+- Estimated 260x speedup
+- Single operation: ~150ms
+- 3-prover consensus: ~200ms total
+
+---
+
+## Prover Node Architecture
+
+### Overview
+
+The Prover Node is a desktop application that monitors the marketplace, claims jobs, executes computations, and submits results.
+
+### Components
+
+```mermaid
+graph TB
+    subgraph "Prover Node"
+        MC[Main Controller]
+        JP[Job Poller]
+        ZK[ZK Proof Engine]
+        FHE[FHE Compute Engine]
+        TUI[Terminal UI]
+        WZ[Setup Wizard]
+    end
+
+    subgraph "External"
+        SOL[Solana RPC]
+        WS[Witness Storage]
+    end
+
+    MC --> JP
+    MC --> TUI
+    MC --> WZ
+    JP --> SOL
+    JP --> MC
+    MC --> ZK
+    MC --> FHE
+    ZK --> MC
+    FHE --> MC
+    MC --> SOL
+    SOL --> WS
+```
+
+### Key Modules
+
+**1. Job Poller**
+- Queries marketplace every 5 seconds
+- Filters jobs by circuit type capability
+- Automatic claiming based on profitability
+
+**2. ZK Proof Engine (Halo2)**
+- Groth16/PLONK circuit support
+- Proving key caching
+- Average proving time: 15 seconds
+- CPU-intensive, multi-threaded
+
+**3. FHE Compute Engine (TFHE-rs)**
+```rust
+pub struct FheEngine {
+    config: Config,
+    server_key: ServerKey,
+    operation_cache: HashMap<FheOperation, CachedOp>,
+}
+
+impl FheEngine {
+    pub fn compute(&self, op: FheOperation, encrypted_input: &[u8])
+        -> Result<Vec<u8>>
+    {
+        match op {
+            FheOperation::Add(x) => self.fhe_add(encrypted_input, x),
+            FheOperation::Multiply(x) => self.fhe_multiply(encrypted_input, x),
+            FheOperation::Subtract(x) => self.fhe_subtract(encrypted_input, x),
+        }
+    }
+
+    fn fhe_add(&self, input: &[u8], operand: u64) -> Result<Vec<u8>> {
+        let ct_input = FheUint64::deserialize(input)?;
+        let ct_result = self.server_key.scalar_add(&ct_input, operand);
+        Ok(ct_result.serialize())
+    }
+}
+```
+
+**4. Terminal UI (TUI)**
+- Real-time dashboard with ratatui
+- Displays:
+  - Active jobs (pending, claimed, completed)
+  - Prover statistics (jobs completed, earnings)
+  - Network status (connected provers, consensus rate)
+  - Performance metrics (avg proving time)
+- Interactive keyboard controls
+
+**5. Setup Wizard**
+- Interactive onboarding flow (6 steps)
+- System validation (Rust, Solana CLI, disk space)
+- Wallet configuration (generate or import)
+- Funding via Solana Blinks (QR code)
+- Terms & Conditions acceptance
+- Final validation
+
+### Deployment
+
+**Requirements:**
+- CPU: 4+ cores (8+ recommended)
+- RAM: 8GB minimum (16GB recommended)
+- Disk: 50GB free space
+- Network: Stable internet connection
+
+**Startup:**
+```bash
+cd prover-node
+
+# Interactive wizard
+cargo run --release -- wizard
+
+# Or run directly with config
+cargo run --release -- --config config.toml
+```
 
 ---
 
@@ -929,49 +1168,95 @@ sequenceDiagram
 
 **What we trust:**
 - Solana consensus (BFT assumption)
-- Light Protocol ZK proofs (cryptographic)
+- FHE cryptographic properties (TFHE-rs)
 - Halo2 circuit correctness (audited)
-- Client-side verification (user's device)
+- Multi-prover consensus mechanism (Byzantine fault tolerant)
 
 **What we don't trust:**
-- Provers (assumed adversarial)
-- RPC endpoints (use multiple)
-- Network (encrypted communication)
+- Individual provers (assumed potentially adversarial)
+- RPC endpoints (should use multiple)
+- Network communication (encrypted end-to-end)
+- Centralized services (none used)
 
-**Result:** Trustless marketplace with cryptographic guarantees
+**Result:** Decentralized marketplace with multi-prover consensus ensuring correctness
 
 ---
 
-## Future Enhancements
+## Future Architecture Enhancements
 
-### Short-term (3-6 months)
-- Proof batching (multiple jobs, one submission)
-- Prover staking tiers (higher stake = higher priority)
-- Multi-circuit support (voting, credentials)
-- Hardware acceleration (FPGA, GPU)
+### Phase 2: Light Protocol Integration (Q1 2026)
 
-### Medium-term (6-12 months)
-- Cross-chain support (Ethereum L2s, other Solana programs)
-- Recursive proofs (compress multiple proofs)
-- Verifiable computation marketplace (beyond ZK)
-- Advanced reputation (ML-based scoring)
+**ZK Compression for State Management**
 
-### Long-term (12+ months)
-- Decentralized proof aggregation
-- ZK-SNARK verifier on Solana (fully on-chain)
-- Proof marketplace (buy/sell proving capacity)
-- Hardware prover network (dedicated devices)
+```rust
+// Current: Traditional Solana accounts
+#[account]
+pub struct JobAccount {
+    pub data: Vec<u8>,  // 5KB per job
+}
+
+// Future: Compressed state via Light Protocol
+#[compressed_account]
+pub struct CompressedJobAccount {
+    pub commitment: [u8; 32],  // 32 bytes per job
+    pub merkle_tree: Pubkey,
+}
+```
+
+**Benefits:**
+- 50-100x reduction in state costs
+- Scalable job history (millions of jobs)
+- Efficient prover registry updates
+- Maintains all security properties
+
+**Integration Points:**
+- Compressed JobAccount and ProverAccount
+- Merkle tree-based state verification
+- SDK updates for compression/decompression
+- Backward compatibility with existing jobs
+
+### Short-term (Post-Hackathon - Q1 2026)
+- **Complete FHE E2E Integration** - 16/16 tests passing
+- **Concrete Library Migration** - 260x faster FHE operations
+- **Mobile SDK** - Flutter/React Native libraries
+- **Prover Hardware Attestation** - Verify compute capabilities
+
+### Medium-term (Q2-Q3 2026)
+- **Hardware Acceleration** - GPU/FPGA proving support
+- **Reputation System (SAS)** - On-chain attestations
+- **Dynamic Pricing** - Market-based job pricing
+- **Circuit Marketplace** - Custom circuit support
+- **Cross-Chain Support** - Ethereum L2 integration
+
+### Long-term (2026+)
+- **MPC Integration** - Multi-party computation support
+- **TEE Support** - Trusted execution environments
+- **Verifiable Delay Functions** - Fair prover selection
+- **Proof Aggregation** - Batch multiple proofs
+- **Hardware Prover Network** - Dedicated proving devices
 
 ---
 
 ## Conclusion
 
-CypherLink's architecture achieves:
-- **Decentralization** - No centralized services
-- **Privacy** - End-to-end encryption
-- **Performance** - 10x faster than local proving
-- **Cost-efficiency** - 50x cheaper with ZK Compression
-- **Security** - Cryptographic guarantees + economic incentives
-- **Scalability** - Thousands of proofs/second potential
+ZyberLink's architecture delivers:
+- **Decentralization** - Multi-prover consensus, no single point of failure
+- **Privacy** - End-to-end encryption, FHE never reveals plaintext
+- **Byzantine Fault Tolerance** - 2-of-3 or 3-of-5 consensus model
+- **Economic Security** - Stake-based incentives, slashing for dishonesty
+- **Extensibility** - Supports ZK proofs and FHE computations
+- **Production-Ready** - Working E2E system with TUI, wizard, demos
 
-The system is production-ready for initial deployment and designed to scale to millions of users.
+**Current Status (November 2025):**
+- Solana program: Functional
+- FHE multi-prover consensus: Implemented (E2E integration in progress)
+- Prover node: Complete with TUI and interactive wizard
+- Performance: 15s ZK proofs, 39s FHE operations
+
+**Next Steps:**
+- Complete FHE E2E integration (4 tests remaining)
+- Light Protocol compression (Phase 2)
+- Concrete library migration (260x speedup)
+- Mobile SDK and broader ecosystem integration
+
+The system demonstrates a viable path to decentralized privacy-preserving computation at scale.

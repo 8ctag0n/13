@@ -2,62 +2,72 @@
 
 **Decentralized ZK Compute Marketplace on Solana**
 
-> "The fastest Zcash mobile wallet, powered by decentralized proving"
+> "Multi-prover consensus network for privacy-preserving computations"
 
 ## Overview
 
-CypherLink enables mobile devices to offload intensive ZK proof generation to powerful prover nodes, coordinated via Solana with ZK Compression. By decentralizing compute-intensive operations, we make privacy-preserving technologies practical for everyday mobile use.
+ZyberLink is a decentralized marketplace for ZK and FHE computations on Solana. Multiple independent provers compete to execute cryptographic computations, with on-chain consensus ensuring correctness. By distributing trust across a prover network, we enable censorship-resistant, privacy-preserving infrastructure for any application.
 
-**Demo Application:** CypherWallet - A Zcash mobile wallet that generates shielded transaction proofs in ~15 seconds (versus 2+ minutes with native proving), demonstrating the power of decentralized ZK compute.
+**Current Focus:** Multi-prover consensus for FHE (Fully Homomorphic Encryption) computations with on-chain verification and automated payment distribution to honest provers.
 
 ## Key Features
 
-- **10x Faster** - Proof generation in 15s vs 150s on-device
-- **90% Less Battery** - 0.3% vs 3% battery consumption per transaction
-- **Privacy Preserved** - Witness data encrypted end-to-end with post-quantum crypto
-- **Decentralized** - No AWS dependency, permissionless prover network
-- **Earn Passive Income** - Monetize idle desktop compute power by running a prover node
+- **Multi-Prover Consensus** - 2-of-3 or 3-of-5 consensus ensures computation correctness
+- **FHE Computations** - Fully homomorphic encryption support via TFHE-rs
+- **Privacy Preserved** - Encrypted witness data, provers never see plaintext
+- **Decentralized** - Permissionless prover network, no single point of failure
+- **Automated Payments** - On-chain verification with trustless payment distribution
+- **Censorship Resistant** - No central authority can block jobs or provers
 
 ## Architecture
 
 ```
-┌─────────────────┐
-│  Mobile Client  │ (Flutter + Rust FFI)
-│  (CypherWallet) │
-└────────┬────────┘
-         │ 1. Generate encrypted witness
-         │ 2. Create proving job
-         ▼
-┌─────────────────┐
-│ Solana Program  │ (ZK Compression via Light Protocol)
-│  (Marketplace)  │
-└────────┬────────┘
-         │ 3. Job discovery
-         │ 4. Claim job
-         ▼
-┌─────────────────┐
-│  Prover Node    │ (Rust + Halo2)
-│   (Desktop)     │
-└────────┬────────┘
-         │ 5. Generate ZK proof (~15s)
-         │ 6. Submit proof
-         ▼
-┌─────────────────┐
-│   Verification  │ (On-chain)
-│   + Payment     │
-└─────────────────┘
-         │ 7. Verify + broadcast transaction
-         ▼
-    Zcash Network
+┌──────────────┐
+│    Client    │ (Any application needing ZK/FHE compute)
+└──────┬───────┘
+       │ 1. Encrypt witness, create job
+       ▼
+┌─────────────────────────┐
+│   Solana Program        │
+│   (Marketplace)         │
+└────┬────────────────────┘
+     │ 2. Job broadcast
+     ▼
+┌────────────────────────────────────────────┐
+│           Prover Network                   │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐ │
+│  │ Prover A │  │ Prover B │  │ Prover C │ │
+│  │ (TFHE)   │  │ (TFHE)   │  │ (TFHE)   │ │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘ │
+└───────│─────────────│─────────────│────────┘
+        │ 3. Claim    │             │
+        │ 4. Compute  │ Compute     │ Compute
+        │    (async)  │ (async)     │ (async)
+        ▼             ▼             ▼
+┌────────────────────────────────────────────┐
+│   Result Submission + Consensus            │
+│   Prover A: hash_abc...                    │
+│   Prover B: hash_abc... ✓ (match)          │
+│   Prover C: hash_def... ✗ (mismatch)       │
+└────────────────┬───────────────────────────┘
+                 │ 5. 2/3 consensus reached
+                 ▼
+┌────────────────────────────────────────────┐
+│   On-Chain Verification & Payment          │
+│   - Pay Prover A & B (matching results)    │
+│   - Penalize Prover C (dishonest)          │
+│   - Return result to client                │
+└────────────────────────────────────────────┘
 ```
 
 ## Technology Stack
 
-- **Smart Contracts:** Solana (bare metal, no Anchor) + Light Protocol (ZK Compression)
-- **Prover Node:** Rust + Halo2 (Orchard circuit)
-- **Mobile Client:** Flutter + Rust FFI
-- **Reputation:** Solana Attestation Service (SAS)
-- **Encryption:** Post-quantum key exchange
+- **Smart Contracts:** Solana (bare metal, no Anchor)
+- **Prover Node:** Rust + TFHE-rs (FHE engine) + Halo2 (ZK circuits)
+- **SDK:** Rust client library with 3-layer architecture
+- **Consensus:** On-chain hash-based result verification
+- **Encryption:** Post-quantum key exchange (ML-KEM)
+- **UI:** Terminal User Interface (TUI) with ratatui
 
 ## Quick Links
 
@@ -77,10 +87,14 @@ zyberlink/
 ├── programs/              # Solana smart contracts
 │   └── cypherlink/        # Main marketplace program
 ├── sdk/                   # Client SDK (Rust)
-├── prover-node/           # Desktop prover daemon
-├── cypherlink-wallet/     # Flutter mobile wallet
+├── prover-node/           # Desktop prover daemon with TUI
+├── blink-server/          # Solana Actions/Blinks server
 ├── shared/                # Shared types and utilities
-├── tests/                 # Integration tests
+│   ├── types/             # State definitions
+│   └── crypto/            # Cryptographic utilities
+├── e2e-tests/             # End-to-end integration tests
+├── witness-storage/       # Encrypted witness storage server
+├── demo/                  # Demo scripts and orchestration
 ├── scripts/               # Deployment and utility scripts
 └── docs/                  # Documentation
 ```
@@ -89,18 +103,23 @@ zyberlink/
 
 **In Development** - Zypherpunk Hackathon (Nov 10 - Dec 1, 2025)
 
-Current phase: Week 1 - Core Infrastructure
+**Current Features:**
+- [DONE]Multi-prover marketplace on Solana
+- [DONE]FHE computation engine (TFHE-rs)
+- [DONE]On-chain consensus algorithm
+- [DONE]Terminal UI for prover monitoring
+- [DONE]Interactive setup wizard
+- [DONE]FHE E2E tests (14/14 self-executing tests passing)
 
-See [ROADMAP.md](docs/ROADMAP.md) for detailed timeline and milestones.
+See [ROADMAP.md](ROADMAP.md) for planned features and timeline.
 
 ## Getting Started
 
 ### Prerequisites
 
 - Rust 1.75+
-- Solana CLI 1.18+
-- Flutter 3.16+
-- Node.js 18+ (for testing)
+- Solana CLI 2.1+
+- cargo (included with Rust)
 
 ### Quick Start
 
@@ -109,29 +128,28 @@ See [ROADMAP.md](docs/ROADMAP.md) for detailed timeline and milestones.
 git clone https://github.com/yourusername/zyberlink.git
 cd zyberlink
 
-# Install dependencies
-./scripts/setup.sh
-
 # Build all components
 cargo build --release
 
 # Run tests
 cargo test --all
 
-# Start local Solana validator
+# Start local Solana validator (Terminal 1)
 solana-test-validator --reset
 
-# Deploy program (in new terminal)
-./scripts/deploy-local.sh
+# Deploy program (Terminal 2)
+solana program deploy target/deploy/cypherlink.so
 
-# Start prover node
-cd prover-node && cargo run --release
+# Run interactive prover setup wizard (Terminal 3)
+cd prover-node
+cargo run --release -- wizard
 
-# Run mobile wallet (in new terminal)
-cd cypherlink-wallet && flutter run
+# Or run demo with multiple provers (Terminal 3)
+cd demo
+./run-demo.sh
 ```
 
-See individual component READMEs for detailed setup instructions.
+See [demo/QUICKSTART.md](demo/QUICKSTART.md) for detailed demo instructions.
 
 ## Development
 
@@ -154,28 +172,25 @@ cargo test --test integration_tests
 # Build optimized binaries
 cargo build --release --all
 
-# Build mobile app
-cd cypherlink-wallet
-flutter build apk --release  # Android
-flutter build ios --release  # iOS
+# Build specific components
+cargo build --release -p cypherlink-sdk
+cargo build --release -p prover-node
+cargo build --release -p blink-server
 ```
 
 ## Use Cases
 
-### Current: Zcash Mobile Wallet
-- Shielded transactions 10x faster
-- Practical privacy for mobile users
-- Battery-efficient proving
+### FHE-Powered Privacy Applications
+- **Private DeFi:** Encrypted balance swaps without revealing amounts
+- **Confidential DAOs:** Private voting with verifiable results
+- **Privacy-Preserving Analytics:** Compute on encrypted datasets
+- **Secure Multi-Party Computation:** Distributed computation without trust
 
-### Planned: Anonymous Voting
-- DAO governance with privacy
-- Verifiable but anonymous votes
-- Mobile participation enabled
-
-### Future: Private Credentials
-- KYC without data exposure
-- Portable identity proofs
-- Compliance-friendly privacy
+### ZK Proof Infrastructure
+- **Wallet Proving:** Offload mobile ZK proof generation to network
+- **Proof Aggregation:** Batch multiple proofs efficiently
+- **Circuit Marketplaces:** Provers advertise specialized circuit support
+- **Cross-Chain Privacy:** Bridge ZK proofs across L1s/L2s
 
 ## Business Model
 
@@ -186,16 +201,43 @@ flutter build ios --release  # iOS
 
 **Example:** 10,000 proofs/day = $200 daily volume = $20 platform revenue
 
+## Roadmap
+
+### Phase 1: Multi-Prover Consensus (Current - Nov 2025)
+- [DONE]Solana marketplace program
+- [DONE]FHE computation engine (TFHE-rs)
+- [DONE]Terminal UI for prover monitoring
+- [DONE]Complete FHE E2E integration
+- [DONE]On-chain consensus finalization
+
+### Phase 2: Light Protocol Integration (Post-Hackathon)
+- 🔜 ZK Compression for state management
+- 🔜 Reduced on-chain storage costs
+- 🔜 Scalable job history
+
+### Phase 3: Advanced Features (Q1 2026)
+- 🔮 Hardware acceleration (GPU/FPGA support)
+- 🔮 Mobile wallet SDK integration
+- 🔮 Reputation-weighted prover selection (SAS)
+- 🔮 Dynamic pricing mechanisms
+- 🔮 Circuit marketplace
+
+### Phase 4: Production Deployment (Q2 2026)
+- 🔮 Security audit
+- 🔮 Mainnet deployment
+- 🔮 Developer grants program
+- 🔮 Enterprise API tier
+
 ## Contributing
 
 This project is currently in hackathon development mode. After December 1, 2025, we will open for community contributions.
 
 For now, if you're interested in:
 - Running a prover node (beta testing)
-- Testing the wallet (mobile beta)
-- Partnership discussions
+- Integration partnerships
+- Contributing to the codebase
 
-Please reach out via [contact method].
+Please reach out via GitHub Discussions or open an issue.
 
 ## Related Repositories
 
@@ -214,10 +256,10 @@ at your option.
 
 ## Acknowledgments
 
-- **Zcash Foundation** - For the Orchard circuit and ZK research
 - **Solana Foundation** - For the high-performance blockchain layer
-- **Light Protocol** - For ZK Compression technology
-- **Zypherpunk Hackathon** - For the catalyst to build this
+- **ZAMA (TFHE-rs)** - For the FHE library powering encrypted computations
+- **Zcash Foundation** - For ZK proving research and Halo2 circuits
+- **Zypherpunk Hackathon** - For the catalyst to build this infrastructure
 
 ---
 

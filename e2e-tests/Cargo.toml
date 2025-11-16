@@ -34,8 +34,11 @@ serde_json = "1"
 # Solana SDK for test orchestration (match version with program)
 solana-sdk = "2.1"
 solana-client = "2.1"
+solana-program-test = "2.1"
+solana-program = "2.1"
 cypherlink-types = { path = "../shared/types" }
 cypherlink-sdk = { path = "../sdk" }
+cypherlink = { path = "../programs/cypherlink" }
 
 # FHE dependencies for testing
 tfhe = { version = "0.10", features = ["integer", "x86_64-unix"] }
