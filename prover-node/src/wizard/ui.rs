@@ -137,7 +137,7 @@ impl Spinner {
         pb.set_style(
             ProgressStyle::default_spinner()
                 .template("{spinner:.green} {msg}")
-                .unwrap(),
+                .expect("Static progress spinner template should be valid"),
         );
         pb.set_message(msg.to_string());
         pb.enable_steady_tick(Duration::from_millis(100));

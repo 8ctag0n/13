@@ -180,7 +180,14 @@ impl TUIApp {
     }
 
     fn render_stats(&self, f: &mut Frame, area: Rect) {
-        let stats = self.state.stats.lock().unwrap().clone();
+        let stats = match self.state.stats.lock() {
+            Ok(guard) => guard.clone(),
+            Err(poisoned) => {
+                // Mutex poisoned (indicates a bug), but recover gracefully for demo
+                eprintln!("⚠️  Stats mutex poisoned, recovering...");
+                poisoned.into_inner().clone()
+            }
+        };
 
         // Split stats area into columns
         let stat_chunks = Layout::default()
@@ -280,7 +287,14 @@ impl TUIApp {
     }
 
     fn render_jobs(&self, f: &mut Frame, area: Rect) {
-        let jobs = self.state.recent_jobs.lock().unwrap().clone();
+        let jobs = match self.state.recent_jobs.lock() {
+            Ok(guard) => guard.clone(),
+            Err(poisoned) => {
+                // Mutex poisoned (indicates a bug), but recover gracefully for demo
+                eprintln!("⚠️  Jobs mutex poisoned, recovering...");
+                poisoned.into_inner().clone()
+            }
+        };
 
         let items: Vec<ListItem> = jobs
             .iter()
