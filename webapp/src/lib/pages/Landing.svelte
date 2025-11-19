@@ -1,6 +1,21 @@
 <script>
   import Logo from '../components/Logo.svelte';
   import WalletConnect from '../components/WalletConnect.svelte';
+  import HeroBootSequence from '../components/HeroBootSequence.svelte';
+  import FHEFlow from '../components/FHEFlow.svelte';
+  import StatsBar from '../components/StatsBar.svelte';
+  import Timeline from '../components/Timeline.svelte';
+  import Footer from '../components/Footer.svelte';
+  import { navigateTo } from '../stores/router';
+
+  function skipToDemo() {
+    navigateTo('dashboard');
+  }
+
+  function exploreDocs() {
+    // Placeholder for docs navigation
+    console.log('Navigate to docs');
+  }
 </script>
 
 <div class="landing">
@@ -13,8 +28,21 @@
         <span>&gt;</span> COMPUTE_ON_ENCRYPTED_DATA.ZERO_TRUST<span class="cursor-blink"></span>
       </div>
 
+      <!-- Boot Sequence -->
+      <HeroBootSequence />
+
       <!-- Main Hero Card -->
-      <div class="tui-box hero-card">
+      <div class="hero-card-wrapper">
+        <!-- Lock Cipher Watermark -->
+        <div class="lock-cipher-bg text-mono">
+          <pre>   ╔══════════╗
+╔══╝ ENCRYPTED ╚══╗
+║  DATA FLOW    ║
+╚══╗ PROTECTED ╔══╝
+   ╚══════════╝</pre>
+        </div>
+
+        <div class="tui-box hero-card">
         <!-- ASCII Corner Decorations -->
         <div class="corner-tl text-mono text-violet">╔═══</div>
         <div class="corner-tr text-mono text-violet">═══╗</div>
@@ -66,14 +94,32 @@
             </div>
           </div>
 
-          <!-- Wallet Connect Section -->
-          <div class="wallet-section">
-            <WalletConnect />
+          <!-- CTA Section -->
+          <div class="cta-section">
+            <div class="cta-buttons">
+              <WalletConnect />
+              <button class="btn btn-secondary" on:click={skipToDemo}>
+                <span class="text-mono">[EXPLORE_JOBS →]</span>
+              </button>
+              <button class="btn btn-ghost" on:click={exploreDocs}>
+                <span class="text-mono">[READ_DOCS]</span>
+              </button>
+            </div>
+
+            <div class="text-xs text-muted text-center mt-4">
+              <span class="text-mono">&gt;</span> NO_WALLET_REQUIRED_FOR_EXPLORATION
+            </div>
           </div>
         </div>
       </div>
+      </div>
+    </section>
 
-      <!-- How It Works -->
+    <!-- Stats Banner -->
+    <StatsBar />
+
+    <!-- How It Works -->
+    <section class="hero fade-in">
       <div class="how-it-works mt-8">
         <div class="divider text-mono text-muted">
           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -81,7 +127,11 @@
 
         <h3 class="text-mono text-uppercase mt-6 mb-6">HOW_IT_WORKS:</h3>
 
-        <div class="steps">
+        <!-- FHE Flow Visualization -->
+        <FHEFlow animated={true} />
+
+        <!-- Traditional Steps (kept for reference) -->
+        <div class="steps mt-8">
           <div class="step">
             <div class="step-box tui-box-cyan">
               <div class="step-number text-mono text-cyan">STEP_1</div>
@@ -110,13 +160,19 @@
             </div>
           </div>
         </div>
-      </div>
 
-      <!-- Terminal Prompt -->
-      <div class="terminal-prompt text-mono text-muted mt-8">
-        &gt; READY_FOR_INPUT<span class="cursor-blink"></span>
+        <!-- Terminal Prompt -->
+        <div class="terminal-prompt text-mono text-muted mt-8">
+          &gt; READY_FOR_INPUT<span class="cursor-blink"></span>
+        </div>
       </div>
     </section>
+
+    <!-- Privacy Timeline -->
+    <Timeline />
+
+    <!-- Footer -->
+    <Footer />
   </div>
 </div>
 
@@ -139,11 +195,31 @@
     margin-bottom: var(--space-4);
   }
 
-  .hero-card {
+  .hero-card-wrapper {
     width: 100%;
     max-width: 900px;
     position: relative;
+  }
+
+  .lock-cipher-bg {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    opacity: 0.05;
+    z-index: 0;
+    pointer-events: none;
+    font-size: var(--text-xl);
+    color: var(--zyber-cyan);
+    text-shadow: 0 0 30px var(--zyber-cyan);
+    line-height: 1.4;
+  }
+
+  .hero-card {
+    width: 100%;
+    position: relative;
     padding: var(--space-12);
+    z-index: 1;
   }
 
   /* ASCII Corner Decorations */
@@ -215,9 +291,22 @@
     gap: var(--space-3);
   }
 
-  .wallet-section {
+  .cta-section {
+    width: 100%;
+  }
+
+  .cta-buttons {
     display: flex;
+    gap: var(--space-4);
     justify-content: center;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .cta-buttons .btn {
+    flex: 1;
+    min-width: 180px;
+    max-width: 220px;
   }
 
   .divider {

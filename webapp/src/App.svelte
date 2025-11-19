@@ -7,10 +7,10 @@
   import './styles/tui-system.css';
   import './app.css';
 
-  // Auto-navigate to dashboard when wallet connects
-  $: if ($walletStore.connected && $currentRoute === 'landing') {
-    currentRoute.set('dashboard');
-  }
+  // Auto-navigate to dashboard when wallet connects (optional - user can skip)
+  // $: if ($walletStore.connected && $currentRoute === 'landing') {
+  //   currentRoute.set('dashboard');
+  // }
 </script>
 
 <main>
