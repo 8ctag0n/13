@@ -6,6 +6,7 @@
   import StatsBar from '../components/StatsBar.svelte';
   import Timeline from '../components/Timeline.svelte';
   import Footer from '../components/Footer.svelte';
+  import GlobalNavigation from '../components/GlobalNavigation.svelte';
   import { navigateTo } from '../stores/router';
 
   function skipToDemo() {
@@ -19,9 +20,12 @@
 </script>
 
 <div class="landing">
+  <!-- Global Navigation (Grok style) -->
+  <GlobalNavigation />
+
   <div class="container">
     <!-- Hero Section -->
-    <section class="hero fade-in">
+    <section id="hero" class="hero fade-in">
       <Logo />
 
       <div class="tagline text-mono text-cyan">
@@ -116,10 +120,12 @@
     </section>
 
     <!-- Stats Banner -->
-    <StatsBar />
+    <div id="stats">
+      <StatsBar />
+    </div>
 
     <!-- How It Works -->
-    <section class="hero fade-in">
+    <section id="how-it-works" class="hero fade-in">
       <div class="how-it-works mt-8">
         <div class="divider text-mono text-muted">
           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -169,10 +175,14 @@
     </section>
 
     <!-- Privacy Timeline -->
-    <Timeline />
+    <div id="timeline">
+      <Timeline />
+    </div>
 
     <!-- Footer -->
-    <Footer />
+    <div id="footer">
+      <Footer />
+    </div>
   </div>
 </div>
 

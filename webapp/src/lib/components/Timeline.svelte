@@ -1,5 +1,6 @@
 <script>
   import TimelineNode from './TimelineNode.svelte';
+  import TimelineNavigation from './TimelineNavigation.svelte';
   import { onMount } from 'svelte';
 
   let activeNode = 0;
@@ -79,15 +80,50 @@
         observer.observe(node);
       });
 
-      return () => observer.disconnect();
+      // Keyboard navigation
+      const handleKeyDown = (e) => {
+        if (e.key === 'ArrowLeft') {
+          e.preventDefault();
+          scrollToNode(Math.max(0, activeNode - 1));
+        } else if (e.key === 'ArrowRight') {
+          e.preventDefault();
+          scrollToNode(Math.min(timelineData.length - 1, activeNode + 1));
+        }
+      };
+
+      window.addEventListener('keydown', handleKeyDown);
+
+      return () => {
+        observer.disconnect();
+        window.removeEventListener('keydown', handleKeyDown);
+      };
     }
   });
 
   function scrollToNode(index) {
-    const node = scrollContainer?.children[index];
-    if (node) {
-      node.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+    if (!scrollContainer) return;
+
+    const track = scrollContainer.querySelector('.timeline-track');
+    const nodes = track?.children;
+    const targetNode = nodes?.[index];
+
+    if (targetNode && scrollContainer) {
+      const containerRect = scrollContainer.getBoundingClientRect();
+      const nodeRect = targetNode.getBoundingClientRect();
+      const scrollLeft = scrollContainer.scrollLeft;
+
+      // Calculate position to center the node
+      const targetScrollLeft = scrollLeft + (nodeRect.left - containerRect.left) - (containerRect.width / 2) + (nodeRect.width / 2);
+
+      scrollContainer.scrollTo({
+        left: targetScrollLeft,
+        behavior: 'smooth'
+      });
     }
+  }
+
+  function handleNavigate(event) {
+    scrollToNode(event.detail.index);
   }
 </script>
 
@@ -101,42 +137,32 @@
     </p>
   </div>
 
-  <!-- Timeline Navigation Dots -->
-  <div class="timeline-nav">
-    {#each timelineData as _, index}
-      <button
-        class="nav-dot"
-        class:active={activeNode === index}
-        on:click={() => scrollToNode(index)}
-        aria-label="Go to {timelineData[index].year}"
-      >
-        <span class="dot-year text-mono text-xs">{timelineData[index].year}</span>
-      </button>
-    {/each}
-  </div>
+  <!-- Enhanced Timeline Navigation -->
+  <TimelineNavigation
+    {timelineData}
+    {activeNode}
+    on:navigate={handleNavigate}
+  />
 
   <!-- Timeline Scroll Container -->
-  <div class="timeline-container" bind:this={scrollContainer}>
-    <div class="timeline-track">
-      {#each timelineData as node, index}
-        <TimelineNode
-          year={node.year}
-          title={node.title}
-          subtitle={node.subtitle}
-          description={node.description}
-          icon={node.icon}
-          color={node.color}
-          active={activeNode === index}
-          link={node.link}
-          linkLabel={node.linkLabel}
-        />
-      {/each}
+  <div class="timeline-wrapper">
+    <div class="timeline-container" bind:this={scrollContainer}>
+      <div class="timeline-track">
+        {#each timelineData as node, index}
+          <TimelineNode
+            year={node.year}
+            title={node.title}
+            subtitle={node.subtitle}
+            description={node.description}
+            icon={node.icon}
+            color={node.color}
+            active={activeNode === index}
+            link={node.link}
+            linkLabel={node.linkLabel}
+          />
+        {/each}
+      </div>
     </div>
-  </div>
-
-  <!-- Scroll Hint -->
-  <div class="scroll-hint text-mono text-xs text-muted text-center mt-6">
-    <span class="text-cyan">&lt;</span> SCROLL_TO_EXPLORE <span class="text-cyan">&gt;</span>
   </div>
 </section>
 
@@ -160,42 +186,10 @@
     font-weight: 600;
   }
 
-  .timeline-nav {
-    display: flex;
-    justify-content: center;
-    gap: var(--space-4);
-    margin-bottom: var(--space-8);
-    flex-wrap: wrap;
-  }
-
-  .nav-dot {
-    background: rgba(6, 182, 212, 0.1);
-    border: 1px solid var(--zyber-border-secondary);
-    border-radius: var(--radius-full);
-    padding: var(--space-2) var(--space-4);
-    cursor: pointer;
-    transition: all var(--transition-base);
-  }
-
-  .nav-dot:hover {
-    background: rgba(6, 182, 212, 0.2);
-    border-color: var(--zyber-cyan);
-    transform: scale(1.05);
-  }
-
-  .nav-dot.active {
-    background: var(--zyber-cyan);
-    border-color: var(--zyber-cyan);
-    box-shadow: var(--zyber-glow-cyan);
-  }
-
-  .nav-dot.active .dot-year {
-    color: var(--zyber-bg-primary);
-    font-weight: 600;
-  }
-
-  .dot-year {
-    color: var(--zyber-text-muted);
+  /* Timeline Wrapper */
+  .timeline-wrapper {
+    position: relative;
+    width: 100%;
   }
 
   .timeline-container {
@@ -231,19 +225,6 @@
     position: relative;
   }
 
-  .scroll-hint {
-    animation: pulse-subtle 2s ease-in-out infinite;
-  }
-
-  @keyframes pulse-subtle {
-    0%, 100% {
-      opacity: 0.5;
-    }
-    50% {
-      opacity: 1;
-    }
-  }
-
   /* Responsive */
   @media (max-width: 768px) {
     .timeline-section {
@@ -256,10 +237,6 @@
 
     .timeline-header h2 {
       font-size: var(--text-xl);
-    }
-
-    .nav-dot {
-      padding: var(--space-1) var(--space-3);
     }
   }
 </style>

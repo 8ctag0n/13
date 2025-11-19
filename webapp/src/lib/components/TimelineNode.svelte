@@ -184,14 +184,33 @@
     padding: var(--space-6);
     min-height: 200px;
     position: relative;
-    background: rgba(0, 0, 0, 0.4);
-    backdrop-filter: blur(10px);
-    transition: all var(--transition-base);
+    background: linear-gradient(
+      135deg,
+      rgba(0, 0, 0, 0.5) 0%,
+      rgba(6, 182, 212, 0.05) 50%,
+      rgba(0, 0, 0, 0.5) 100%
+    );
+    backdrop-filter: blur(15px);
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
   }
 
   .node-button:hover .node-card {
-    transform: translateY(-4px);
-    box-shadow: 0 8px 30px rgba(6, 182, 212, 0.2);
+    transform: translateY(-8px);
+    box-shadow: 0 12px 40px rgba(6, 182, 212, 0.3),
+                0 0 60px rgba(6, 182, 212, 0.1);
+    background: linear-gradient(
+      135deg,
+      rgba(0, 0, 0, 0.5) 0%,
+      rgba(6, 182, 212, 0.1) 50%,
+      rgba(0, 0, 0, 0.5) 100%
+    );
+  }
+
+  .active .node-card {
+    border-color: var(--zyber-cyan);
+    box-shadow: 0 8px 30px rgba(6, 182, 212, 0.4),
+                0 0 80px rgba(6, 182, 212, 0.2);
   }
 
   .expanded .node-card {
@@ -201,21 +220,40 @@
   /* ASCII Corners */
   .corner-tl, .corner-tr, .corner-bl, .corner-br {
     position: absolute;
-    font-size: var(--text-base);
-    opacity: 0.5;
-    transition: all var(--transition-base);
+    font-size: var(--text-lg);
+    opacity: 0.3;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
-  .corner-tl { top: 0; left: 0; }
-  .corner-tr { top: 0; right: 0; }
-  .corner-bl { bottom: 0; left: 0; }
-  .corner-br { bottom: 0; right: 0; }
+  .corner-tl { top: -4px; left: -4px; }
+  .corner-tr { top: -4px; right: -4px; }
+  .corner-bl { bottom: -4px; left: -4px; }
+  .corner-br { bottom: -4px; right: -4px; }
+
+  .node-button:hover .corner-tl,
+  .node-button:hover .corner-tr,
+  .node-button:hover .corner-bl,
+  .node-button:hover .corner-br {
+    opacity: 0.8;
+  }
 
   .active .corner-tl,
   .active .corner-tr,
   .active .corner-bl,
   .active .corner-br {
     opacity: 1;
+    animation: corner-pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes corner-pulse {
+    0%, 100% {
+      opacity: 1;
+      filter: drop-shadow(0 0 3px currentColor);
+    }
+    50% {
+      opacity: 0.7;
+      filter: drop-shadow(0 0 8px currentColor);
+    }
   }
 
   .glow-cyan {
