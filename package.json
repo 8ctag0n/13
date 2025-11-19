@@ -1,0 +1,7 @@
+{
+  "dependencies": {
+    "@solana/wallet-standard": "^1.1.4",
+    "@solana/web3.js": "^1.95.8",
+    "@wallet-standard/core": "^1.1.1"
+  }
+}

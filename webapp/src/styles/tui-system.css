@@ -1,0 +1,652 @@
+/* ============================================================================
+   ZYBERLINK TUI DESIGN SYSTEM
+   Terminal UI aesthetic with cyber glassmorphism
+   ============================================================================ */
+
+/* ============================================================================
+   CSS VARIABLES - Design Tokens
+   ============================================================================ */
+
+:root {
+  /* Colors - Cyber Palette */
+  --zyber-quantum-violet: #8B5CF6;
+  --zyber-quantum-violet-dark: #7C3AED;
+  --zyber-quantum-violet-darker: #6D28D9;
+  --zyber-cyber-cyan: #06B6D4;
+  --zyber-cyber-cyan-dark: #0891B2;
+  --zyber-cyber-cyan-darker: #0E7490;
+
+  /* Semantic Colors */
+  --zyber-success: #10B981;
+  --zyber-warning: #F59E0B;
+  --zyber-error: #EF4444;
+  --zyber-info: #3B82F6;
+
+  /* Neutrals - Dark Mode */
+  --zyber-bg-base: #0F172A;
+  --zyber-bg-elevated: #1E293B;
+  --zyber-bg-card: rgba(15, 23, 42, 0.8);
+  --zyber-bg-glass: rgba(15, 23, 42, 0.7);
+
+  --zyber-text-primary: #FFFFFF;
+  --zyber-text-secondary: #E2E8F0;
+  --zyber-text-tertiary: #94A3B8;
+  --zyber-text-muted: #64748B;
+
+  --zyber-border-primary: rgba(139, 92, 246, 0.3);
+  --zyber-border-secondary: rgba(6, 182, 212, 0.3);
+  --zyber-border-muted: rgba(100, 116, 139, 0.2);
+
+  /* Glows */
+  --zyber-glow-violet: 0 0 40px rgba(139, 92, 246, 0.4);
+  --zyber-glow-violet-strong: 0 0 60px rgba(139, 92, 246, 0.6);
+  --zyber-glow-cyan: 0 0 30px rgba(6, 182, 212, 0.5);
+  --zyber-glow-cyan-strong: 0 0 50px rgba(6, 182, 212, 0.8);
+  --zyber-glow-success: 0 0 30px rgba(16, 185, 129, 0.6);
+
+  /* Typography */
+  --font-heading: 'Space Grotesk', system-ui, -apple-system, sans-serif;
+  --font-body: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+
+  /* Font Sizes */
+  --text-xs: 0.75rem;    /* 12px */
+  --text-sm: 0.875rem;   /* 14px */
+  --text-base: 1rem;     /* 16px */
+  --text-lg: 1.125rem;   /* 18px */
+  --text-xl: 1.25rem;    /* 20px */
+  --text-2xl: 1.5rem;    /* 24px */
+  --text-3xl: 1.875rem;  /* 30px */
+  --text-4xl: 2.25rem;   /* 36px */
+
+  /* Spacing */
+  --space-1: 0.25rem;   /* 4px */
+  --space-2: 0.5rem;    /* 8px */
+  --space-3: 0.75rem;   /* 12px */
+  --space-4: 1rem;      /* 16px */
+  --space-6: 1.5rem;    /* 24px */
+  --space-8: 2rem;      /* 32px */
+  --space-12: 3rem;     /* 48px */
+  --space-16: 4rem;     /* 64px */
+
+  /* Border Radius */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  /* Transitions */
+  --transition-fast: 150ms ease;
+  --transition-base: 300ms ease;
+  --transition-slow: 500ms ease;
+
+  /* Z-index */
+  --z-dropdown: 1000;
+  --z-sticky: 1020;
+  --z-fixed: 1030;
+  --z-modal-backdrop: 1040;
+  --z-modal: 1050;
+  --z-tooltip: 1070;
+}
+
+/* ============================================================================
+   GLOBAL RESETS & BASE STYLES
+   ============================================================================ */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  line-height: 1.6;
+  color: var(--zyber-text-primary);
+  background-color: var(--zyber-bg-base);
+  overflow-x: hidden;
+  position: relative;
+}
+
+/* Circuit Board Background Pattern */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image:
+    /* Horizontal lines */
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 49px,
+      rgba(139, 92, 246, 0.03) 49px,
+      rgba(139, 92, 246, 0.03) 50px
+    ),
+    /* Vertical lines */
+    repeating-linear-gradient(
+      90deg,
+      transparent,
+      transparent 49px,
+      rgba(139, 92, 246, 0.03) 49px,
+      rgba(139, 92, 246, 0.03) 50px
+    ),
+    /* Intersection dots */
+    radial-gradient(
+      circle at 50px 50px,
+      rgba(6, 182, 212, 0.1) 1px,
+      transparent 1px
+    );
+  background-size: 50px 50px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Scanlines Effect */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(0, 0, 0, 0.05) 0px,
+    transparent 1px,
+    transparent 2px,
+    rgba(0, 0, 0, 0.05) 3px
+  );
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.5;
+}
+
+/* ============================================================================
+   TYPOGRAPHY
+   ============================================================================ */
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+h1 { font-size: var(--text-4xl); }
+h2 { font-size: var(--text-3xl); }
+h3 { font-size: var(--text-2xl); }
+h4 { font-size: var(--text-xl); }
+h5 { font-size: var(--text-lg); }
+h6 { font-size: var(--text-base); }
+
+.text-mono {
+  font-family: var(--font-mono);
+  letter-spacing: 0;
+}
+
+.text-uppercase {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* ============================================================================
+   TUI BORDERS - ASCII Style
+   ============================================================================ */
+
+/* Border Characters Map:
+   ╔═╗  Top corners
+   ║    Vertical sides
+   ╚═╝  Bottom corners
+   ┏━┓  Alternative top
+   ┃    Alternative vertical
+   ┗━┛  Alternative bottom
+   ┌─┐  Light corners
+   │    Light vertical
+   └─┘  Light bottom
+*/
+
+.tui-box {
+  position: relative;
+  background: var(--zyber-bg-glass);
+  backdrop-filter: blur(20px);
+  border: 2px solid var(--zyber-border-primary);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
+  box-shadow: var(--zyber-glow-violet);
+}
+
+.tui-box-strong {
+  border: 2px solid var(--zyber-border-primary);
+  box-shadow: var(--zyber-glow-violet-strong);
+}
+
+.tui-box-cyan {
+  border-color: var(--zyber-border-secondary);
+  box-shadow: var(--zyber-glow-cyan);
+}
+
+/* ASCII Corner Decorations */
+.tui-box-ascii::before {
+  content: '╔═';
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  color: var(--zyber-quantum-violet);
+  font-family: var(--font-mono);
+  font-size: var(--text-lg);
+  line-height: 1;
+  text-shadow: var(--zyber-glow-violet);
+}
+
+.tui-box-ascii::after {
+  content: '═╗';
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  color: var(--zyber-quantum-violet);
+  font-family: var(--font-mono);
+  font-size: var(--text-lg);
+  line-height: 1;
+  text-shadow: var(--zyber-glow-violet);
+}
+
+/* ============================================================================
+   BUTTONS
+   ============================================================================ */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-6);
+  font-family: var(--font-heading);
+  font-size: var(--text-base);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-base);
+  white-space: nowrap;
+  user-select: none;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Primary Button - Violet Gradient */
+.btn-primary {
+  background: linear-gradient(135deg, var(--zyber-quantum-violet), var(--zyber-quantum-violet-dark));
+  color: var(--zyber-text-primary);
+  border: 1px solid rgba(139, 92, 246, 0.4);
+  box-shadow:
+    var(--zyber-glow-violet),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.btn-primary:hover:not(:disabled) {
+  transform: scale(1.05);
+  box-shadow: var(--zyber-glow-violet-strong);
+}
+
+.btn-primary:active:not(:disabled) {
+  transform: translateY(2px) scale(0.98);
+}
+
+/* Secondary Button - Cyan */
+.btn-secondary {
+  background: linear-gradient(135deg, var(--zyber-cyber-cyan), var(--zyber-cyber-cyan-dark));
+  color: var(--zyber-text-primary);
+  border: 1px solid rgba(6, 182, 212, 0.4);
+  box-shadow: var(--zyber-glow-cyan);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  transform: scale(1.05);
+  box-shadow: var(--zyber-glow-cyan-strong);
+}
+
+/* Ghost Button - Transparent with border */
+.btn-ghost {
+  background: transparent;
+  color: var(--zyber-cyber-cyan);
+  border: 2px solid var(--zyber-border-secondary);
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background: rgba(6, 182, 212, 0.1);
+  box-shadow: var(--zyber-glow-cyan);
+}
+
+/* Success Button */
+.btn-success {
+  background: var(--zyber-success);
+  color: white;
+  box-shadow: var(--zyber-glow-success);
+}
+
+/* Button Sizes */
+.btn-sm {
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-sm);
+}
+
+.btn-lg {
+  padding: var(--space-4) var(--space-8);
+  font-size: var(--text-lg);
+  min-height: 56px;
+}
+
+/* Ripple Effect on Click */
+.btn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.3) 0%, transparent 70%);
+  transform: scale(0);
+  opacity: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.btn:active::after {
+  animation: ripple 0.6s ease-out;
+}
+
+@keyframes ripple {
+  to {
+    transform: scale(2.5);
+    opacity: 0;
+  }
+}
+
+/* ============================================================================
+   INPUTS & FORMS
+   ============================================================================ */
+
+.input {
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+  color: var(--zyber-text-primary);
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid var(--zyber-border-primary);
+  border-radius: var(--radius-md);
+  outline: none;
+  transition: all var(--transition-base);
+}
+
+.input:focus {
+  border-color: var(--zyber-cyber-cyan);
+  box-shadow: var(--zyber-glow-cyan);
+}
+
+.input::placeholder {
+  color: var(--zyber-text-muted);
+}
+
+/* Code Block Input */
+.input-code {
+  font-family: var(--font-mono);
+  background: rgba(0, 0, 0, 0.5);
+  border-color: var(--zyber-border-secondary);
+  color: var(--zyber-cyber-cyan);
+}
+
+/* ============================================================================
+   PROGRESS BARS
+   ============================================================================ */
+
+.progress-bar {
+  width: 100%;
+  height: 12px;
+  background: rgba(100, 116, 139, 0.2);
+  border-radius: 6px;
+  overflow: hidden;
+  position: relative;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--zyber-quantum-violet), var(--zyber-cyber-cyan));
+  border-radius: 6px;
+  transition: width var(--transition-slow);
+  position: relative;
+  box-shadow: 0 0 15px rgba(6, 182, 212, 0.8);
+}
+
+/* Shimmer effect on progress */
+.progress-fill::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.3),
+    transparent
+  );
+  animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* ASCII Style Progress */
+.progress-ascii {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--zyber-cyber-cyan);
+}
+
+/* ============================================================================
+   CARDS
+   ============================================================================ */
+
+.card {
+  background: var(--zyber-bg-glass);
+  backdrop-filter: blur(20px);
+  border: 1px solid;
+  border-image: linear-gradient(
+    135deg,
+    rgba(139, 92, 246, 0.3),
+    rgba(6, 182, 212, 0.3)
+  ) 1;
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
+  box-shadow:
+    var(--zyber-glow-violet),
+    0 8px 32px rgba(0, 0, 0, 0.3);
+  transition: all var(--transition-base);
+}
+
+.card:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    var(--zyber-glow-violet-strong),
+    0 12px 40px rgba(0, 0, 0, 0.4);
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--zyber-border-muted);
+}
+
+/* ============================================================================
+   STATUS BADGES
+   ============================================================================ */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-radius: var(--radius-sm);
+  font-weight: 500;
+}
+
+.badge-success {
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: var(--zyber-success);
+}
+
+.badge-warning {
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  color: var(--zyber-warning);
+}
+
+.badge-error {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: var(--zyber-error);
+}
+
+.badge-info {
+  background: rgba(6, 182, 212, 0.15);
+  border: 1px solid rgba(6, 182, 212, 0.3);
+  color: var(--zyber-cyber-cyan);
+}
+
+/* ============================================================================
+   ANIMATIONS
+   ============================================================================ */
+
+/* Cursor Blink */
+@keyframes blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+.cursor-blink::after {
+  content: '_';
+  animation: blink 1s infinite;
+}
+
+/* Spin Animation */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+/* Pulse Animation */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.pulse {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+/* Glow Pulse */
+@keyframes glow-pulse {
+  0%, 100% {
+    box-shadow: var(--zyber-glow-violet);
+  }
+  50% {
+    box-shadow: var(--zyber-glow-violet-strong);
+  }
+}
+
+.glow-pulse {
+  animation: glow-pulse 2s ease-in-out infinite;
+}
+
+/* Fade In */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-in {
+  animation: fadeIn 0.5s ease-out;
+}
+
+/* ============================================================================
+   UTILITY CLASSES
+   ============================================================================ */
+
+.container {
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 var(--space-6);
+}
+
+.flex {
+  display: flex;
+}
+
+.flex-col {
+  flex-direction: column;
+}
+
+.items-center {
+  align-items: center;
+}
+
+.justify-between {
+  justify-content: space-between;
+}
+
+.gap-2 { gap: var(--space-2); }
+.gap-4 { gap: var(--space-4); }
+.gap-6 { gap: var(--space-6); }
+
+.mb-4 { margin-bottom: var(--space-4); }
+.mb-6 { margin-bottom: var(--space-6); }
+.mb-8 { margin-bottom: var(--space-8); }
+
+.mt-4 { margin-top: var(--space-4); }
+.mt-8 { margin-top: var(--space-8); }
+
+.text-center {
+  text-align: center;
+}
+
+.text-cyan {
+  color: var(--zyber-cyber-cyan);
+}
+
+.text-violet {
+  color: var(--zyber-quantum-violet);
+}
+
+.text-success {
+  color: var(--zyber-success);
+}
+
+.text-muted {
+  color: var(--zyber-text-muted);
+}
