@@ -25,24 +25,24 @@
 <div class="timeline-node" class:active class:expanded>
   <button class="node-button" on:click={toggleExpand}>
     <!-- Connection Line -->
-    <div class="node-line" class:color-{color}></div>
+    <div class="node-line color-{color}"></div>
 
     <!-- Node Dot -->
-    <div class="node-dot" class:color-{color}>
-      <div class="node-pulse" class:color-{color}></div>
+    <div class="node-dot color-{color}">
+      <div class="node-pulse color-{color}"></div>
       <div class="dot-inner text-mono">{icon}</div>
     </div>
 
     <!-- Node Card -->
     <div class="node-card tui-box">
       <!-- ASCII Corners -->
-      <div class="corner-tl text-mono" class:glow-{color}>╔═</div>
-      <div class="corner-tr text-mono" class:glow-{color}>═╗</div>
-      <div class="corner-bl text-mono" class:glow-{color}>╚═</div>
-      <div class="corner-br text-mono" class:glow-{color}>═╝</div>
+      <div class="corner-tl text-mono glow-{color}">╔═</div>
+      <div class="corner-tr text-mono glow-{color}">═╗</div>
+      <div class="corner-bl text-mono glow-{color}">╚═</div>
+      <div class="corner-br text-mono glow-{color}">═╝</div>
 
       <div class="node-content">
-        <div class="node-year text-mono" class:text-{color}>{year}</div>
+        <div class="node-year text-mono text-{color}">{year}</div>
         <div class="node-title text-mono">{title}</div>
         <div class="node-subtitle text-xs text-muted">{subtitle}</div>
 
@@ -62,7 +62,7 @@
                   class:disabled={!link}
                   on:click|stopPropagation={link ? null : (e) => e.preventDefault()}
                 >
-                  <span class="link-icon" class:text-{color}>→</span>
+                  <span class="link-icon text-{color}">→</span>
                   <span class="link-text">{linkLabel}</span>
                 </a>
               </div>
