@@ -12,6 +12,7 @@ borsh.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
+blake2 = "0.10"
 
 cypherlink-types = { path = "../shared/types" }
 

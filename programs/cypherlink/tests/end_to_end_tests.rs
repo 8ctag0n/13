@@ -79,6 +79,7 @@ async fn test_full_job_lifecycle() {
         witness_size: 2048,
         price_lamports,
         timeout_seconds: 600,
+        fhe_config: None, // ZK job, no FHE config
     };
 
     let create_job_ix = solana_program::instruction::Instruction {
@@ -298,6 +299,7 @@ async fn test_multiple_jobs_lifecycle() {
             witness_size: 2048,
             price_lamports: 1_000_000,
             timeout_seconds: 600,
+            fhe_config: None, // ZK job, no FHE config
         };
 
         let create_job_ix = solana_program::instruction::Instruction {

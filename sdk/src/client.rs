@@ -1,4 +1,5 @@
 use anyhow::Result;
+use blake2::{Blake2s256, Digest};
 use cypherlink_types::{CircuitType, FheConsensusConfig};
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::{
@@ -145,6 +146,44 @@ impl MarketplaceClient {
             ],
             data: instruction_data.pack()?,
         })
+    }
+
+    /// Build CreateFheJob instruction (convenience wrapper for FHE jobs)
+    ///
+    /// Creates an FHE computation job from encrypted input data.
+    /// Automatically computes the witness commitment from the encrypted input using Blake2s-256.
+    ///
+    /// # Arguments
+    /// * `creator` - Job creator pubkey (will sign and pay)
+    /// * `job_id` - Unique job ID (used for PDA derivation)
+    /// * `encrypted_input` - Encrypted input data for FHE computation
+    /// * `fhe_config` - FHE consensus configuration
+    /// * `price_lamports` - Payment for job completion
+    /// * `timeout_seconds` - Job timeout in seconds
+    pub fn create_fhe_job_instruction(
+        &self,
+        creator: &Pubkey,
+        job_id: u64,
+        encrypted_input: &[u8],
+        fhe_config: FheConsensusConfig,
+        price_lamports: u64,
+        timeout_seconds: i64,
+    ) -> Result<Instruction> {
+        // Create witness commitment from encrypted input using Blake2s-256
+        let mut hasher = Blake2s256::new();
+        hasher.update(encrypted_input);
+        let witness_commitment: [u8; 32] = hasher.finalize().into();
+
+        self.create_job_instruction(
+            creator,
+            job_id,
+            CircuitType::FheComputation(fhe_config.operation.clone()),
+            witness_commitment,
+            encrypted_input.len() as u32,
+            price_lamports,
+            timeout_seconds,
+            Some(fhe_config),
+        )
     }
 
     /// Build ClaimJob instruction
@@ -375,9 +414,14 @@ impl MarketplaceClient {
             AccountMeta::new_readonly(solana_sdk::sysvar::clock::id(), false),
         ];
 
-        // Add prover accounts (dynamic)
-        for prover in prover_accounts {
-            accounts.push(AccountMeta::new(*prover, false));
+        // Add prover accounts (dynamic) - need [authority, pda] per prover
+        for prover_authority in prover_accounts {
+            let (prover_pda, _) = Pubkey::find_program_address(
+                &[b"prover", prover_authority.as_ref()],
+                &self.program_id
+            );
+            accounts.push(AccountMeta::new(*prover_authority, false));
+            accounts.push(AccountMeta::new(prover_pda, false));
         }
 
         Ok(Instruction {

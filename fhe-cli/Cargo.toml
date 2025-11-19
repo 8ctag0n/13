@@ -1,0 +1,35 @@
+[package]
+name = "fhe-cli"
+version = "0.1.0"
+edition = "2021"
+authors = ["ZyberLink Team"]
+description = "CLI tools for FHE encryption/decryption for ZyberLink"
+
+[[bin]]
+name = "fhe-encrypt"
+path = "src/bin/fhe_encrypt.rs"
+
+[[bin]]
+name = "fhe-decrypt"
+path = "src/bin/fhe_decrypt.rs"
+
+[dependencies]
+# FHE
+tfhe = { version = "0.10", features = ["integer", "x86_64-unix"] }
+
+# Serialization
+bincode = "1.3"
+base64 = "0.22"
+
+# Error handling
+anyhow = "1.0"
+
+# CLI utilities
+colored = "2.1"
+atty = "0.2"
+
+# File I/O
+dirs = "5.0"
+
+[lib]
+path = "src/lib.rs"

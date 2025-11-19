@@ -1,9 +1,8 @@
 mod common;
 
-use borsh::BorshDeserialize;
 use common::{initialize_marketplace, register_prover, setup_program_test};
 use cypherlink::{
-    instruction::MarketplaceInstruction, state::JobAccount, state::MarketplaceConfig,
+    instruction::MarketplaceInstruction, state::MarketplaceConfig,
     state::ProverAccount,
 };
 use cypherlink_types::CircuitType;
@@ -35,6 +34,7 @@ async fn create_job(
         witness_size: 2048,
         price_lamports: 1_000_000,
         timeout_seconds: 600,
+        fhe_config: None, // ZK job, no FHE config
     };
 
     let create_job_ix = solana_program::instruction::Instruction {

@@ -439,3 +439,4 @@ lib-cov/
 
 # Archived/deprecated code (not for production)
 ___dump/
+docs-private/

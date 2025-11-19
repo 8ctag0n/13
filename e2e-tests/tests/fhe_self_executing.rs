@@ -305,7 +305,7 @@ async fn test_consensus_finalization_self_executing() -> Result<()> {
         &job_pda,
         &creator.pubkey(),
         &ctx.authority.pubkey(),  // protocol fee recipient
-        &[prover1.pubkey(), prover2.pubkey()],  // matching provers
+        &[prover1.pubkey(), prover2.pubkey(), prover3.pubkey()],  // ALL provers who submitted
     )?;
 
     ctx.execute_transaction(&[finalize_ix], &[&finalizer]).await?;
