@@ -17,11 +17,13 @@ mod witness_fetcher;
 mod tui;
 mod wizard;
 mod config;
+mod circuits;
 
 use fhe_engine::FheEngine;
 use halo2_prover::{Halo2Prover, OrchardWitness};
 use witness_encryption::WitnessEncryption;
 use witness_fetcher::WitnessFetcher;
+use circuits::PassportCircuit;
 
 /// CypherLink Prover Node - Autonomous ZK proof generation daemon
 #[derive(Parser, Debug)]
@@ -661,6 +663,7 @@ impl ProverNode {
         operation: &cypherlink_types::FheOperation,
     ) -> Result<Vec<u8>> {
         use cypherlink_types::FheOperation;
+        use crate::circuits::{CensusCircuit, PassportCircuit};
 
         // encrypted_input contains serialized FheUint8 ciphertext
         let input_bytes = encrypted_input.to_vec();
@@ -671,6 +674,48 @@ impl ProverNode {
             match operation {
                 FheOperation::Add(constant) => engine.compute_add(&input_bytes, constant),
                 FheOperation::Multiply(constant) => engine.compute_multiply(&input_bytes, constant),
+
+                // TRACK A - Foundation Layer (Day 2 implementation)
+                FheOperation::Sum { expected_count } => {
+                    // For Sum operation, input_bytes contains a serialized vector of encrypted values
+                    // Deserialize the vector of byte slices
+                    let inputs: Vec<Vec<u8>> = bincode::deserialize(&input_bytes)
+                        .context("Failed to deserialize Sum inputs")?;
+
+                    // Validate input count
+                    if inputs.len() != expected_count as usize {
+                        anyhow::bail!(
+                            "Expected {} inputs for Sum operation, got {}",
+                            expected_count,
+                            inputs.len()
+                        );
+                    }
+
+                    // Convert Vec<Vec<u8>> to Vec<&[u8]>
+                    let input_refs: Vec<&[u8]> = inputs.iter().map(|v| v.as_slice()).collect();
+
+                    // Use u16 by default for safety (handles up to 65k)
+                    CensusCircuit::compute_sum_u16(input_refs)
+                }
+                FheOperation::Threshold { threshold, greater_or_equal } => {
+                    PassportCircuit::compute_threshold(
+                        &input_bytes,
+                        threshold,
+                        greater_or_equal
+                    )
+                }
+                FheOperation::RangeCheck { min, max } => {
+                    PassportCircuit::compute_range_check(
+                        &input_bytes,
+                        min,
+                        max
+                    )
+                }
+
+                // Catch-all for future operations (Agent 2 will implement these)
+                _ => {
+                    anyhow::bail!("Operation {:?} not yet implemented", operation.name())
+                }
             }
         })
         .await
