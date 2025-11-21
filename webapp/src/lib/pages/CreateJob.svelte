@@ -27,10 +27,56 @@
   let serverKeyFile = null;
   let isDragging = false;
 
-  // Pricing
+  // Dynamic pricing estimation
+  let estimatedCost = null;
+  let isEstimating = false;
+
+  // Pricing (reactive based on estimated cost)
   $: totalCost = (jobData.priceLamports / 1000000000).toFixed(5);
   $: platformFee = (jobData.priceLamports * 0.01 / 1000000000).toFixed(5);
   $: totalWithFee = ((jobData.priceLamports * 1.01) / 1000000000).toFixed(5);
+
+  // Reactive: estimate cost whenever operation params change
+  $: {
+    if (jobData.operation && jobData.operationValue && jobData.requiredProvers) {
+      estimateCost();
+    }
+  }
+
+  // Fetch cost estimation from backend
+  async function estimateCost() {
+    isEstimating = true;
+    try {
+      const response = await fetch('http://localhost:8080/api/estimate-cost', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          operation: jobData.operation.toLowerCase(),
+          operation_value: jobData.operationValue,
+          expected_count: 100, // Default for operations that need it
+          bins: 5, // Default for histogram
+          required_provers: jobData.requiredProvers
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to estimate cost: ${response.statusText}`);
+      }
+
+      estimatedCost = await response.json();
+
+      // Update pricing based on estimate
+      jobData.priceLamports = estimatedCost.total_min_payment_lamports;
+
+      console.log('Cost estimated:', estimatedCost);
+    } catch (error) {
+      console.error('Failed to estimate cost:', error);
+      // Fall back to default pricing on error
+      jobData.priceLamports = jobData.requiredProvers === 3 ? 3000000 : 5000000;
+    } finally {
+      isEstimating = false;
+    }
+  }
 
   function handleDragOver(e) {
     e.preventDefault();
@@ -359,7 +405,7 @@
             <div class="radio-group">
               <label class="radio-option">
                 <input type="radio" bind:group={jobData.consensus} value="2-of-3"
-                  on:change={() => { jobData.requiredProvers = 3; jobData.consensusThreshold = 2; jobData.priceLamports = 2000000; }} />
+                  on:change={() => { jobData.requiredProvers = 3; jobData.consensusThreshold = 2; }} />
                 <span class="radio-label text-mono">
                   <span class="radio-check">●</span>
                   <span>2_OF_3_PROVERS</span>
@@ -370,7 +416,7 @@
 
               <label class="radio-option">
                 <input type="radio" bind:group={jobData.consensus} value="3-of-5"
-                  on:change={() => { jobData.requiredProvers = 5; jobData.consensusThreshold = 3; jobData.priceLamports = 4000000; }} />
+                  on:change={() => { jobData.requiredProvers = 5; jobData.consensusThreshold = 3; }} />
                 <span class="radio-label text-mono">
                   <span class="radio-check">○</span>
                   <span>3_OF_5_PROVERS</span>
@@ -388,12 +434,38 @@
 
           <!-- Cost Breakdown -->
           <div class="cost-breakdown tui-box-cyan">
-            <div class="text-mono text-uppercase mb-3">TOTAL_COST:</div>
+            <div class="text-mono text-uppercase mb-3">
+              {#if isEstimating}
+                <span class="text-cyan">[ESTIMATING_COST...]</span>
+              {:else}
+                TOTAL_COST:
+              {/if}
+            </div>
             <div class="cost-lines text-mono text-sm">
-              <div class="cost-line">
-                <span class="text-muted">Provers ({jobData.requiredProvers}):</span>
-                <span class="text-cyan">{totalCost}_SOL</span>
-              </div>
+              {#if estimatedCost}
+                <div class="cost-line">
+                  <span class="text-muted">Operation:</span>
+                  <span class="text-cyan">{estimatedCost.operation}</span>
+                  <span class="badge badge-info">TIER_{estimatedCost.complexity_tier}</span>
+                </div>
+                <div class="cost-line">
+                  <span class="text-muted">Base Cost/Prover:</span>
+                  <span class="text-cyan">{estimatedCost.min_payment_sol.toFixed(6)}_SOL</span>
+                </div>
+                <div class="cost-line">
+                  <span class="text-muted">Provers ({jobData.requiredProvers}):</span>
+                  <span class="text-cyan">{totalCost}_SOL</span>
+                </div>
+                <div class="cost-line">
+                  <span class="text-muted">Timeout:</span>
+                  <span class="text-cyan">{estimatedCost.timeout_seconds}s</span>
+                </div>
+              {:else}
+                <div class="cost-line">
+                  <span class="text-muted">Provers ({jobData.requiredProvers}):</span>
+                  <span class="text-cyan">{totalCost}_SOL</span>
+                </div>
+              {/if}
               <div class="cost-line">
                 <span class="text-muted">Platform Fee (1%):</span>
                 <span class="text-cyan">{platformFee}_SOL</span>
@@ -402,7 +474,7 @@
               <div class="cost-line total">
                 <span>Total:</span>
                 <span class="text-cyan">{totalWithFee}_SOL</span>
-                <span class="text-muted text-xs">~$0.02</span>
+                <span class="text-muted text-xs">~${(parseFloat(totalWithFee) * 20).toFixed(2)}</span>
               </div>
             </div>
           </div>
