@@ -2,8 +2,14 @@
   import { navigateTo } from '../stores/router';
   import { walletStore } from '../stores/wallet';
   import PaymentMethodSelector from '../components/PaymentMethodSelector.svelte';
+  import Loading from '../components/Loading.svelte';
+  import { ensureTokenAccount, WZEC_MINT } from '../utils/tokenAccountManager';
+  import { Connection, clusterApiUrl } from '@solana/web3.js';
+  import { toastStore } from '../stores/toast';
 
   let currentStep = 1;
+  let isProcessing = false;
+  let processingMessage = '';
   let jobData = {
     encryptedData: null,
     serverKey: null,
@@ -79,10 +85,52 @@
   }
 
   async function handleSubmit() {
-    // TODO: Implement actual transaction signing
-    alert('Transaction signing with wallet - Coming soon!');
-    // After successful submission:
-    // navigateTo('dashboard');
+    if (!$walletStore || !$walletStore.publicKey) {
+      toastStore.add('Please connect your wallet first', 'error');
+      return;
+    }
+
+    isProcessing = true;
+
+    try {
+      // If paying with wZEC, ensure token account exists
+      if (jobData.paymentMethod === 'wzec') {
+        const connection = new Connection(clusterApiUrl('devnet'), 'confirmed');
+
+        processingMessage = 'Checking wZEC token account...';
+
+        const tokenAccount = await ensureTokenAccount(
+          connection,
+          $walletStore,
+          WZEC_MINT,
+          (progress) => {
+            processingMessage = progress.message;
+            console.log(`Token account progress: ${progress.step} - ${progress.message}`);
+
+            // Show toast notifications for key progress steps
+            if (progress.step === 'creating') {
+              toastStore.add('Creating wZEC token account...', 'info');
+            } else if (progress.step === 'success') {
+              toastStore.add('wZEC token account ready!', 'success');
+            }
+          }
+        );
+      }
+
+      processingMessage = 'Preparing transaction...';
+
+      // TODO: Implement actual transaction signing
+      toastStore.add('Transaction signing coming soon!', 'info');
+      // After successful submission:
+      // navigateTo('dashboard');
+
+    } catch (error) {
+      console.error('Error during job creation:', error);
+      toastStore.add(error.message || 'Failed to create job', 'error');
+    } finally {
+      isProcessing = false;
+      processingMessage = '';
+    }
   }
 
   function handlePaymentMethodChange(event) {
@@ -432,18 +480,34 @@
           </h2>
 
           <div class="signing-state">
-            <div class="wallet-icon text-center mb-6">
-              <div class="text-6xl">👛</div>
-            </div>
+            {#if isProcessing}
+              <!-- Processing State -->
+              <div class="text-center mb-6">
+                <Loading size="large" />
+              </div>
 
-            <div class="text-mono text-center mb-4">
-              WAITING_FOR_WALLET_SIGNATURE<span class="cursor-blink"></span>
-            </div>
+              <div class="text-mono text-center mb-4 text-cyan">
+                {processingMessage || 'Processing...'}<span class="cursor-blink"></span>
+              </div>
 
-            <div class="text-sm text-muted text-center mb-6">
-              Check your {$walletStore.name || 'wallet'} extension<br/>
-              and approve the transaction
-            </div>
+              <div class="text-sm text-muted text-center mb-6">
+                Please wait while we prepare your transaction
+              </div>
+            {:else}
+              <!-- Wallet Signature State -->
+              <div class="wallet-icon text-center mb-6">
+                <div class="text-6xl">👛</div>
+              </div>
+
+              <div class="text-mono text-center mb-4">
+                WAITING_FOR_WALLET_SIGNATURE<span class="cursor-blink"></span>
+              </div>
+
+              <div class="text-sm text-muted text-center mb-6">
+                Check your {$walletStore.name || 'wallet'} extension<br/>
+                and approve the transaction
+              </div>
+            {/if}
 
             <div class="divider-section"></div>
 
@@ -451,6 +515,9 @@
               <div class="text-muted mb-2">TRANSACTION_DETAILS:</div>
               <div class="tx-line">• Create FHE Job</div>
               <div class="tx-line">• Cost: {totalWithFee}_SOL + network_fee (~0.000005_SOL)</div>
+              {#if jobData.paymentMethod === 'wzec'}
+                <div class="tx-line text-cyan">• Payment via wZEC token</div>
+              {/if}
             </div>
           </div>
         </div>
