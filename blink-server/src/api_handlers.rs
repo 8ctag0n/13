@@ -43,6 +43,27 @@ pub struct JobStatusResponse {
     pub created_at: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct EstimateCostRequest {
+    pub operation: String,           // "add", "multiply", "sum", etc.
+    pub operation_value: u8,         // Constant value for operation
+    pub expected_count: Option<u16>, // For operations like Sum, Average
+    pub bins: Option<u8>,            // Number of bins for Histogram
+    pub required_provers: u8,        // Number of provers for consensus
+}
+
+#[derive(Debug, Serialize)]
+pub struct EstimateCostResponse {
+    pub operation: String,
+    pub complexity_tier: u8,
+    pub min_payment_lamports: u64,
+    pub min_payment_sol: f64,
+    pub total_min_payment_lamports: u64, // min_payment × provers
+    pub total_min_payment_sol: f64,
+    pub timeout_seconds: i64,
+    pub estimated_compute_ms: u32,
+}
+
 // ============================================================================
 // API Endpoints
 // ============================================================================
@@ -318,6 +339,98 @@ async fn delete_job_data(
     }
 }
 
+/// POST /api/estimate-cost
+///
+/// Estimate the cost and timeout for a given FHE operation.
+/// Helps users understand pricing before creating a job.
+#[post("/api/estimate-cost")]
+async fn estimate_operation_cost(
+    req: web::Json<EstimateCostRequest>,
+) -> impl Responder {
+    use cypherlink_types::fhe::{FheOperation, HistogramBin};
+
+    log::info!("Estimating cost for operation: {}", req.operation);
+
+    // Parse operation from request
+    let operation = match req.operation.as_str() {
+        "add" => FheOperation::Add(req.operation_value),
+        "multiply" => FheOperation::Multiply(req.operation_value),
+        "sum" => {
+            let count = req.expected_count.unwrap_or(100);
+            FheOperation::Sum { expected_count: count }
+        }
+        "threshold" => {
+            FheOperation::Threshold {
+                threshold: req.operation_value,
+                greater_or_equal: true,
+            }
+        }
+        "range_check" => {
+            FheOperation::RangeCheck {
+                min: 0,
+                max: req.operation_value,
+            }
+        }
+        "average" => {
+            let count = req.expected_count.unwrap_or(100);
+            FheOperation::Average { expected_count: count }
+        }
+        "count_if" => {
+            let count = req.expected_count.unwrap_or(100);
+            FheOperation::CountIf {
+                predicate: cypherlink_types::fhe::FhePredicate::GreaterThan(req.operation_value),
+                expected_count: count,
+            }
+        }
+        "histogram" => {
+            let num_bins = req.bins.unwrap_or(5) as usize;
+            let bins: Vec<HistogramBin> = (0..num_bins)
+                .map(|i| HistogramBin::new(
+                    i as u8 * 10,
+                    (i as u8 + 1) * 10 - 1,
+                    format!("Bin {}", i + 1)
+                ))
+                .collect();
+            FheOperation::Histogram { bins }
+        }
+        _ => {
+            return HttpResponse::BadRequest().json(json!({
+                "error": format!("Unknown operation: {}", req.operation)
+            }));
+        }
+    };
+
+    // Get cost configuration
+    let cost_config = operation.get_cost_config();
+    let compute_time = operation.estimated_compute_time_ms();
+
+    // Calculate total cost with multiple provers
+    let total_min_payment = cost_config.min_payment_lamports * (req.required_provers as u64);
+
+    // Convert to SOL (1 SOL = 1_000_000_000 lamports)
+    let min_payment_sol = cost_config.min_payment_lamports as f64 / 1_000_000_000.0;
+    let total_min_payment_sol = total_min_payment as f64 / 1_000_000_000.0;
+
+    log::info!(
+        "Cost estimate for {}: tier {}, {} lamports/prover, {} total",
+        operation.name(),
+        cost_config.complexity_tier,
+        cost_config.min_payment_lamports,
+        total_min_payment
+    );
+
+    HttpResponse::Ok().json(EstimateCostResponse {
+        operation: operation.name().to_string(),
+        complexity_tier: cost_config.complexity_tier,
+        min_payment_lamports: cost_config.min_payment_lamports,
+        min_payment_sol,
+        total_min_payment_lamports: total_min_payment,
+        total_min_payment_sol,
+        timeout_seconds: cost_config.timeout_seconds,
+        estimated_compute_ms: compute_time,
+    })
+}
+
 // ============================================================================
 // Helper Functions
 // ============================================================================
@@ -338,25 +451,51 @@ fn build_create_job_transaction(
         _ => return Err(anyhow::anyhow!("Invalid operation")),
     };
 
+    // Validate pricing against dynamic cost model
+    let cost_config = operation.get_cost_config();
+    let min_price_per_prover = cost_config.min_payment_lamports;
+    let total_min_price = min_price_per_prover * (validated.required_provers as u64);
+
+    if validated.price_lamports < total_min_price {
+        return Err(anyhow::anyhow!(
+            "Price too low for operation '{}' (tier {}): {} < {} lamports",
+            operation.name(),
+            cost_config.complexity_tier,
+            validated.price_lamports,
+            total_min_price
+        ));
+    }
+
+    log::info!(
+        "Price validated - Op: {}, Tier: {}, Price: {}, Min: {}",
+        operation.name(),
+        cost_config.complexity_tier,
+        validated.price_lamports,
+        total_min_price
+    );
+
+    // Use dynamic timeout from cost config
+    let dynamic_timeout = cost_config.timeout_seconds;
+
     // Create FHE consensus config
     let fhe_config = FheConsensusConfig {
         required_provers: validated.required_provers,
         consensus_threshold: validated.consensus_threshold,
-        submission_timeout_secs: 300,
+        submission_timeout_secs: dynamic_timeout,
         operation,
     };
 
     // Build instruction based on payment method
     let instruction = match validated.payment_method.as_str() {
         "SOL" => {
-            // Use existing create_fhe_job for SOL payments
+            // Use existing create_fhe_job for SOL payments with dynamic timeout
             builder.create_fhe_job(
                 validated.creator,
                 validated.job_id as u64,
                 &validated.encrypted_data,
                 fhe_config,
                 validated.price_lamports,
-                300,
+                dynamic_timeout,
             )?
         }
         "wZEC" => {
@@ -391,7 +530,7 @@ fn build_create_job_transaction(
                 &validated.encrypted_data,
                 fhe_config,
                 validated.price_lamports, // In wZEC, this is in zatoshis
-                300,
+                dynamic_timeout,
                 token_mint_pubkey,
                 creator_token_account,
             )?
@@ -421,6 +560,7 @@ fn build_create_job_transaction(
 
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(validate_and_build_job)
+        .service(estimate_operation_cost)
         .service(get_compute_data)
         .service(confirm_job_transaction)
         .service(get_job_status)
