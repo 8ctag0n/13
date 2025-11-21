@@ -32,6 +32,16 @@ pub enum MarketplaceInstruction {
         fhe_config: Option<FheConsensusConfig>,
     },
 
+    /// Create a new proving job with SPL token payment
+    CreateJobWithToken {
+        circuit_type: CircuitType,
+        witness_commitment: [u8; 32],
+        witness_size: u32,
+        price_token_amount: u64,
+        timeout_seconds: i64,
+        fhe_config: Option<FheConsensusConfig>,
+    },
+
     /// Claim a pending job
     ClaimJob,
 

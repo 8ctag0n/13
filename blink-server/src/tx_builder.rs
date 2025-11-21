@@ -38,7 +38,7 @@ pub fn serialize_transaction(tx: &Transaction) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use solana_sdk::signature::Keypair;
+    use solana_sdk::signature::{Keypair, Signer};
 
     #[test]
     fn test_build_transfer_transaction() {

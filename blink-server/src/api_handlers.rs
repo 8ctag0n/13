@@ -89,6 +89,8 @@ async fn validate_and_build_job(
         price_lamports: validated.price_lamports as i64,
         required_provers: validated.required_provers as i16,
         consensus_threshold: validated.consensus_threshold as i16,
+        payment_method: validated.payment_method.clone(),
+        payment_token_mint: validated.payment_token_mint.clone(),
     };
 
     let db_id = match JobQueries::insert_pending_job(&data.db_pool, insert_data).await {
@@ -320,12 +322,14 @@ async fn delete_job_data(
 // Helper Functions
 // ============================================================================
 
-/// Build unsigned create_fhe_job transaction
+/// Build unsigned create_fhe_job transaction (supports SOL and wZEC payments)
 fn build_create_job_transaction(
     validated: &crate::validators::ValidatedJob,
     builder: &cypherlink_sdk::instructions::InstructionBuilder,
 ) -> anyhow::Result<Transaction> {
     use cypherlink_types::{FheConsensusConfig, FheOperation};
+    use solana_sdk::pubkey::Pubkey;
+    use std::str::FromStr;
 
     // Parse operation
     let operation = match validated.operation.as_str() {
@@ -342,15 +346,58 @@ fn build_create_job_transaction(
         operation,
     };
 
-    // Build instruction
-    let instruction = builder.create_fhe_job(
-        validated.creator,
-        validated.job_id as u64,
-        &validated.encrypted_data,
-        fhe_config,
-        validated.price_lamports,
-        300,
-    )?;
+    // Build instruction based on payment method
+    let instruction = match validated.payment_method.as_str() {
+        "SOL" => {
+            // Use existing create_fhe_job for SOL payments
+            builder.create_fhe_job(
+                validated.creator,
+                validated.job_id as u64,
+                &validated.encrypted_data,
+                fhe_config,
+                validated.price_lamports,
+                300,
+            )?
+        }
+        "wZEC" => {
+            // Use create_fhe_job_with_token for wZEC payments
+            let token_mint = validated
+                .payment_token_mint
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("Missing payment_token_mint for wZEC payment"))?;
+
+            let token_mint_pubkey = Pubkey::from_str(token_mint)
+                .map_err(|e| anyhow::anyhow!("Invalid token mint pubkey: {}", e))?;
+
+            // Derive creator's associated token account (using PDA derivation)
+            // ATA Program ID: ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL
+            let ata_program_id = Pubkey::from_str("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL")
+                .expect("Valid ATA program ID");
+
+            let (creator_token_account, _) = Pubkey::find_program_address(
+                &[
+                    validated.creator.as_ref(),
+                    &Pubkey::from_str("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
+                        .expect("Valid token program ID")
+                        .to_bytes(),
+                    token_mint_pubkey.as_ref(),
+                ],
+                &ata_program_id,
+            );
+
+            builder.create_fhe_job_with_token(
+                validated.creator,
+                validated.job_id as u64,
+                &validated.encrypted_data,
+                fhe_config,
+                validated.price_lamports, // In wZEC, this is in zatoshis
+                300,
+                token_mint_pubkey,
+                creator_token_account,
+            )?
+        }
+        _ => return Err(anyhow::anyhow!("Invalid payment method: {}", validated.payment_method)),
+    };
 
     // Get recent blockhash (in production, fetch from RPC)
     let recent_blockhash = solana_sdk::hash::Hash::default();

@@ -6,6 +6,7 @@ use solana_sdk::{
     pubkey::Pubkey,
     system_program, sysvar,
 };
+use std::str::FromStr;
 
 use crate::instruction::MarketplaceInstruction;
 
@@ -72,6 +73,11 @@ impl InstructionBuilder {
     /// Get escrow PDA
     pub fn escrow_pda(&self, job_pda: &Pubkey) -> (Pubkey, u8) {
         Pubkey::find_program_address(&[b"escrow", job_pda.as_ref()], &self.program_id)
+    }
+
+    /// Get token escrow PDA (for SPL token payments)
+    pub fn token_escrow_pda(&self, job_pda: &Pubkey) -> (Pubkey, u8) {
+        Pubkey::find_program_address(&[b"token_escrow", job_pda.as_ref()], &self.program_id)
     }
 
     // ============================================================================
@@ -238,6 +244,70 @@ impl InstructionBuilder {
             timeout_seconds,
             Some(fhe_config),
         )
+    }
+
+    /// Build CreateJobWithToken instruction for SPL token payments (e.g. wZEC)
+    ///
+    /// Creates an FHE computation job with SPL token payment.
+    /// Automatically computes the witness commitment from the encrypted input using Blake2s-256.
+    ///
+    /// # Arguments
+    /// * `creator` - Job creator pubkey (will sign and pay)
+    /// * `job_id` - Unique job ID (used for PDA derivation)
+    /// * `encrypted_input` - Encrypted input data for FHE computation
+    /// * `fhe_config` - FHE consensus configuration
+    /// * `price_token_amount` - Payment in token base units (e.g. zatoshis for wZEC)
+    /// * `timeout_seconds` - Job timeout in seconds
+    /// * `token_mint` - SPL token mint address (e.g. wZEC mint)
+    /// * `creator_token_account` - Creator's associated token account
+    pub fn create_fhe_job_with_token(
+        &self,
+        creator: Pubkey,
+        job_id: u64,
+        encrypted_input: &[u8],
+        fhe_config: FheConsensusConfig,
+        price_token_amount: u64,
+        timeout_seconds: i64,
+        token_mint: Pubkey,
+        creator_token_account: Pubkey,
+    ) -> Result<Instruction> {
+        // Create witness commitment from encrypted input using Blake2s-256
+        let mut hasher = Blake2s256::new();
+        hasher.update(encrypted_input);
+        let witness_commitment: [u8; 32] = hasher.finalize().into();
+
+        let (config_pda, _) = self.config_pda();
+        let (job_pda, _) = self.job_pda(&creator, job_id);
+        let (token_escrow_pda, _) = self.token_escrow_pda(&job_pda);
+
+        let instruction_data = MarketplaceInstruction::CreateJobWithToken {
+            circuit_type: CircuitType::FheComputation(fhe_config.operation.clone()),
+            witness_commitment,
+            witness_size: encrypted_input.len() as u32,
+            price_token_amount,
+            timeout_seconds,
+            fhe_config: Some(fhe_config),
+        };
+
+        // SPL Token program ID
+        let token_program_id = Pubkey::from_str("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
+            .expect("Valid SPL Token program ID");
+
+        Ok(Instruction {
+            program_id: self.program_id,
+            accounts: vec![
+                AccountMeta::new(creator, true),              // 0. creator (signer)
+                AccountMeta::new(job_pda, false),             // 1. job_pda
+                AccountMeta::new(config_pda, false),          // 2. config_pda
+                AccountMeta::new(token_escrow_pda, false),    // 3. token_escrow (PDA)
+                AccountMeta::new(creator_token_account, false), // 4. creator's token account
+                AccountMeta::new_readonly(token_mint, false), // 5. token mint
+                AccountMeta::new_readonly(system_program::id(), false), // 6. system program
+                AccountMeta::new_readonly(token_program_id, false),     // 7. token program
+                AccountMeta::new_readonly(sysvar::rent::id(), false),   // 8. rent sysvar
+            ],
+            data: instruction_data.pack()?,
+        })
     }
 
     /// Build ClaimJob instruction

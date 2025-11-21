@@ -136,6 +136,33 @@ pub enum MarketplaceInstruction {
     /// 7. `[]` Clock sysvar
     /// 8..N. `[writable]` Prover accounts (PDA) - dynamic list based on fhe_results
     FinalizeFheJob,
+
+    /// Create a new proving job with SPL token payment (e.g. wZEC)
+    ///
+    /// Accounts expected:
+    /// 0. `[writable, signer]` Job creator (wallet)
+    /// 1. `[writable]` Job account (PDA)
+    /// 2. `[writable]` MarketplaceConfig account
+    /// 3. `[writable]` Token escrow account (PDA)
+    /// 4. `[writable]` Creator's token account (source)
+    /// 5. `[]` Token mint
+    /// 6. `[]` System program
+    /// 7. `[]` Token program
+    /// 8. `[]` Rent sysvar
+    CreateJobWithToken {
+        /// Type of circuit/proof being requested
+        circuit_type: CircuitType,
+        /// Light Protocol commitment for encrypted witness
+        witness_commitment: [u8; 32],
+        /// Size of the witness data
+        witness_size: u32,
+        /// Price offered in token base units (e.g. zatoshis for wZEC)
+        price_token_amount: u64,
+        /// Job timeout in seconds (0 = use default)
+        timeout_seconds: i64,
+        /// FHE consensus config (only for FHE jobs)
+        fhe_config: Option<FheConsensusConfig>,
+    },
 }
 
 impl MarketplaceInstruction {
