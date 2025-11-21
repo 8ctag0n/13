@@ -18,12 +18,14 @@ mod tui;
 mod wizard;
 mod config;
 mod circuits;
+mod roi_calculator;
 
 use fhe_engine::FheEngine;
 use halo2_prover::{Halo2Prover, OrchardWitness};
 use witness_encryption::WitnessEncryption;
 use witness_fetcher::WitnessFetcher;
 use circuits::PassportCircuit;
+use roi_calculator::ROICalculator;
 
 /// CypherLink Prover Node - Autonomous ZK proof generation daemon
 #[derive(Parser, Debug)]
@@ -48,9 +50,17 @@ struct Args {
     #[arg(long, default_value = "5")]
     poll_interval: u64,
 
-    /// Minimum job price in lamports to accept
+    /// Minimum job price in lamports to accept (deprecated, use --min-roi instead)
     #[arg(long, default_value = "1000000")]
     min_price: u64,
+
+    /// Minimum ROI percentage required to accept a job
+    #[arg(long, default_value = "20.0")]
+    min_roi: f64,
+
+    /// Operational cost multiplier for overhead (infrastructure, electricity)
+    #[arg(long, default_value = "1.5")]
+    cost_multiplier: f64,
 
     /// Mock proving time in seconds (simulates proof generation)
     #[arg(long, default_value = "10")]
@@ -103,7 +113,9 @@ struct ProverConfig {
     program_id: solana_sdk::pubkey::Pubkey,
     keypair_path: String,
     poll_interval: Duration,
-    min_price: u64,
+    min_price: u64, // Deprecated: kept for backward compatibility
+    min_roi: f64,
+    cost_multiplier: f64,
     mock_proving_time: Duration,
     max_concurrent_jobs: usize,
     witness_backend_url: String,
@@ -125,6 +137,8 @@ impl ProverConfig {
             keypair_path: args.keypair.replace("~", &std::env::var("HOME").unwrap_or_default()),
             poll_interval: Duration::from_secs(args.poll_interval),
             min_price: args.min_price,
+            min_roi: args.min_roi,
+            cost_multiplier: args.cost_multiplier,
             mock_proving_time: Duration::from_secs(args.mock_proving_time),
             max_concurrent_jobs: args.max_concurrent_jobs,
             witness_backend_url: args.witness_backend_url.clone(),
@@ -139,6 +153,7 @@ struct ProverNode {
     client: Arc<MarketplaceClient>,
     keypair: Arc<Keypair>,
     config: ProverConfig,
+    roi_calculator: Arc<ROICalculator>,
     active_jobs: Arc<tokio::sync::Mutex<Vec<solana_sdk::pubkey::Pubkey>>>,
     halo2_prover: Arc<Halo2Prover>,
     witness_encryption: Arc<WitnessEncryption>,
@@ -196,10 +211,18 @@ impl ProverNode {
             None
         };
 
+        // Initialize ROI calculator
+        let roi_calculator = ROICalculator::new(config.min_roi, config.cost_multiplier);
+        info!(
+            "ROI calculator initialized - Min ROI: {:.1}%, Cost multiplier: {:.1}x",
+            config.min_roi, config.cost_multiplier
+        );
+
         Ok(Self {
             client: Arc::new(client),
             keypair: Arc::new(keypair),
             config,
+            roi_calculator: Arc::new(roi_calculator),
             active_jobs: Arc::new(tokio::sync::Mutex::new(Vec::new())),
             halo2_prover: Arc::new(halo2_prover),
             witness_encryption: Arc::new(witness_encryption),
@@ -249,11 +272,45 @@ impl ProverNode {
 
         info!("Found {} pending jobs", pending_jobs.len());
 
-        // Filter jobs by minimum price
-        let suitable_jobs: Vec<_> = pending_jobs
-            .into_iter()
-            .filter(|(_, job)| job.price_lamports >= self.config.min_price)
-            .collect();
+        // Filter jobs using ROI calculator - only accept profitable jobs
+        let mut suitable_jobs = Vec::new();
+        let mut rejected_count = 0;
+
+        for (job_pda, job) in pending_jobs {
+            // Get required provers from FHE config
+            let required_provers = match &job.circuit_type {
+                CircuitType::FheComputation(_) => {
+                    // Try to fetch FHE config from job account (not available in JobAccount struct)
+                    // For now, default to 3 provers
+                    3u8
+                }
+                _ => 3u8,
+            };
+
+            // Evaluate job profitability
+            let roi = self.roi_calculator.evaluate_job(
+                &job.circuit_type,
+                job.price_lamports,
+                required_provers,
+            );
+
+            if roi.is_profitable {
+                suitable_jobs.push((job_pda, job, roi));
+            } else {
+                rejected_count += 1;
+                debug!(
+                    "Rejected job {} - Tier {}, ROI {:.1}%, Profit: {} lamports",
+                    job.id, roi.complexity_tier, roi.roi_percentage, roi.profit
+                );
+            }
+        }
+
+        if rejected_count > 0 {
+            info!(
+                "Rejected {} unprofitable jobs (ROI < {:.1}%)",
+                rejected_count, self.config.min_roi
+            );
+        }
 
         // Update TUI stats with pending jobs count
         if let Some(ref tui) = self.tui_state {
@@ -264,22 +321,22 @@ impl ProverNode {
         }
 
         if suitable_jobs.is_empty() {
-            debug!("No suitable jobs available");
+            debug!("No profitable jobs available");
             return Ok(());
         }
 
         info!(
-            "Found {} suitable jobs (>= {} lamports)",
+            "Found {} profitable jobs (ROI >= {:.1}%)",
             suitable_jobs.len(),
-            self.config.min_price
+            self.config.min_roi
         );
 
         // Process jobs up to max concurrent limit
         let slots_available = self.config.max_concurrent_jobs - active_count;
-        for (job_pda, job) in suitable_jobs.into_iter().take(slots_available) {
+        for (job_pda, job, roi) in suitable_jobs.into_iter().take(slots_available) {
             info!(
-                "Processing job {} (price: {} lamports, circuit: {:?})",
-                job.id, job.price_lamports, job.circuit_type
+                "Processing job {} - Price: {} lamports, Circuit: {:?}, ROI: {:.1}%, Profit: {} lamports",
+                job.id, job.price_lamports, job.circuit_type, roi.roi_percentage, roi.profit
             );
 
             // Spawn job processing task
