@@ -1,4 +1,4 @@
-use cypherlink_types::{CircuitType, FheConsensusConfig};
+use cypherlink_types::{CircuitType, FheConsensusConfig, fhe::FheOperation};
 use solana_program::{
     account_info::{next_account_info, AccountInfo},
     entrypoint::ProgramResult,
@@ -94,24 +94,45 @@ pub fn process_create_job(
         return Err(CypherLinkProgramError::InvalidPrice.into());
     }
 
-    // Validate FHE configuration
+    // Validate FHE configuration and dynamic pricing
     match &circuit_type {
-        CircuitType::FheComputation(_) => {
+        CircuitType::FheComputation(fhe_op) => {
             // FHE job MUST have config
-            let config = fhe_config
+            let fhe_consensus_config = fhe_config
                 .as_ref()
                 .ok_or(CypherLinkProgramError::MissingFheConfig)?;
 
-            // Validate config
-            config.validate()
+            // Validate consensus config
+            fhe_consensus_config.validate()
                 .map_err(|_| CypherLinkProgramError::InvalidFheConfig)?;
 
-            // Validate minimum price for multi-prover
-            let min_price = config.required_provers as u64 * 1_000_000; // 0.001 SOL per prover
-            if price_lamports < min_price {
-                msg!("Price too low for FHE job: {} < {}", price_lamports, min_price);
+            // Get dynamic cost configuration based on operation complexity
+            let cost_config = fhe_op.get_cost_config();
+
+            // Calculate minimum price: operation cost × number of provers
+            // Each prover must be compensated for the full computation
+            let min_price_per_prover = cost_config.min_payment_lamports;
+            let total_min_price = min_price_per_prover * (fhe_consensus_config.required_provers as u64);
+
+            if price_lamports < total_min_price {
+                msg!(
+                    "Price too low for FHE operation '{}' (tier {}): {} < {} ({}×{} provers)",
+                    fhe_op.name(),
+                    cost_config.complexity_tier,
+                    price_lamports,
+                    total_min_price,
+                    min_price_per_prover,
+                    fhe_consensus_config.required_provers
+                );
                 return Err(CypherLinkProgramError::InvalidPrice.into());
             }
+
+            msg!(
+                "FHE job pricing validated - Op: {}, Tier: {}, Min: {} lamports",
+                fhe_op.name(),
+                cost_config.complexity_tier,
+                total_min_price
+            );
         }
         _ => {
             // Non-FHE job should NOT have config
@@ -126,11 +147,27 @@ pub fn process_create_job(
     let clock = Clock::get()?;
     let current_time = clock.unix_timestamp;
 
-    // Determine timeout
+    // Determine timeout with dynamic calculation for FHE operations
     let actual_timeout = if timeout_seconds > 0 {
+        // User explicitly set timeout
         timeout_seconds
     } else {
-        config.default_job_timeout_seconds
+        // Use dynamic timeout based on operation complexity
+        match &circuit_type {
+            CircuitType::FheComputation(fhe_op) => {
+                let cost_config = fhe_op.get_cost_config();
+                msg!(
+                    "Using dynamic timeout for {} operation: {} seconds",
+                    fhe_op.name(),
+                    cost_config.timeout_seconds
+                );
+                cost_config.timeout_seconds
+            }
+            _ => {
+                // Use default for non-FHE jobs
+                config.default_job_timeout_seconds
+            }
+        }
     };
 
     // Calculate rent for job account
