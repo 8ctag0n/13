@@ -663,7 +663,7 @@ impl ProverNode {
         operation: &cypherlink_types::FheOperation,
     ) -> Result<Vec<u8>> {
         use cypherlink_types::FheOperation;
-        use crate::circuits::{CensusCircuit, PassportCircuit};
+        use crate::circuits::{CensusCircuit, PassportCircuit, DemographicsCircuit, VotingCircuit};
 
         // encrypted_input contains serialized FheUint8 ciphertext
         let input_bytes = encrypted_input.to_vec();
@@ -675,10 +675,9 @@ impl ProverNode {
                 FheOperation::Add(constant) => engine.compute_add(&input_bytes, constant),
                 FheOperation::Multiply(constant) => engine.compute_multiply(&input_bytes, constant),
 
-                // TRACK A - Foundation Layer (Day 2 implementation)
+                // TRACK A - Foundation Layer
                 FheOperation::Sum { expected_count } => {
                     // For Sum operation, input_bytes contains a serialized vector of encrypted values
-                    // Deserialize the vector of byte slices
                     let inputs: Vec<Vec<u8>> = bincode::deserialize(&input_bytes)
                         .context("Failed to deserialize Sum inputs")?;
 
@@ -712,9 +711,66 @@ impl ProverNode {
                     )
                 }
 
-                // Catch-all for future operations (Agent 2 will implement these)
-                _ => {
-                    anyhow::bail!("Operation {:?} not yet implemented", operation.name())
+                // TRACK B - Extension Layer
+                FheOperation::Average { expected_count } => {
+                    // For Average operation, input_bytes contains a serialized vector of encrypted values
+                    let inputs: Vec<Vec<u8>> = bincode::deserialize(&input_bytes)
+                        .context("Failed to deserialize Average inputs")?;
+
+                    // Validate input count
+                    if inputs.len() != expected_count as usize {
+                        anyhow::bail!(
+                            "Expected {} inputs for Average operation, got {}",
+                            expected_count,
+                            inputs.len()
+                        );
+                    }
+
+                    // Convert Vec<Vec<u8>> to Vec<&[u8]>
+                    let input_refs: Vec<&[u8]> = inputs.iter().map(|v| v.as_slice()).collect();
+
+                    // Compute average (returns encrypted_sum, count)
+                    let (encrypted_sum, count) = DemographicsCircuit::compute_average_u16(input_refs)
+                        .context("Failed to compute average")?;
+
+                    // Serialize result as tuple (encrypted_sum, count)
+                    bincode::serialize(&(encrypted_sum, count))
+                        .context("Failed to serialize average result")
+                }
+
+                FheOperation::CountIf { ref predicate, expected_count } => {
+                    // For CountIf operation, input_bytes contains a serialized vector of encrypted values
+                    let inputs: Vec<Vec<u8>> = bincode::deserialize(&input_bytes)
+                        .context("Failed to deserialize CountIf inputs")?;
+
+                    // Validate input count
+                    if inputs.len() != expected_count as usize {
+                        anyhow::bail!(
+                            "Expected {} inputs for CountIf operation, got {}",
+                            expected_count,
+                            inputs.len()
+                        );
+                    }
+
+                    // Convert Vec<Vec<u8>> to Vec<&[u8]>
+                    let input_refs: Vec<&[u8]> = inputs.iter().map(|v| v.as_slice()).collect();
+
+                    // Compute count_if
+                    VotingCircuit::compute_count_if(input_refs, predicate)
+                        .context("Failed to compute count_if")
+                }
+
+                FheOperation::Histogram { ref bins } => {
+                    // For Histogram operation, input_bytes contains a serialized vector of encrypted values
+                    let inputs: Vec<Vec<u8>> = bincode::deserialize(&input_bytes)
+                        .context("Failed to deserialize Histogram inputs")?;
+
+                    // Convert Vec<Vec<u8>> to Vec<&[u8]>
+                    let input_refs: Vec<&[u8]> = inputs.iter().map(|v| v.as_slice()).collect();
+
+                    // Compute histogram
+                    VotingCircuit::compute_histogram(input_refs, bins)
+                        .context("Failed to compute histogram")
                 }
             }
         })

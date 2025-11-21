@@ -131,15 +131,59 @@ impl VotingCircuit {
         }
     }
 
-    // TODO: Agent 2 will implement Histogram on Day 5
-    // Depends on: Self::compute_count_if
-    //
-    // pub fn compute_histogram(
-    //     encrypted_inputs: Vec<&[u8]>,
-    //     bins: &[HistogramBin],
-    // ) -> Result<Vec<Vec<u8>>> {
-    //     // For each bin, run compute_count_if with InRange predicate
-    // }
+    /// Compute histogram distribution across bins
+    ///
+    /// For each bin, counts how many encrypted values fall within that bin's range.
+    ///
+    /// # Arguments
+    /// * `encrypted_inputs` - Vector of serialized FheUint8 ciphertexts
+    /// * `bins` - The histogram bin definitions
+    ///
+    /// # Returns
+    /// * `Result<Vec<u8>>` - Serialized vector of FheUint8 counts, one per bin
+    ///
+    /// # Example
+    /// ```ignore
+    /// let ages = vec![encrypt(15), encrypt(25), encrypt(35), encrypt(70)];
+    /// let bins = vec![
+    ///     HistogramBin::new(0, 17, "0-17"),
+    ///     HistogramBin::new(18, 65, "18-65"),
+    ///     HistogramBin::new(66, 255, "66+"),
+    /// ];
+    /// let histogram = VotingCircuit::compute_histogram(ages, &bins)?;
+    /// // decrypt(histogram) = [1, 2, 1] -> one child, two adults, one senior
+    /// ```
+    pub fn compute_histogram(
+        encrypted_inputs: Vec<&[u8]>,
+        bins: &[cypherlink_types::fhe::HistogramBin],
+    ) -> Result<Vec<u8>> {
+        if encrypted_inputs.is_empty() {
+            anyhow::bail!("Cannot compute histogram on empty input list");
+        }
+
+        if bins.is_empty() {
+            anyhow::bail!("Histogram requires at least one bin");
+        }
+
+        // For each bin, compute count using InRange predicate
+        let mut bin_counts = Vec::new();
+
+        for bin in bins {
+            let predicate = FhePredicate::InRange {
+                min: bin.min,
+                max: bin.max,
+            };
+
+            let count_bytes = Self::compute_count_if(encrypted_inputs.clone(), &predicate)
+                .context(format!("Failed to compute count for bin '{}'", bin.label))?;
+
+            bin_counts.push(count_bytes);
+        }
+
+        // Serialize the vector of counts
+        bincode::serialize(&bin_counts)
+            .context("Failed to serialize histogram results")
+    }
 }
 
 #[cfg(test)]
@@ -416,5 +460,200 @@ mod tests {
 
         // CountIf involves comparison + accumulation, expect < 10s
         assert!(duration.as_secs() < 10, "Performance target: CountIf(100) < 10s");
+    }
+
+    // HISTOGRAM TESTS
+
+    #[test]
+    fn test_histogram_age_distribution() {
+        let (client_key, server_key) = generate_test_keys();
+        set_server_key(server_key);
+
+        // Ages: [15, 25, 35, 45, 70, 20, 17, 66, 40, 10]
+        let ages = vec![15u8, 25, 35, 45, 70, 20, 17, 66, 40, 10];
+        let mut encrypted = vec![];
+
+        for age in ages {
+            let ct = FheUint8::try_encrypt(age, &client_key).unwrap();
+            encrypted.push(bincode::serialize(&ct).unwrap());
+        }
+
+        let input_refs: Vec<&[u8]> = encrypted.iter().map(|v| v.as_slice()).collect();
+
+        use cypherlink_types::fhe::HistogramBin;
+        let bins = vec![
+            HistogramBin::new(0, 17, "0-17 (child)"),
+            HistogramBin::new(18, 65, "18-65 (adult)"),
+            HistogramBin::new(66, 255, "66+ (senior)"),
+        ];
+
+        let histogram_bytes = VotingCircuit::compute_histogram(input_refs, &bins).unwrap();
+
+        let counts: Vec<Vec<u8>> = bincode::deserialize(&histogram_bytes).unwrap();
+        assert_eq!(counts.len(), 3);
+
+        // Decrypt each count
+        let count_child: FheUint8 = bincode::deserialize(&counts[0]).unwrap();
+        let count_adult: FheUint8 = bincode::deserialize(&counts[1]).unwrap();
+        let count_senior: FheUint8 = bincode::deserialize(&counts[2]).unwrap();
+
+        let child: u8 = count_child.decrypt(&client_key);
+        let adult: u8 = count_adult.decrypt(&client_key);
+        let senior: u8 = count_senior.decrypt(&client_key);
+
+        // Expected: 0-17: [15, 17, 10] = 3
+        //           18-65: [25, 35, 45, 20, 40] = 5
+        //           66+: [70, 66] = 2
+        assert_eq!(child, 3);
+        assert_eq!(adult, 5);
+        assert_eq!(senior, 2);
+
+        // Verify total
+        assert_eq!(child + adult + senior, 10);
+    }
+
+    #[test]
+    fn test_histogram_empty_bins() {
+        let (client_key, server_key) = generate_test_keys();
+        set_server_key(server_key);
+
+        // All values in middle range
+        let values = vec![50u8, 50, 50];
+        let mut encrypted = vec![];
+
+        for value in values {
+            let ct = FheUint8::try_encrypt(value, &client_key).unwrap();
+            encrypted.push(bincode::serialize(&ct).unwrap());
+        }
+
+        let input_refs: Vec<&[u8]> = encrypted.iter().map(|v| v.as_slice()).collect();
+
+        use cypherlink_types::fhe::HistogramBin;
+        let bins = vec![
+            HistogramBin::new(0, 30, "Low"),
+            HistogramBin::new(31, 70, "Medium"),
+            HistogramBin::new(71, 100, "High"),
+        ];
+
+        let histogram_bytes = VotingCircuit::compute_histogram(input_refs, &bins).unwrap();
+
+        let counts: Vec<Vec<u8>> = bincode::deserialize(&histogram_bytes).unwrap();
+        assert_eq!(counts.len(), 3);
+
+        let count_low: FheUint8 = bincode::deserialize(&counts[0]).unwrap();
+        let count_med: FheUint8 = bincode::deserialize(&counts[1]).unwrap();
+        let count_high: FheUint8 = bincode::deserialize(&counts[2]).unwrap();
+
+        let low: u8 = count_low.decrypt(&client_key);
+        let med: u8 = count_med.decrypt(&client_key);
+        let high: u8 = count_high.decrypt(&client_key);
+
+        assert_eq!(low, 0);
+        assert_eq!(med, 3);
+        assert_eq!(high, 0);
+    }
+
+    #[test]
+    fn test_histogram_empty_inputs_fails() {
+        use cypherlink_types::fhe::HistogramBin;
+        let bins = vec![HistogramBin::new(0, 10, "bin1")];
+        let result = VotingCircuit::compute_histogram(vec![], &bins);
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("empty"));
+    }
+
+    #[test]
+    fn test_histogram_empty_bins_fails() {
+        let (client_key, server_key) = generate_test_keys();
+        set_server_key(server_key);
+
+        let value = FheUint8::try_encrypt(42u8, &client_key).unwrap();
+        let bytes = bincode::serialize(&value).unwrap();
+
+        let result = VotingCircuit::compute_histogram(vec![&bytes], &[]);
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("at least one bin"));
+    }
+
+    #[test]
+    fn test_histogram_voting_scenario() {
+        let (client_key, server_key) = generate_test_keys();
+        set_server_key(server_key);
+
+        // 100 voters, age-based voting
+        // 20 under 18 (can't vote), 60 adults (18-65), 20 seniors (66+)
+        let mut ages = vec![];
+        ages.extend(vec![15u8; 20]);  // Minors
+        ages.extend(vec![30u8; 60]);  // Adults
+        ages.extend(vec![70u8; 20]);  // Seniors
+
+        let mut encrypted = vec![];
+        for age in ages {
+            let ct = FheUint8::try_encrypt(age, &client_key).unwrap();
+            encrypted.push(bincode::serialize(&ct).unwrap());
+        }
+
+        let input_refs: Vec<&[u8]> = encrypted.iter().map(|v| v.as_slice()).collect();
+
+        use cypherlink_types::fhe::HistogramBin;
+        let bins = vec![
+            HistogramBin::new(0, 17, "Minors (cannot vote)"),
+            HistogramBin::new(18, 65, "Eligible voters"),
+            HistogramBin::new(66, 255, "Senior voters"),
+        ];
+
+        let histogram_bytes = VotingCircuit::compute_histogram(input_refs, &bins).unwrap();
+
+        let counts: Vec<Vec<u8>> = bincode::deserialize(&histogram_bytes).unwrap();
+
+        let minors: u8 = bincode::deserialize::<FheUint8>(&counts[0]).unwrap().decrypt(&client_key);
+        let eligible: u8 = bincode::deserialize::<FheUint8>(&counts[1]).unwrap().decrypt(&client_key);
+        let seniors: u8 = bincode::deserialize::<FheUint8>(&counts[2]).unwrap().decrypt(&client_key);
+
+        assert_eq!(minors, 20);
+        assert_eq!(eligible, 60);
+        assert_eq!(seniors, 20);
+        assert_eq!(minors + eligible + seniors, 100);
+    }
+
+    #[test]
+    #[ignore] // Only run with --ignored flag (slow test)
+    fn test_histogram_performance() {
+        use std::time::Instant;
+
+        let (client_key, server_key) = generate_test_keys();
+        set_server_key(server_key);
+
+        // Encrypt 50 values
+        let mut encrypted = vec![];
+        for i in 0..50 {
+            let value = (i % 100) as u8;
+            let ct = FheUint8::try_encrypt(value, &client_key).unwrap();
+            encrypted.push(bincode::serialize(&ct).unwrap());
+        }
+
+        let input_refs: Vec<&[u8]> = encrypted.iter().map(|v| v.as_slice()).collect();
+
+        use cypherlink_types::fhe::HistogramBin;
+        let bins = vec![
+            HistogramBin::new(0, 24, "Q1"),
+            HistogramBin::new(25, 49, "Q2"),
+            HistogramBin::new(50, 74, "Q3"),
+            HistogramBin::new(75, 99, "Q4"),
+        ];
+
+        let start = Instant::now();
+        let histogram_bytes = VotingCircuit::compute_histogram(input_refs, &bins).unwrap();
+        let duration = start.elapsed();
+
+        let counts: Vec<Vec<u8>> = bincode::deserialize(&histogram_bytes).unwrap();
+        assert_eq!(counts.len(), 4);
+
+        println!("Histogram(50 values, 4 bins) took: {:?}", duration);
+
+        // Histogram is 4 CountIf operations, expect < 20s for 50 values
+        assert!(duration.as_secs() < 20, "Performance target: Histogram(50, 4 bins) < 20s");
     }
 }
