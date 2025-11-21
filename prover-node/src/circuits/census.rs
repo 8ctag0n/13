@@ -66,13 +66,13 @@ impl CensusCircuit {
 
         let ciphertexts = ciphertexts?;
 
-        // Cast first value to u16
+        // PERFORMANCE FIX: Cast first value to u16, consume ownership
         let mut sum: FheUint16 = ciphertexts[0].clone().cast_into();
 
-        // Add remaining values (cast each to u16 before adding)
-        for ct in &ciphertexts[1..] {
+        // Add remaining values (cast consumes value, no extra clone needed)
+        for ct in ciphertexts[1..].iter() {
             let ct_u16: FheUint16 = ct.clone().cast_into();
-            sum = &sum + &ct_u16;
+            sum = sum + ct_u16;  // Consume both values to avoid temporary references
         }
 
         bincode::serialize(&sum).context("Failed to serialize sum")
@@ -91,11 +91,13 @@ impl CensusCircuit {
 
         let ciphertexts = ciphertexts?;
 
+        // PERFORMANCE FIX: Cast first value to u32, consume ownership
         let mut sum: FheUint32 = ciphertexts[0].clone().cast_into();
 
-        for ct in &ciphertexts[1..] {
+        // Add remaining values (cast consumes value, no extra clone needed)
+        for ct in ciphertexts[1..].iter() {
             let ct_u32: FheUint32 = ct.clone().cast_into();
-            sum = &sum + &ct_u32;
+            sum = sum + ct_u32;  // Consume both values to avoid temporary references
         }
 
         bincode::serialize(&sum).context("Failed to serialize sum")

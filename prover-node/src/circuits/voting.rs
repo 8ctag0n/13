@@ -40,13 +40,15 @@ impl VotingCircuit {
         let mut count = FheUint8::try_encrypt_trivial(0u8)
             .context("Failed to initialize counter")?;
 
+        // PERFORMANCE FIX: Create trivial constants once, outside the loop
+        let one = FheUint8::try_encrypt_trivial(1u8)?;
+        let zero = FheUint8::try_encrypt_trivial(0u8)?;
+
         // For each encrypted value, evaluate predicate and add to count
         for input_bytes in encrypted_inputs {
             let matches = Self::evaluate_predicate(input_bytes, predicate)?;
 
             // Convert FheBool to FheUint8 (0 or 1)
-            let one = FheUint8::try_encrypt_trivial(1u8)?;
-            let zero = FheUint8::try_encrypt_trivial(0u8)?;
             let increment = matches.if_then_else(&one, &zero);
 
             // Add to count
