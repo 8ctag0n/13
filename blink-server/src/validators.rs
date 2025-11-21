@@ -22,6 +22,13 @@ pub struct ValidateJobRequest {
     pub price_lamports: u64,
     pub required_provers: u8,
     pub consensus_threshold: u8,
+    #[serde(default = "default_payment_method")]
+    pub payment_method: String,  // "SOL" | "wZEC" (defaults to "SOL")
+}
+
+/// Default payment method if not specified
+fn default_payment_method() -> String {
+    "SOL".to_string()
 }
 
 /// Validated job data ready for database insertion
@@ -36,6 +43,8 @@ pub struct ValidatedJob {
     pub price_lamports: u64,
     pub required_provers: u8,
     pub consensus_threshold: u8,
+    pub payment_method: String,
+    pub payment_token_mint: Option<String>,
 }
 
 /// Job validator with size limits and security checks
@@ -43,7 +52,7 @@ pub struct JobValidator;
 
 impl JobValidator {
     // Size limits for encrypted data and server key
-    const MAX_ENCRYPTED_DATA_SIZE: usize = 10 * 1024; // 10 KB
+    const MAX_ENCRYPTED_DATA_SIZE: usize = 1 * 1024 * 1024; // 1 MB (TFHE encrypted data can be large)
     const MAX_SERVER_KEY_SIZE: usize = 120 * 1024 * 1024; // 120 MB
     const MIN_SERVER_KEY_SIZE: usize = 40 * 1024 * 1024; // 40 MB
     const MESSAGE_EXPIRY_SECS: i64 = 300; // 5 minutes
@@ -82,6 +91,9 @@ impl JobValidator {
         let creator = Pubkey::from_str(&req.creator_pubkey)
             .map_err(|e| anyhow!("Invalid creator pubkey: {}", e))?;
 
+        // 10. Validate payment method and determine token mint
+        let (payment_method, payment_token_mint) = Self::validate_payment_method(&req.payment_method)?;
+
         Ok(ValidatedJob {
             job_id,
             encrypted_data,
@@ -92,6 +104,8 @@ impl JobValidator {
             price_lamports: req.price_lamports,
             required_provers: req.required_provers,
             consensus_threshold: req.consensus_threshold,
+            payment_method,
+            payment_token_mint,
         })
     }
 
@@ -111,9 +125,10 @@ impl JobValidator {
         let creator_pubkey = Pubkey::from_str(&req.creator_pubkey)
             .map_err(|e| anyhow!("Invalid creator pubkey: {}", e))?;
 
-        // Decode signature
-        let signature_bytes = STANDARD.decode(&req.signature)
-            .map_err(|e| anyhow!("Invalid base64 signature: {}", e))?;
+        // Decode signature from base58 (Solana standard format)
+        let signature_bytes = bs58::decode(&req.signature)
+            .into_vec()
+            .map_err(|e| anyhow!("Invalid base58 signature: {}", e))?;
 
         if signature_bytes.len() != 64 {
             return Err(anyhow!("Invalid signature length: expected 64 bytes, got {}", signature_bytes.len()));
@@ -236,6 +251,22 @@ impl JobValidator {
 
         Ok(())
     }
+
+    /// Validate payment method and return (payment_method, payment_token_mint)
+    fn validate_payment_method(payment_method: &str) -> Result<(String, Option<String>)> {
+        match payment_method {
+            "SOL" => Ok(("SOL".to_string(), None)),
+            "wZEC" => {
+                // wZEC mint address on Solana mainnet
+                let wzec_mint = "sXpG9BWgA6hxz9BTVLNTqWSHpbbQKa2LqKH6qD2fCAZ".to_string();
+                Ok(("wZEC".to_string(), Some(wzec_mint)))
+            }
+            _ => Err(anyhow!(
+                "Invalid payment_method: '{}'. Must be 'SOL' or 'wZEC'",
+                payment_method
+            )),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -256,5 +287,28 @@ mod tests {
         assert!(JobValidator::validate_consensus_config(0, 1).is_err());
         assert!(JobValidator::validate_consensus_config(3, 0).is_err());
         assert!(JobValidator::validate_consensus_config(2, 3).is_err());
+    }
+
+    #[test]
+    fn test_validate_payment_method() {
+        // Test valid SOL
+        let result = JobValidator::validate_payment_method("SOL");
+        assert!(result.is_ok());
+        let (method, mint) = result.unwrap();
+        assert_eq!(method, "SOL");
+        assert_eq!(mint, None);
+
+        // Test valid wZEC
+        let result = JobValidator::validate_payment_method("wZEC");
+        assert!(result.is_ok());
+        let (method, mint) = result.unwrap();
+        assert_eq!(method, "wZEC");
+        assert_eq!(mint, Some("sXpG9BWgA6hxz9BTVLNTqWSHpbbQKa2LqKH6qD2fCAZ".to_string()));
+
+        // Test invalid payment method
+        assert!(JobValidator::validate_payment_method("INVALID").is_err());
+        assert!(JobValidator::validate_payment_method("BTC").is_err());
+        assert!(JobValidator::validate_payment_method("").is_err());
+        assert!(JobValidator::validate_payment_method("sol").is_err()); // Case sensitive
     }
 }

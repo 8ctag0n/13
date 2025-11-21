@@ -168,6 +168,8 @@ async fn main() -> std::io::Result<()> {
 
         App::new()
             .app_data(app_state.clone())
+            // Increase JSON payload limit for large TFHE ServerKeys (up to 200 MB)
+            .app_data(web::JsonConfig::default().limit(200 * 1024 * 1024))
             .wrap(middleware::Logger::default())
             .wrap(cors)
             // Core endpoints

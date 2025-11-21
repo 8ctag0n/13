@@ -1,6 +1,7 @@
 <script>
   import { navigateTo } from '../stores/router';
   import { walletStore } from '../stores/wallet';
+  import PaymentMethodSelector from '../components/PaymentMethodSelector.svelte';
 
   let currentStep = 1;
   let jobData = {
@@ -11,7 +12,8 @@
     consensus: '2-of-3',
     priceLamports: 2000000,
     requiredProvers: 3,
-    consensusThreshold: 2
+    consensusThreshold: 2,
+    paymentMethod: 'sol' // 'sol' | 'wzec'
   };
 
   // File uploads
@@ -81,6 +83,10 @@
     alert('Transaction signing with wallet - Coming soon!');
     // After successful submission:
     // navigateTo('dashboard');
+  }
+
+  function handlePaymentMethodChange(event) {
+    jobData.paymentMethod = event.detail.payment_method;
   }
 
   $: canProceedStep1 = jobData.encryptedData && jobData.serverKey;
@@ -291,6 +297,14 @@
 
           <div class="divider-section"></div>
 
+          <!-- Payment Method -->
+          <PaymentMethodSelector
+            selected={jobData.paymentMethod}
+            on:change={handlePaymentMethodChange}
+          />
+
+          <div class="divider-section"></div>
+
           <!-- Consensus -->
           <div class="config-section mb-6">
             <label class="text-mono mb-3">PROVER_CONSENSUS:</label>
@@ -379,6 +393,13 @@
               <div class="review-line text-mono text-sm">
                 <span class="text-muted">Consensus:</span>
                 <span class="text-cyan">{jobData.consensusThreshold}_OF_{jobData.requiredProvers}_PROVERS</span>
+              </div>
+              <div class="review-line text-mono text-sm">
+                <span class="text-muted">Payment Method:</span>
+                <span class="text-cyan">{jobData.paymentMethod.toUpperCase()}</span>
+                {#if jobData.paymentMethod === 'wzec'}
+                  <span class="badge badge-info">SPL_TOKEN</span>
+                {/if}
               </div>
               <div class="review-line text-mono text-sm">
                 <span class="text-muted">Cost:</span>

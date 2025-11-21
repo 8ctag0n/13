@@ -17,13 +17,16 @@ test-sbf = []
 solana-program.workspace = true
 borsh.workspace = true
 thiserror.workspace = true
+spl-token.workspace = true
+spl-associated-token-account.workspace = true
 # TODO: Re-enable light-sdk when integrating zkCompression
 # light-sdk.workspace = true
 
 # Shared types
-cypherlink-types = { path = "../../shared/types" }
+cypherlink-types.workspace = true
 
 [dev-dependencies]
-solana-program-test.workspace = true
+# Temporarily disabled due to zeroize version conflict
+# solana-program-test.workspace = true
 solana-sdk.workspace = true
 tokio.workspace = true

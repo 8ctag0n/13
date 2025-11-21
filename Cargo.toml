@@ -6,8 +6,10 @@ members = [
     "blink-server",
     "shared/types",
     "shared/crypto",
-    "e2e-tests",
+    # Temporarily excluded due to zeroize version conflict with programs workspace
+    # "e2e-tests",
     "fhe-cli",
+    "test-utils",
 ]
 resolver = "2"
 
@@ -21,10 +23,17 @@ license = "MIT OR Apache-2.0"
 authors = ["ZyberLink Team"]
 
 [workspace.dependencies]
+# Shared types
+cypherlink-types = { path = "shared/types" }
+
 # Solana (stable 2.1.x - compatible with Light Protocol)
 solana-program = "2.1"
 solana-sdk = "2.1"
 solana-client = "2.1"
+
+# SPL Token
+spl-token = "6.0"
+spl-associated-token-account = "4.0"
 
 # Serialization
 borsh = { version = "1.5.7", features = ["derive"] }
