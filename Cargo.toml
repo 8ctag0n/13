@@ -11,6 +11,9 @@ members = [
     "fhe-cli",
     "test-utils",
 ]
+exclude = [
+    "job-creator",  # Standalone E2E testing tool
+]
 resolver = "2"
 
 # Note: programs/ has its own separate workspace for Solana BPF compilation
