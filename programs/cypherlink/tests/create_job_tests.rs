@@ -44,6 +44,7 @@ async fn test_create_job() {
         witness_size: 2048,
         price_lamports: 1_000_000,
         timeout_seconds: 300,
+        fhe_config: None, // ZK job, no FHE config
     };
 
     let create_job_ix = solana_program::instruction::Instruction {
@@ -124,6 +125,7 @@ async fn test_create_job_invalid_price() {
         witness_size: 2048,
         price_lamports: 0,
         timeout_seconds: 300,
+        fhe_config: None, // ZK job, no FHE config
     };
 
     let create_job_ix = solana_program::instruction::Instruction {
@@ -184,6 +186,7 @@ async fn test_create_multiple_jobs() {
             witness_size: 2048 + (i as u32 * 100),
             price_lamports: 1_000_000 + (i * 100_000),
             timeout_seconds: 300,
+            fhe_config: None, // ZK job, no FHE config
         };
 
         let create_job_ix = solana_program::instruction::Instruction {

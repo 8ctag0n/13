@@ -33,6 +33,7 @@ async fn create_job(
         witness_size: 2048,
         price_lamports,
         timeout_seconds: 600,
+        fhe_config: None,
     };
 
     let create_job_ix = solana_program::instruction::Instruction {

@@ -26,7 +26,6 @@ spl-associated-token-account.workspace = true
 cypherlink-types.workspace = true
 
 [dev-dependencies]
-# Temporarily disabled due to zeroize version conflict
-# solana-program-test.workspace = true
+solana-program-test.workspace = true
 solana-sdk.workspace = true
 tokio.workspace = true
