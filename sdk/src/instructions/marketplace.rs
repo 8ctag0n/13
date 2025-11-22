@@ -477,4 +477,42 @@ impl InstructionBuilder {
             data: instruction_data.pack()?,
         })
     }
+
+    /// Build SlashProver instruction
+    ///
+    /// Slashes a misbehaving prover's stake.
+    /// Only the marketplace authority can call this.
+    ///
+    /// # Arguments
+    /// * `authority` - Marketplace authority pubkey (will sign)
+    /// * `prover_authority` - Prover to slash
+    /// * `job_pda` - Evidence job PDA
+    /// * `protocol_fee_recipient` - Where slashed funds go
+    /// * `slash_amount` - Amount to slash in lamports
+    pub fn slash_prover(
+        &self,
+        authority: Pubkey,
+        prover_authority: Pubkey,
+        job_pda: Pubkey,
+        protocol_fee_recipient: Pubkey,
+        slash_amount: u64,
+    ) -> Result<Instruction> {
+        let (prover_pda, _) = self.prover_pda(&prover_authority);
+        let (config_pda, _) = self.config_pda();
+
+        let instruction_data = MarketplaceInstruction::SlashProver { slash_amount };
+
+        Ok(Instruction {
+            program_id: self.program_id,
+            accounts: vec![
+                AccountMeta::new_readonly(authority, true),
+                AccountMeta::new(prover_pda, false),
+                AccountMeta::new(job_pda, false),
+                AccountMeta::new(protocol_fee_recipient, false),
+                AccountMeta::new_readonly(config_pda, false),
+                AccountMeta::new_readonly(system_program::id(), false),
+            ],
+            data: instruction_data.pack()?,
+        })
+    }
 }
