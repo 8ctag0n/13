@@ -52,3 +52,6 @@ chrono = { version = "0.4", features = ["serde"] }
 cypherlink-sdk = { path = "../sdk" }
 cypherlink-types = { path = "../shared/types" }
 borsh = { workspace = true }
+
+[dev-dependencies]
+reqwest = { version = "0.11", features = ["json"] }

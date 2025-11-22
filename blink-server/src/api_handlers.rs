@@ -45,11 +45,11 @@ pub struct JobStatusResponse {
 
 #[derive(Debug, Deserialize)]
 pub struct EstimateCostRequest {
-    pub operation: String,           // "add", "multiply", "sum", etc.
-    pub operation_value: u8,         // Constant value for operation
-    pub expected_count: Option<u16>, // For operations like Sum, Average
-    pub bins: Option<u8>,            // Number of bins for Histogram
-    pub required_provers: u8,        // Number of provers for consensus
+    pub operation: String,                // "add", "multiply", "sum", etc.
+    pub operation_value: Option<u8>,      // Constant value for operation (optional for histogram)
+    pub expected_count: Option<u16>,      // For operations like Sum, Average
+    pub bins: Option<u8>,                 // Number of bins for Histogram
+    pub required_provers: u8,             // Number of provers for consensus
 }
 
 #[derive(Debug, Serialize)]
@@ -352,23 +352,24 @@ async fn estimate_operation_cost(
     log::info!("Estimating cost for operation: {}", req.operation);
 
     // Parse operation from request
+    let op_value = req.operation_value.unwrap_or(0);
     let operation = match req.operation.as_str() {
-        "add" => FheOperation::Add(req.operation_value),
-        "multiply" => FheOperation::Multiply(req.operation_value),
+        "add" => FheOperation::Add(op_value),
+        "multiply" => FheOperation::Multiply(op_value),
         "sum" => {
             let count = req.expected_count.unwrap_or(100);
             FheOperation::Sum { expected_count: count }
         }
         "threshold" => {
             FheOperation::Threshold {
-                threshold: req.operation_value,
+                threshold: op_value,
                 greater_or_equal: true,
             }
         }
         "range_check" => {
             FheOperation::RangeCheck {
                 min: 0,
-                max: req.operation_value,
+                max: op_value,
             }
         }
         "average" => {
@@ -378,7 +379,7 @@ async fn estimate_operation_cost(
         "count_if" => {
             let count = req.expected_count.unwrap_or(100);
             FheOperation::CountIf {
-                predicate: cypherlink_types::fhe::FhePredicate::GreaterThan(req.operation_value),
+                predicate: cypherlink_types::fhe::FhePredicate::GreaterThan(op_value),
                 expected_count: count,
             }
         }
