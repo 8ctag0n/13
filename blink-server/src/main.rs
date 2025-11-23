@@ -136,6 +136,7 @@ async fn main() -> std::io::Result<()> {
     log::info!("");
     log::info!("API Endpoints:");
     log::info!("  GET    /health");
+    log::info!("  GET    /api/jobs                         (list jobs, optional ?status= filter)");
     log::info!("  POST   /api/jobs/validate-and-build");
     log::info!("  GET    /api/jobs/{{job_id}}/compute-data");
     log::info!("  POST   /api/jobs/{{job_id}}/confirm");

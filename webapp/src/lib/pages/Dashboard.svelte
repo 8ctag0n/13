@@ -8,50 +8,99 @@
   let jobs = [];
   let loading = true;
   let refreshing = false;
+  let lastUpdate = Date.now();
+  let liveJobsCount = 0;
 
-  // Mock data for demo - In production this would fetch from backend
-  const mockJobs = [
-    {
-      id: 'Ab3f9a2c1d4e5f6g',
-      status: 'computing',
-      operation: 'Multiply by 5',
-      progress: 68,
-      eta: '00:00:42',
-      proversCount: 3,
-      provers: [
-        { progress: 72 },
-        { progress: 65 },
-        { progress: 67 }
-      ],
-      createdAt: Date.now() - 154000 // ~2.5 min ago
-    },
-    {
-      id: '5e8bc71f2a9d3b4c',
-      status: 'completed',
-      operation: 'Add 10',
-      consensus: '3/3',
-      cost: '0.00202',
-      createdAt: Date.now() - 495000 // ~8 min ago
-    },
-    {
-      id: '2f4a89bd6e7c8f1a',
-      status: 'failed',
-      consensusRequired: '2-OF-3',
-      cost: '0.00202',
-      createdAt: Date.now() - 3600000 // 1 hour ago
-    }
-  ];
+  // Backend API URL
+  const API_BASE = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8080';
+
+  // Auto-refresh interval (2 seconds for live feel)
+  let refreshInterval;
 
   onMount(async () => {
     await loadJobs();
+
+    // Start live polling
+    refreshInterval = setInterval(async () => {
+      await loadJobs(true); // Silent refresh
+    }, 2000);
+
+    return () => {
+      if (refreshInterval) clearInterval(refreshInterval);
+    };
   });
 
-  async function loadJobs() {
-    loading = true;
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 800));
-    jobs = mockJobs;
-    loading = false;
+  async function loadJobs(silent = false) {
+    if (!silent) loading = true;
+
+    try {
+      const response = await fetch(`${API_BASE}/api/jobs`);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      // Transform backend data to match UI expectations
+      jobs = data.jobs.map(job => ({
+        id: job.job_id.toString(),
+        status: mapBackendStatus(job.status),
+        operation: formatOperation(job.operation, job.operation_value),
+        consensus: `${job.consensus_threshold}/${job.required_provers}`,
+        cost: (job.price_lamports / 1_000_000_000).toFixed(5),
+        paymentMethod: job.payment_method,
+        createdAt: new Date(job.created_at).getTime(),
+        // Add isNew flag for pulse animation
+        isNew: isRecent(job.created_at)
+      }));
+
+      liveJobsCount = data.count;
+      lastUpdate = Date.now();
+    } catch (error) {
+      console.error('Failed to load jobs:', error);
+      // Keep existing jobs on error
+    } finally {
+      if (!silent) loading = false;
+    }
+  }
+
+  function mapBackendStatus(backendStatus) {
+    const statusMap = {
+      'pending_tx': 'pending',
+      'active': 'computing',
+      'claimed': 'computing',
+      'completed': 'completed',
+      'failed': 'failed'
+    };
+    return statusMap[backendStatus] || backendStatus;
+  }
+
+  function formatOperation(op, value) {
+    const opNames = {
+      'add': `Add ${value}`,
+      'multiply': `Multiply by ${value}`,
+      'sum': 'Sum',
+      'threshold': `Threshold ${value}`,
+      'average': 'Average',
+      'count_if': 'Count If',
+      'histogram': 'Histogram'
+    };
+    return opNames[op] || op;
+  }
+
+  function isRecent(createdAt) {
+    const created = new Date(createdAt).getTime();
+    const now = Date.now();
+    return (now - created) < 10000; // Less than 10 seconds = new
+  }
+
+  function formatTimeSince(timestamp) {
+    const seconds = Math.floor((Date.now() - timestamp) / 1000);
+    if (seconds < 60) return `${seconds}s ago`;
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    return `${hours}h ago`;
   }
 
   async function handleRefresh() {
@@ -108,9 +157,15 @@
     <div class="container">
       <!-- Controls Bar -->
       <div class="controls-bar">
-        <h2 class="text-mono text-uppercase">
-          &gt; MY_JOBS
-        </h2>
+        <div class="title-with-status">
+          <h2 class="text-mono text-uppercase">
+            &gt; MARKETPLACE_JOBS
+          </h2>
+          <div class="live-indicator">
+            <span class="pulse-dot"></span>
+            <span class="text-mono text-sm">LIVE · {liveJobsCount} JOBS · {formatTimeSince(lastUpdate)}</span>
+          </div>
+        </div>
 
         <div class="controls-buttons">
           <button
@@ -301,9 +356,44 @@
     gap: var(--space-4);
   }
 
+  .title-with-status {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
   .controls-bar h2 {
     margin: 0;
     font-size: var(--text-2xl);
+  }
+
+  .live-indicator {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    color: var(--zyber-cyber-cyan);
+    font-size: var(--text-xs);
+    text-transform: uppercase;
+  }
+
+  .pulse-dot {
+    width: 8px;
+    height: 8px;
+    background: var(--zyber-cyber-cyan);
+    border-radius: 50%;
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    box-shadow: 0 0 8px var(--zyber-cyber-cyan);
+  }
+
+  @keyframes pulse {
+    0%, 100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.5;
+      transform: scale(1.2);
+    }
   }
 
   .controls-buttons {

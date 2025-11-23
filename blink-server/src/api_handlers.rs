@@ -64,6 +64,31 @@ pub struct EstimateCostResponse {
     pub estimated_compute_ms: u32,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ListJobsQuery {
+    pub status: Option<String>,  // Optional status filter: "pending_tx", "active", "completed", "failed"
+}
+
+#[derive(Debug, Serialize)]
+pub struct JobListItem {
+    pub job_id: i64,
+    pub creator_pubkey: String,
+    pub operation: String,
+    pub operation_value: i16,
+    pub price_lamports: i64,
+    pub required_provers: i16,
+    pub consensus_threshold: i16,
+    pub status: String,
+    pub payment_method: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ListJobsResponse {
+    pub jobs: Vec<JobListItem>,
+    pub count: usize,
+}
+
 // ============================================================================
 // API Endpoints
 // ============================================================================
@@ -339,6 +364,92 @@ async fn delete_job_data(
     }
 }
 
+/// GET /api/jobs
+///
+/// List jobs with optional status filtering.
+/// Query params:
+///   - status (optional): Filter by job status ("pending_tx", "active", "completed", "failed")
+///
+/// Examples:
+///   - GET /api/jobs                  → List all jobs
+///   - GET /api/jobs?status=active    → List only active jobs
+#[get("/api/jobs")]
+async fn list_jobs(
+    data: web::Data<AppState>,
+    query: web::Query<ListJobsQuery>,
+) -> impl Responder {
+    log::info!("Listing jobs with filter: {:?}", query.status);
+
+    // Determine which status to filter by
+    let jobs = if let Some(ref status_str) = query.status {
+        // Parse status string
+        let status = match JobStatus::from_str(status_str) {
+            Some(s) => s,
+            None => {
+                log::warn!("Invalid status filter: {}", status_str);
+                return HttpResponse::BadRequest().json(json!({
+                    "error": format!("Invalid status: {}. Valid values: pending_tx, active, completed, failed", status_str)
+                }));
+            }
+        };
+
+        // Get jobs by specific status
+        match JobQueries::get_jobs_by_status(&data.db_pool, status).await {
+            Ok(jobs) => jobs,
+            Err(e) => {
+                log::error!("Failed to fetch jobs by status: {}", e);
+                return HttpResponse::InternalServerError().json(json!({
+                    "error": format!("Database error: {}", e)
+                }));
+            }
+        }
+    } else {
+        // Get all jobs (no status filter)
+        // We'll query each status and combine
+        let mut all_jobs = Vec::new();
+
+        for status in &[JobStatus::PendingTx, JobStatus::Active, JobStatus::Completed, JobStatus::Failed] {
+            match JobQueries::get_jobs_by_status(&data.db_pool, *status).await {
+                Ok(mut jobs) => all_jobs.append(&mut jobs),
+                Err(e) => {
+                    log::error!("Failed to fetch jobs for status {:?}: {}", status, e);
+                    return HttpResponse::InternalServerError().json(json!({
+                        "error": format!("Database error: {}", e)
+                    }));
+                }
+            }
+        }
+
+        all_jobs
+    };
+
+    // Convert to API response format
+    let job_items: Vec<JobListItem> = jobs
+        .into_iter()
+        .map(|job| JobListItem {
+            job_id: job.job_id,
+            creator_pubkey: job.creator_pubkey,
+            operation: job.operation,
+            operation_value: job.operation_value,
+            price_lamports: job.price_lamports,
+            required_provers: job.required_provers,
+            consensus_threshold: job.consensus_threshold,
+            status: job.status,
+            payment_method: job.payment_method,
+            created_at: job.created_at.to_rfc3339(),
+        })
+        .collect();
+
+    let count = job_items.len();
+
+    log::info!("Returning {} jobs", count);
+
+    HttpResponse::Ok().json(ListJobsResponse {
+        jobs: job_items,
+        count,
+    })
+}
+
 /// POST /api/estimate-cost
 ///
 /// Estimate the cost and timeout for a given FHE operation.
@@ -560,7 +671,8 @@ fn build_create_job_transaction(
 // ============================================================================
 
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
-    cfg.service(validate_and_build_job)
+    cfg.service(list_jobs)
+        .service(validate_and_build_job)
         .service(estimate_operation_cost)
         .service(get_compute_data)
         .service(confirm_job_transaction)
