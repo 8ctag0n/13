@@ -67,11 +67,10 @@ impl MarketplaceSDK {
             .get_account(&config_pda)
             .context("Failed to fetch marketplace config")?;
 
-        // next_job_id is at offset 41 (after authority=32, fee=2, stake=8, reputation=4, timeout=8, -3 for alignment)
-        // Actually: authority(32) + fee(2) + min_stake(8) + min_rep(4) + timeout(8) = 54 bytes
-        // Then next_job_id is a u64 at offset 54
+        // Layout: authority(32) + fee(2) + min_stake(8) + min_rep(4) + timeout(8) + protocol_fee_recipient(32) + next_job_id(8)
+        // Offset: 32 + 2 + 8 + 4 + 8 + 32 = 86 bytes
         let next_job_id = u64::from_le_bytes(
-            account.data[54..62]
+            account.data[86..94]
                 .try_into()
                 .context("Invalid config data")?,
         );

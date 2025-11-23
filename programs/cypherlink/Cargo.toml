@@ -17,8 +17,7 @@ test-sbf = []
 solana-program.workspace = true
 borsh.workspace = true
 thiserror.workspace = true
-spl-token.workspace = true
-spl-associated-token-account.workspace = true
+# NOTE: spl-token not needed in on-chain program, only in SDK/backend
 # TODO: Re-enable light-sdk when integrating zkCompression
 # light-sdk.workspace = true
 

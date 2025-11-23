@@ -11,19 +11,18 @@ license = "MIT OR Apache-2.0"
 authors = ["ZyberLink Team"]
 
 [workspace.dependencies]
-# Solana (for BPF programs)
-solana-program = "2.1"
+# Solana (for BPF programs - updated to 2.3.x)
+solana-program = "2.3"
 borsh = { version = "1.5.7", features = ["derive"] }
 thiserror = "1.0"
-spl-token = "6.0"
-spl-associated-token-account = "4.0"
+# NOTE: spl-token removed - not used in on-chain program
 
 # Shared types (using relative path outside workspace)
 cypherlink-types = { path = "../shared/types" }
 
 # Testing
-solana-program-test = "2.1"
-solana-sdk = "2.1"
+solana-program-test = "2.3"
+solana-sdk = "2.3"
 tokio = { version = "1.47", features = ["full"] }
 
 [profile.release]

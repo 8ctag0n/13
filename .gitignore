@@ -440,3 +440,18 @@ lib-cov/
 # Archived/deprecated code (not for production)
 ___dump/
 docs-private/
+
+# ============================================
+# Development & Testing (local only)
+# ============================================
+
+# Private development folder (experiments, notes, test scripts)
+dev/
+
+# Test validator ledger (already covered above but explicit)
+test-ledger/
+
+# Temporary log files
+*.log
+logs/
+

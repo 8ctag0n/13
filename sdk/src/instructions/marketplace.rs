@@ -200,7 +200,7 @@ impl InstructionBuilder {
             accounts: vec![
                 AccountMeta::new(creator, true),
                 AccountMeta::new(job_pda, false),
-                AccountMeta::new_readonly(config_pda, false),
+                AccountMeta::new(config_pda, false), // Writable - program increments next_job_id
                 AccountMeta::new(escrow_pda, false),
                 AccountMeta::new_readonly(system_program::id(), false),
             ],
