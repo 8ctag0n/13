@@ -1,5 +1,6 @@
 mod actions;
 mod api_handlers;
+mod chain_sync;
 mod cleanup;
 mod db;
 mod tx_builder;
@@ -71,13 +72,12 @@ async fn main() -> std::io::Result<()> {
         "postgresql://zyberlink:dev_password@localhost:5432/zyberlink".to_string()
     });
 
-    let rpc_url = env::var("SOLANA_RPC_URL")
-        .unwrap_or_else(|_| "http://localhost:8899".to_string());
+    let rpc_url =
+        env::var("SOLANA_RPC_URL").unwrap_or_else(|_| "http://localhost:8899".to_string());
 
     let program_id_str = env::var("PROGRAM_ID")
         .unwrap_or_else(|_| "CypherLinkProgram11111111111111111111111111".to_string());
-    let program_id =
-        Pubkey::from_str(&program_id_str).expect("Invalid PROGRAM_ID");
+    let program_id = Pubkey::from_str(&program_id_str).expect("Invalid PROGRAM_ID");
 
     let cleanup_interval_secs = env::var("CLEANUP_INTERVAL_SECS")
         .unwrap_or_else(|_| "3600".to_string())
@@ -122,6 +122,10 @@ async fn main() -> std::io::Result<()> {
     log::info!("Starting background cleanup task...");
     cleanup::spawn_cleanup_task(pool.clone(), cleanup_interval_secs);
 
+    log::info!("Starting blockchain sync task...");
+    chain_sync::start_chain_sync(rpc_url.clone(), program_id, pool.clone());
+    log::info!("Blockchain sync task started");
+
     // ========================================================================
     // Server Configuration
     // ========================================================================
@@ -136,7 +140,7 @@ async fn main() -> std::io::Result<()> {
     log::info!("");
     log::info!("API Endpoints:");
     log::info!("  GET    /health");
-    log::info!("  GET    /api/jobs                         (list jobs, optional ?status= filter)");
+    log::info!("  GET    /api/jobs                         (blockchain jobs, filter: ?status=pending|claimed|completed)");
     log::info!("  POST   /api/jobs/validate-and-build");
     log::info!("  GET    /api/jobs/{{job_id}}/compute-data");
     log::info!("  POST   /api/jobs/{{job_id}}/confirm");

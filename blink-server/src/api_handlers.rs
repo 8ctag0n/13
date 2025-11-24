@@ -2,10 +2,7 @@ use actix_web::{delete, get, post, web, HttpResponse, Responder};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use solana_sdk::{
-    message::Message,
-    transaction::Transaction,
-};
+use solana_sdk::{message::Message, transaction::Transaction};
 
 use crate::db::{InsertJobData, JobQueries, JobStatus};
 use crate::validators::{JobValidator, ValidateJobRequest};
@@ -18,22 +15,22 @@ use crate::AppState;
 #[derive(Debug, Serialize)]
 pub struct ValidateJobResponse {
     pub job_id: i64,
-    pub transaction: String,  // base64 serialized Transaction
+    pub transaction: String, // base64 serialized Transaction
     pub status: String,
 }
 
 #[derive(Debug, Serialize)]
 pub struct ComputeDataResponse {
     pub job_id: i64,
-    pub encrypted_data: String,  // base64
-    pub server_key: String,      // base64
+    pub encrypted_data: String, // base64
+    pub server_key: String,     // base64
     pub operation: String,
     pub operation_value: i16,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct ConfirmJobRequest {
-    pub signature: String,  // Transaction signature
+    pub signature: String, // Transaction signature
 }
 
 #[derive(Debug, Serialize)]
@@ -45,11 +42,11 @@ pub struct JobStatusResponse {
 
 #[derive(Debug, Deserialize)]
 pub struct EstimateCostRequest {
-    pub operation: String,                // "add", "multiply", "sum", etc.
-    pub operation_value: Option<u8>,      // Constant value for operation (optional for histogram)
-    pub expected_count: Option<u16>,      // For operations like Sum, Average
-    pub bins: Option<u8>,                 // Number of bins for Histogram
-    pub required_provers: u8,             // Number of provers for consensus
+    pub operation: String,           // "add", "multiply", "sum", etc.
+    pub operation_value: Option<u8>, // Constant value for operation (optional for histogram)
+    pub expected_count: Option<u16>, // For operations like Sum, Average
+    pub bins: Option<u8>,            // Number of bins for Histogram
+    pub required_provers: u8,        // Number of provers for consensus
 }
 
 #[derive(Debug, Serialize)]
@@ -66,7 +63,7 @@ pub struct EstimateCostResponse {
 
 #[derive(Debug, Deserialize)]
 pub struct ListJobsQuery {
-    pub status: Option<String>,  // Optional status filter: "pending_tx", "active", "completed", "failed"
+    pub status: Option<String>, // Optional status filter: "pending_tx", "active", "completed", "failed"
 }
 
 #[derive(Debug, Serialize)]
@@ -153,12 +150,12 @@ async fn validate_and_build_job(
     };
 
     // Step 3: Build unsigned transaction
-    let transaction = match build_create_job_transaction(
-        &validated,
-        &data.sdk_builder,
-    ) {
+    let transaction = match build_create_job_transaction(&validated, &data.sdk_builder) {
         Ok(tx) => {
-            log::info!("Transaction built successfully for job_id: {}", validated.job_id);
+            log::info!(
+                "Transaction built successfully for job_id: {}",
+                validated.job_id
+            );
             tx
         }
         Err(e) => {
@@ -182,7 +179,11 @@ async fn validate_and_build_job(
 
     let tx_base64 = STANDARD.encode(&tx_bytes);
 
-    log::info!("Successfully created job_id: {} (db_id: {})", validated.job_id, db_id);
+    log::info!(
+        "Successfully created job_id: {} (db_id: {})",
+        validated.job_id,
+        db_id
+    );
 
     // Step 5: Return response
     HttpResponse::Ok().json(ValidateJobResponse {
@@ -197,10 +198,7 @@ async fn validate_and_build_job(
 /// Returns compute data for provers.
 /// Only returns data if job status is "active" (on-chain confirmed).
 #[get("/api/jobs/{job_id}/compute-data")]
-async fn get_compute_data(
-    data: web::Data<AppState>,
-    job_id: web::Path<i64>,
-) -> impl Responder {
+async fn get_compute_data(data: web::Data<AppState>, job_id: web::Path<i64>) -> impl Responder {
     log::info!("Fetching compute data for job_id: {}", *job_id);
 
     // Query database
@@ -260,11 +258,7 @@ async fn confirm_job_transaction(
     let _signature = &req.signature;
 
     // Update job status to "active"
-    match JobQueries::update_job_status(
-        &data.db_pool,
-        *job_id,
-        JobStatus::Active,
-    ).await {
+    match JobQueries::update_job_status(&data.db_pool, *job_id, JobStatus::Active).await {
         Ok(_) => {
             log::info!("Job {} confirmed and activated", *job_id);
             HttpResponse::Ok().json(json!({
@@ -286,30 +280,21 @@ async fn confirm_job_transaction(
 ///
 /// Get current status of a job
 #[get("/api/jobs/{job_id}/status")]
-async fn get_job_status(
-    data: web::Data<AppState>,
-    job_id: web::Path<i64>,
-) -> impl Responder {
+async fn get_job_status(data: web::Data<AppState>, job_id: web::Path<i64>) -> impl Responder {
     log::info!("Fetching status for job_id: {}", *job_id);
 
     match JobQueries::get_job_by_id(&data.db_pool, *job_id).await {
-        Ok(Some(job)) => {
-            HttpResponse::Ok().json(JobStatusResponse {
-                job_id: job.job_id,
-                status: job.status,
-                created_at: job.created_at.to_rfc3339(),
-            })
-        }
-        Ok(None) => {
-            HttpResponse::NotFound().json(json!({
-                "error": "Job not found"
-            }))
-        }
-        Err(e) => {
-            HttpResponse::InternalServerError().json(json!({
-                "error": format!("Database error: {}", e)
-            }))
-        }
+        Ok(Some(job)) => HttpResponse::Ok().json(JobStatusResponse {
+            job_id: job.job_id,
+            status: job.status,
+            created_at: job.created_at.to_rfc3339(),
+        }),
+        Ok(None) => HttpResponse::NotFound().json(json!({
+            "error": "Job not found"
+        })),
+        Err(e) => HttpResponse::InternalServerError().json(json!({
+            "error": format!("Database error: {}", e)
+        })),
     }
 }
 
@@ -318,10 +303,7 @@ async fn get_job_status(
 /// Delete job data (cleanup).
 /// Only allowed if job is in terminal state (completed/failed).
 #[delete("/api/jobs/{job_id}")]
-async fn delete_job_data(
-    data: web::Data<AppState>,
-    job_id: web::Path<i64>,
-) -> impl Responder {
+async fn delete_job_data(data: web::Data<AppState>, job_id: web::Path<i64>) -> impl Responder {
     log::info!("Deleting job_id: {}", *job_id);
 
     // Check current status
@@ -368,81 +350,89 @@ async fn delete_job_data(
 ///
 /// List jobs with optional status filtering.
 /// Query params:
-///   - status (optional): Filter by job status ("pending_tx", "active", "completed", "failed")
+///   - status (optional): Filter by job status ("pending", "claimed", "completed", "failed", "cancelled")
 ///
 /// Examples:
 ///   - GET /api/jobs                  → List all jobs
-///   - GET /api/jobs?status=active    → List only active jobs
+///   - GET /api/jobs?status=pending   → List only pending jobs
 #[get("/api/jobs")]
-async fn list_jobs(
-    data: web::Data<AppState>,
-    query: web::Query<ListJobsQuery>,
-) -> impl Responder {
+async fn list_jobs(data: web::Data<AppState>, query: web::Query<ListJobsQuery>) -> impl Responder {
     log::info!("Listing jobs with filter: {:?}", query.status);
 
-    // Determine which status to filter by
-    let jobs = if let Some(ref status_str) = query.status {
-        // Parse status string
-        let status = match JobStatus::from_str(status_str) {
-            Some(s) => s,
-            None => {
-                log::warn!("Invalid status filter: {}", status_str);
-                return HttpResponse::BadRequest().json(json!({
-                    "error": format!("Invalid status: {}. Valid values: pending_tx, active, completed, failed", status_str)
-                }));
-            }
-        };
-
-        // Get jobs by specific status
-        match JobQueries::get_jobs_by_status(&data.db_pool, status).await {
-            Ok(jobs) => jobs,
-            Err(e) => {
-                log::error!("Failed to fetch jobs by status: {}", e);
-                return HttpResponse::InternalServerError().json(json!({
-                    "error": format!("Database error: {}", e)
-                }));
-            }
+    // Build SQL query with optional status filter
+    let jobs_query = if let Some(ref status_str) = query.status {
+        // Validate status string
+        let valid_statuses = ["pending", "claimed", "completed", "failed", "cancelled"];
+        if !valid_statuses.contains(&status_str.as_str()) {
+            log::warn!("Invalid status filter: {}", status_str);
+            return HttpResponse::BadRequest().json(json!({
+                "error": format!("Invalid status: {}. Valid values: {}", status_str, valid_statuses.join(", "))
+            }));
         }
+
+        // Query blockchain_jobs with status filter
+        sqlx::query_as!(
+            JobListItem,
+            r#"
+            SELECT
+                job_id,
+                creator_pubkey,
+                COALESCE(fhe_operation, circuit_type) as "operation!",
+                0::smallint as "operation_value!",
+                price_lamports,
+                COALESCE(required_provers, 1::smallint) as "required_provers!",
+                COALESCE(consensus_threshold, 1::smallint) as "consensus_threshold!",
+                status as "status!",
+                'SOL' as "payment_method!",
+                to_char(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as "created_at!"
+            FROM blockchain_jobs
+            WHERE status = $1
+            ORDER BY created_at DESC
+            LIMIT 100
+            "#,
+            status_str
+        )
+        .fetch_all(&data.db_pool)
+        .await
     } else {
-        // Get all jobs (no status filter)
-        // We'll query each status and combine
-        let mut all_jobs = Vec::new();
-
-        for status in &[JobStatus::PendingTx, JobStatus::Active, JobStatus::Completed, JobStatus::Failed] {
-            match JobQueries::get_jobs_by_status(&data.db_pool, *status).await {
-                Ok(mut jobs) => all_jobs.append(&mut jobs),
-                Err(e) => {
-                    log::error!("Failed to fetch jobs for status {:?}: {}", status, e);
-                    return HttpResponse::InternalServerError().json(json!({
-                        "error": format!("Database error: {}", e)
-                    }));
-                }
-            }
-        }
-
-        all_jobs
+        // Query all jobs without status filter
+        sqlx::query_as!(
+            JobListItem,
+            r#"
+            SELECT
+                job_id,
+                creator_pubkey,
+                COALESCE(fhe_operation, circuit_type) as "operation!",
+                0::smallint as "operation_value!",
+                price_lamports,
+                COALESCE(required_provers, 1::smallint) as "required_provers!",
+                COALESCE(consensus_threshold, 1::smallint) as "consensus_threshold!",
+                status as "status!",
+                'SOL' as "payment_method!",
+                to_char(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as "created_at!"
+            FROM blockchain_jobs
+            ORDER BY created_at DESC
+            LIMIT 100
+            "#
+        )
+        .fetch_all(&data.db_pool)
+        .await
     };
 
-    // Convert to API response format
-    let job_items: Vec<JobListItem> = jobs
-        .into_iter()
-        .map(|job| JobListItem {
-            job_id: job.job_id,
-            creator_pubkey: job.creator_pubkey,
-            operation: job.operation,
-            operation_value: job.operation_value,
-            price_lamports: job.price_lamports,
-            required_provers: job.required_provers,
-            consensus_threshold: job.consensus_threshold,
-            status: job.status,
-            payment_method: job.payment_method,
-            created_at: job.created_at.to_rfc3339(),
-        })
-        .collect();
+    // Handle query result
+    let job_items = match jobs_query {
+        Ok(jobs) => jobs,
+        Err(e) => {
+            log::error!("Failed to fetch jobs from blockchain_jobs: {}", e);
+            return HttpResponse::InternalServerError().json(json!({
+                "error": format!("Database error: {}", e)
+            }));
+        }
+    };
 
     let count = job_items.len();
 
-    log::info!("Returning {} jobs", count);
+    log::info!("Returning {} jobs from blockchain", count);
 
     HttpResponse::Ok().json(ListJobsResponse {
         jobs: job_items,
@@ -455,9 +445,7 @@ async fn list_jobs(
 /// Estimate the cost and timeout for a given FHE operation.
 /// Helps users understand pricing before creating a job.
 #[post("/api/estimate-cost")]
-async fn estimate_operation_cost(
-    req: web::Json<EstimateCostRequest>,
-) -> impl Responder {
+async fn estimate_operation_cost(req: web::Json<EstimateCostRequest>) -> impl Responder {
     use cypherlink_types::fhe::{FheOperation, HistogramBin};
 
     log::info!("Estimating cost for operation: {}", req.operation);
@@ -469,23 +457,23 @@ async fn estimate_operation_cost(
         "multiply" => FheOperation::Multiply(op_value),
         "sum" => {
             let count = req.expected_count.unwrap_or(100);
-            FheOperation::Sum { expected_count: count }
-        }
-        "threshold" => {
-            FheOperation::Threshold {
-                threshold: op_value,
-                greater_or_equal: true,
+            FheOperation::Sum {
+                expected_count: count,
             }
         }
-        "range_check" => {
-            FheOperation::RangeCheck {
-                min: 0,
-                max: op_value,
-            }
-        }
+        "threshold" => FheOperation::Threshold {
+            threshold: op_value,
+            greater_or_equal: true,
+        },
+        "range_check" => FheOperation::RangeCheck {
+            min: 0,
+            max: op_value,
+        },
         "average" => {
             let count = req.expected_count.unwrap_or(100);
-            FheOperation::Average { expected_count: count }
+            FheOperation::Average {
+                expected_count: count,
+            }
         }
         "count_if" => {
             let count = req.expected_count.unwrap_or(100);
@@ -497,11 +485,13 @@ async fn estimate_operation_cost(
         "histogram" => {
             let num_bins = req.bins.unwrap_or(5) as usize;
             let bins: Vec<HistogramBin> = (0..num_bins)
-                .map(|i| HistogramBin::new(
-                    i as u8 * 10,
-                    (i as u8 + 1) * 10 - 1,
-                    format!("Bin {}", i + 1)
-                ))
+                .map(|i| {
+                    HistogramBin::new(
+                        i as u8 * 10,
+                        (i as u8 + 1) * 10 - 1,
+                        format!("Bin {}", i + 1),
+                    )
+                })
                 .collect();
             FheOperation::Histogram { bins }
         }
@@ -647,18 +637,20 @@ fn build_create_job_transaction(
                 creator_token_account,
             )?
         }
-        _ => return Err(anyhow::anyhow!("Invalid payment method: {}", validated.payment_method)),
+        _ => {
+            return Err(anyhow::anyhow!(
+                "Invalid payment method: {}",
+                validated.payment_method
+            ))
+        }
     };
 
     // Get recent blockhash (in production, fetch from RPC)
     let recent_blockhash = solana_sdk::hash::Hash::default();
 
     // Build message
-    let message = Message::new_with_blockhash(
-        &[instruction],
-        Some(&validated.creator),
-        &recent_blockhash,
-    );
+    let message =
+        Message::new_with_blockhash(&[instruction], Some(&validated.creator), &recent_blockhash);
 
     // Create unsigned transaction
     let transaction = Transaction::new_unsigned(message);
