@@ -49,10 +49,8 @@ pub fn process_submit_proof(
     let mut config: MarketplaceConfig = borsh::from_slice(&config_info.data.borrow())?;
 
     // Verify prover PDA
-    let (prover_pda, _) = Pubkey::find_program_address(
-        &[b"prover", prover_authority_info.key.as_ref()],
-        program_id,
-    );
+    let (prover_pda, _) =
+        Pubkey::find_program_address(&[b"prover", prover_authority_info.key.as_ref()], program_id);
 
     if prover_info.key != &prover_pda {
         msg!("Invalid prover account");
@@ -163,7 +161,10 @@ pub fn process_submit_proof(
 
     msg!("Proof submitted successfully");
     msg!("  Job ID: {}", job.id);
-    msg!("  Completion time: {} seconds", job.completion_duration_secs().unwrap_or(0));
+    msg!(
+        "  Completion time: {} seconds",
+        job.completion_duration_secs().unwrap_or(0)
+    );
 
     Ok(())
 }

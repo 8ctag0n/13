@@ -4,7 +4,9 @@ use solana_program::pubkey::Pubkey;
 
 /// Cost configuration for an FHE operation
 /// Defines pricing and timeout based on computational complexity
-#[derive(Debug, Clone, Copy, PartialEq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, BorshSerialize, BorshDeserialize, Serialize, Deserialize,
+)]
 pub struct OperationCostConfig {
     /// Minimum payment required in lamports
     pub min_payment_lamports: u64,
@@ -70,7 +72,6 @@ pub enum FheOperation {
     Multiply(u8),
 
     // TRACK A - Foundation Layer (Simple Operations)
-
     /// Sum multiple encrypted values
     /// Used for census counting and population statistics
     /// Example: encrypt(1) + encrypt(1) + ... = encrypt(N)
@@ -79,7 +80,10 @@ pub enum FheOperation {
     /// Check if encrypted value meets threshold condition
     /// Used for age verification in zk-passport
     /// Example: encrypt(age) >= 18 returns encrypt(1) if true, encrypt(0) if false
-    Threshold { threshold: u8, greater_or_equal: bool },
+    Threshold {
+        threshold: u8,
+        greater_or_equal: bool,
+    },
 
     /// Verify encrypted value is within valid range
     /// Used for passport age bounds checking
@@ -87,7 +91,6 @@ pub enum FheOperation {
     RangeCheck { min: u8, max: u8 },
 
     // TRACK B - Extension Layer (Composite Operations)
-
     /// Compute average of multiple encrypted values
     /// Returns (encrypted_sum, count) for client-side division
     /// Used for demographic analysis
@@ -97,7 +100,10 @@ pub enum FheOperation {
     /// Count how many encrypted values satisfy a predicate
     /// Used for conditional census and filtering
     /// Example: count_if([encrypt(15), encrypt(25), encrypt(30)], GreaterThan(18)) = encrypt(2)
-    CountIf { predicate: FhePredicate, expected_count: u16 },
+    CountIf {
+        predicate: FhePredicate,
+        expected_count: u16,
+    },
 
     /// Compute distribution histogram across bins
     /// Used for private voting and demographic distribution
@@ -134,7 +140,7 @@ impl FheOperation {
             FheOperation::Histogram { bins } => {
                 let bin_count = bins.len() as u32;
                 500 + (bin_count * 3000) // ~3s per bin for 100 inputs
-            },
+            }
         }
     }
 
@@ -171,17 +177,17 @@ impl FheOperation {
                     timeout_seconds: 60 + (n as i64 * 2),
                     complexity_tier: 2,
                 }
-            },
+            }
 
             // Tier 3: Bootstrap operations (O(1) + expensive bootstrapping)
             // Cost: 0.005 SOL, Timeout: 300s
             FheOperation::Threshold { .. } | FheOperation::RangeCheck { .. } => {
                 OperationCostConfig {
                     min_payment_lamports: LAMPORTS_PER_SOL / 200, // 0.005 SOL
-                    timeout_seconds: 300, // 5 minutes
+                    timeout_seconds: 300,                         // 5 minutes
                     complexity_tier: 3,
                 }
-            },
+            }
 
             // Tier 4: Composite operations (O(n) + predicates/division)
             FheOperation::Average { expected_count } => {
@@ -194,7 +200,7 @@ impl FheOperation {
                     timeout_seconds: 60 + (n as i64 * 3),
                     complexity_tier: 4,
                 }
-            },
+            }
 
             FheOperation::CountIf { expected_count, .. } => {
                 let n = *expected_count as u64;
@@ -206,7 +212,7 @@ impl FheOperation {
                     timeout_seconds: 300 + (n as i64 * 5),
                     complexity_tier: 4,
                 }
-            },
+            }
 
             // Tier 5: Exponential complexity (O(n×m))
             // Most expensive due to combinatorial explosion
@@ -229,7 +235,7 @@ impl FheOperation {
                     timeout_seconds: 600 + (m as i64 * 100), // 10 minutes + 100s per bin
                     complexity_tier: 5,
                 }
-            },
+            }
         }
     }
 }
@@ -399,7 +405,9 @@ mod tests {
 
     #[test]
     fn test_sum_serialization() {
-        let op = FheOperation::Sum { expected_count: 100 };
+        let op = FheOperation::Sum {
+            expected_count: 100,
+        };
         let serialized = borsh::to_vec(&op).unwrap();
         let deserialized: FheOperation = borsh::from_slice(&serialized).unwrap();
         assert_eq!(op, deserialized);
@@ -437,7 +445,9 @@ mod tests {
 
     #[test]
     fn test_sum_operation_name() {
-        let op = FheOperation::Sum { expected_count: 100 };
+        let op = FheOperation::Sum {
+            expected_count: 100,
+        };
         assert_eq!(op.name(), "Sum");
     }
 
@@ -514,7 +524,9 @@ mod tests {
 
     #[test]
     fn test_average_serialization() {
-        let op = FheOperation::Average { expected_count: 100 };
+        let op = FheOperation::Average {
+            expected_count: 100,
+        };
         let serialized = borsh::to_vec(&op).unwrap();
         let deserialized: FheOperation = borsh::from_slice(&serialized).unwrap();
         assert_eq!(op, deserialized);
@@ -546,7 +558,9 @@ mod tests {
 
     #[test]
     fn test_average_operation_name() {
-        let op = FheOperation::Average { expected_count: 100 };
+        let op = FheOperation::Average {
+            expected_count: 100,
+        };
         assert_eq!(op.name(), "Average");
     }
 
@@ -630,7 +644,9 @@ mod tests {
         assert_eq!(config_small.timeout_seconds, 80);
 
         // Test large count
-        let op_large = FheOperation::Sum { expected_count: 1000 };
+        let op_large = FheOperation::Sum {
+            expected_count: 1000,
+        };
         let config_large = op_large.get_cost_config();
 
         // 0.001 + (1000 × 0.0001) = 0.101 SOL = 101_000_000 lamports
@@ -675,7 +691,9 @@ mod tests {
         assert_eq!(config_small.timeout_seconds, 90);
 
         // Large average
-        let op_large = FheOperation::Average { expected_count: 500 };
+        let op_large = FheOperation::Average {
+            expected_count: 500,
+        };
         let config_large = op_large.get_cost_config();
 
         // 0.001 + (500 × 0.0002) = 0.101 SOL = 101_000_000 lamports
@@ -748,9 +766,16 @@ mod tests {
     fn test_pricing_increases_with_complexity_tier() {
         let tier1 = FheOperation::Add(1).get_cost_config();
         let tier2 = FheOperation::Sum { expected_count: 1 }.get_cost_config();
-        let tier3 = FheOperation::Threshold { threshold: 18, greater_or_equal: true }.get_cost_config();
+        let tier3 = FheOperation::Threshold {
+            threshold: 18,
+            greater_or_equal: true,
+        }
+        .get_cost_config();
         let tier4 = FheOperation::Average { expected_count: 1 }.get_cost_config();
-        let tier5 = FheOperation::Histogram { bins: vec![HistogramBin::new(0, 10, "bin1")] }.get_cost_config();
+        let tier5 = FheOperation::Histogram {
+            bins: vec![HistogramBin::new(0, 10, "bin1")],
+        }
+        .get_cost_config();
 
         // Verify tier ordering
         assert!(tier1.min_payment_lamports < tier3.min_payment_lamports);
@@ -778,7 +803,9 @@ mod tests {
     #[test]
     fn test_cost_config_realistic_scenarios() {
         // Census count of 10,000 people
-        let census = FheOperation::Sum { expected_count: 10_000 };
+        let census = FheOperation::Sum {
+            expected_count: 10_000,
+        };
         let census_config = census.get_cost_config();
         // 0.001 + (10_000 × 0.0001) = 1.001 SOL
         assert!(census_config.min_payment_lamports > 1_000_000_000);

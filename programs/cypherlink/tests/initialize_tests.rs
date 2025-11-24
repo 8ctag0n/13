@@ -8,9 +8,9 @@ use solana_sdk::{signature::Signer, transaction::Transaction};
 #[tokio::test]
 async fn test_initialize_marketplace() {
     let program_id = Pubkey::new_unique();
-    let mut program_test = setup_program_test(program_id);
+    let program_test = setup_program_test(program_id);
 
-    let (mut banks_client, payer, recent_blockhash) = program_test.start().await;
+    let (banks_client, payer, recent_blockhash) = program_test.start().await;
 
     let (config_pda, _bump) = Pubkey::find_program_address(&[b"config"], &program_id);
 
@@ -58,9 +58,9 @@ async fn test_initialize_marketplace() {
 #[tokio::test]
 async fn test_initialize_already_initialized() {
     let program_id = Pubkey::new_unique();
-    let mut program_test = setup_program_test(program_id);
+    let program_test = setup_program_test(program_id);
 
-    let (mut banks_client, payer, recent_blockhash) = program_test.start().await;
+    let (banks_client, payer, recent_blockhash) = program_test.start().await;
     let (config_pda, _bump) = Pubkey::find_program_address(&[b"config"], &program_id);
 
     let instruction_data = MarketplaceInstruction::Initialize {
@@ -83,12 +83,16 @@ async fn test_initialize_already_initialized() {
         data: instruction_data.pack().unwrap(),
     };
 
-    let mut transaction = Transaction::new_with_payer(&[instruction.clone()], Some(&payer.pubkey()));
+    let mut transaction =
+        Transaction::new_with_payer(&[instruction.clone()], Some(&payer.pubkey()));
     transaction.sign(&[&payer], recent_blockhash);
     banks_client.process_transaction(transaction).await.unwrap();
 
     let config_account = banks_client.get_account(config_pda).await.unwrap();
-    assert!(config_account.is_some(), "Config account should exist after first init");
+    assert!(
+        config_account.is_some(),
+        "Config account should exist after first init"
+    );
 
     let recent_blockhash = banks_client.get_latest_blockhash().await.unwrap();
 
@@ -122,9 +126,9 @@ async fn test_initialize_already_initialized() {
 #[tokio::test]
 async fn test_initialize_missing_signer() {
     let program_id = Pubkey::new_unique();
-    let mut program_test = setup_program_test(program_id);
+    let program_test = setup_program_test(program_id);
 
-    let (mut banks_client, payer, recent_blockhash) = program_test.start().await;
+    let (banks_client, payer, recent_blockhash) = program_test.start().await;
     let (config_pda, _bump) = Pubkey::find_program_address(&[b"config"], &program_id);
 
     let non_signer = solana_sdk::signature::Keypair::new();
@@ -159,9 +163,9 @@ async fn test_initialize_missing_signer() {
 #[tokio::test]
 async fn test_initialize_invalid_config_pda() {
     let program_id = Pubkey::new_unique();
-    let mut program_test = setup_program_test(program_id);
+    let program_test = setup_program_test(program_id);
 
-    let (mut banks_client, payer, recent_blockhash) = program_test.start().await;
+    let (banks_client, payer, recent_blockhash) = program_test.start().await;
 
     let wrong_pda = Pubkey::new_unique();
 

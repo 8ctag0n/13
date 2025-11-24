@@ -46,10 +46,8 @@ pub fn process_claim_job(program_id: &Pubkey, accounts: &[AccountInfo]) -> Progr
     }
 
     // Verify prover PDA
-    let (prover_pda, _) = Pubkey::find_program_address(
-        &[b"prover", prover_authority_info.key.as_ref()],
-        program_id,
-    );
+    let (prover_pda, _) =
+        Pubkey::find_program_address(&[b"prover", prover_authority_info.key.as_ref()], program_id);
 
     if prover_info.key != &prover_pda {
         msg!("Invalid prover account");
@@ -101,7 +99,9 @@ pub fn process_claim_job(program_id: &Pubkey, accounts: &[AccountInfo]) -> Progr
     match &job.circuit_type {
         CircuitType::FheComputation(_) => {
             // FHE job: multi-prover support
-            let config = job.fhe_config.as_ref()
+            let config = job
+                .fhe_config
+                .as_ref()
                 .ok_or(CypherLinkProgramError::MissingFheConfig)?;
 
             // Check if job is already fully claimed
@@ -123,9 +123,16 @@ pub fn process_claim_job(program_id: &Pubkey, accounts: &[AccountInfo]) -> Progr
             if job.claimed_provers.len() == config.required_provers as usize {
                 job.status = cypherlink_types::JobStatus::Claimed;
                 job.claimed_at = Some(current_time);
-                msg!("FHE job fully claimed by {} provers", config.required_provers);
+                msg!(
+                    "FHE job fully claimed by {} provers",
+                    config.required_provers
+                );
             } else {
-                msg!("FHE job partially claimed: {}/{}", job.claimed_provers.len(), config.required_provers);
+                msg!(
+                    "FHE job partially claimed: {}/{}",
+                    job.claimed_provers.len(),
+                    config.required_provers
+                );
             }
         }
         _ => {

@@ -16,8 +16,8 @@ pub struct TempJobData {
     pub required_provers: i16,
     pub consensus_threshold: i16,
     pub status: String,
-    pub payment_method: String,  // "SOL" or "wZEC"
-    pub payment_token_mint: Option<String>,  // SPL token mint for wZEC
+    pub payment_method: String,             // "SOL" or "wZEC"
+    pub payment_token_mint: Option<String>, // SPL token mint for wZEC
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub expires_at: DateTime<Utc>,
@@ -90,6 +90,6 @@ pub struct InsertJobData {
     pub price_lamports: i64,
     pub required_provers: i16,
     pub consensus_threshold: i16,
-    pub payment_method: String,  // "SOL" or "wZEC"
-    pub payment_token_mint: Option<String>,  // SPL token mint for wZEC payments
+    pub payment_method: String,             // "SOL" or "wZEC"
+    pub payment_token_mint: Option<String>, // SPL token mint for wZEC payments
 }

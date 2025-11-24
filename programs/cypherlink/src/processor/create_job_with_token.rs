@@ -120,7 +120,8 @@ pub fn process_create_job_with_token(
                 .ok_or(CypherLinkProgramError::MissingFheConfig)?;
 
             // Validate config
-            config.validate()
+            config
+                .validate()
                 .map_err(|_| CypherLinkProgramError::InvalidFheConfig)?;
         }
         _ => {
@@ -243,7 +244,7 @@ pub fn process_create_job_with_token(
         circuit_type.clone(),
         witness_commitment,
         witness_size,
-        price_token_amount, // Store token amount instead of lamports
+        price_token_amount,     // Store token amount instead of lamports
         *token_escrow_info.key, // Store token escrow address
         current_time,
         actual_timeout,

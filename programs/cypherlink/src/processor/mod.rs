@@ -1,28 +1,26 @@
-pub mod initialize;
-pub mod register_prover;
+pub mod cancel_job;
+pub mod claim_job;
 pub mod create_job;
 pub mod create_job_with_token;
-pub mod claim_job;
-pub mod submit_proof;
-pub mod cancel_job;
+pub mod finalize_fhe_job;
+pub mod initialize;
+pub mod register_prover;
 pub mod slash_prover;
 pub mod submit_fhe_result;
-pub mod finalize_fhe_job;
+pub mod submit_proof;
 
-pub use initialize::*;
-pub use register_prover::*;
+pub use cancel_job::*;
+pub use claim_job::*;
 pub use create_job::*;
 pub use create_job_with_token::*;
-pub use claim_job::*;
-pub use submit_proof::*;
-pub use cancel_job::*;
+pub use finalize_fhe_job::*;
+pub use initialize::*;
+pub use register_prover::*;
 pub use slash_prover::*;
 pub use submit_fhe_result::*;
-pub use finalize_fhe_job::*;
+pub use submit_proof::*;
 
-use solana_program::{
-    account_info::AccountInfo, entrypoint::ProgramResult, msg, pubkey::Pubkey,
-};
+use solana_program::{account_info::AccountInfo, entrypoint::ProgramResult, msg, pubkey::Pubkey};
 
 use crate::instruction::MarketplaceInstruction;
 
@@ -51,7 +49,10 @@ pub fn process(
                 default_job_timeout_seconds,
             )
         }
-        MarketplaceInstruction::RegisterProver { stake_amount, encryption_pubkey } => {
+        MarketplaceInstruction::RegisterProver {
+            stake_amount,
+            encryption_pubkey,
+        } => {
             msg!("Instruction: RegisterProver");
             process_register_prover(program_id, accounts, stake_amount, encryption_pubkey)
         }

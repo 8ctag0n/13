@@ -12,7 +12,7 @@ use solana_sdk::{signature::Signer, transaction::Transaction};
 #[tokio::test]
 async fn test_create_job() {
     let program_id = Pubkey::new_unique();
-    let mut program_test = setup_program_test(program_id);
+    let program_test = setup_program_test(program_id);
 
     let (mut banks_client, payer, _recent_blockhash) = program_test.start().await;
 
@@ -31,10 +31,8 @@ async fn test_create_job() {
     let job_creator = payer.pubkey();
     let job_id = 0u64;
     let job_id_bytes = job_id.to_le_bytes();
-    let (job_pda, _) = Pubkey::find_program_address(
-        &[b"job", job_creator.as_ref(), &job_id_bytes],
-        &program_id,
-    );
+    let (job_pda, _) =
+        Pubkey::find_program_address(&[b"job", job_creator.as_ref(), &job_id_bytes], &program_id);
 
     let (escrow_pda, _) = Pubkey::find_program_address(&[b"escrow", job_pda.as_ref()], &program_id);
 
@@ -88,13 +86,16 @@ async fn test_create_job() {
     assert!(escrow_account.is_some(), "Escrow account not created");
 
     let escrow_account = escrow_account.unwrap();
-    assert!(escrow_account.lamports >= 1_000_000, "Escrow should hold payment");
+    assert!(
+        escrow_account.lamports >= 1_000_000,
+        "Escrow should hold payment"
+    );
 }
 
 #[tokio::test]
 async fn test_create_job_invalid_price() {
     let program_id = Pubkey::new_unique();
-    let mut program_test = setup_program_test(program_id);
+    let program_test = setup_program_test(program_id);
 
     let (mut banks_client, payer, _recent_blockhash) = program_test.start().await;
 
@@ -113,10 +114,8 @@ async fn test_create_job_invalid_price() {
     let job_creator = payer.pubkey();
     let job_id = 0u64;
     let job_id_bytes = job_id.to_le_bytes();
-    let (job_pda, _) = Pubkey::find_program_address(
-        &[b"job", job_creator.as_ref(), &job_id_bytes],
-        &program_id,
-    );
+    let (job_pda, _) =
+        Pubkey::find_program_address(&[b"job", job_creator.as_ref(), &job_id_bytes], &program_id);
     let (escrow_pda, _) = Pubkey::find_program_address(&[b"escrow", job_pda.as_ref()], &program_id);
 
     let create_job_instruction = MarketplaceInstruction::CreateJob {
@@ -154,7 +153,7 @@ async fn test_create_job_invalid_price() {
 #[tokio::test]
 async fn test_create_multiple_jobs() {
     let program_id = Pubkey::new_unique();
-    let mut program_test = setup_program_test(program_id);
+    let program_test = setup_program_test(program_id);
 
     let (mut banks_client, payer, _recent_blockhash) = program_test.start().await;
 
@@ -178,7 +177,8 @@ async fn test_create_multiple_jobs() {
             &[b"job", job_creator.as_ref(), &job_id_bytes],
             &program_id,
         );
-        let (escrow_pda, _) = Pubkey::find_program_address(&[b"escrow", job_pda.as_ref()], &program_id);
+        let (escrow_pda, _) =
+            Pubkey::find_program_address(&[b"escrow", job_pda.as_ref()], &program_id);
 
         let create_job_instruction = MarketplaceInstruction::CreateJob {
             circuit_type: CircuitType::ZcashOrchard,
@@ -205,7 +205,8 @@ async fn test_create_multiple_jobs() {
         };
 
         let recent_blockhash = banks_client.get_latest_blockhash().await.unwrap();
-        let mut create_job_tx = Transaction::new_with_payer(&[create_job_ix], Some(&payer.pubkey()));
+        let mut create_job_tx =
+            Transaction::new_with_payer(&[create_job_ix], Some(&payer.pubkey()));
         create_job_tx.sign(&[&payer], recent_blockhash);
 
         let result = banks_client.process_transaction(create_job_tx).await;

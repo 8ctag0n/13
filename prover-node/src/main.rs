@@ -10,22 +10,21 @@ use solana_sdk::{
 use std::{sync::Arc, time::Duration};
 use tokio::time::sleep;
 
+mod circuits;
+mod config;
 mod fhe_engine;
 mod halo2_prover;
+mod roi_calculator;
+mod tui;
 mod witness_encryption;
 mod witness_fetcher;
-mod tui;
 mod wizard;
-mod config;
-mod circuits;
-mod roi_calculator;
 
 use fhe_engine::FheEngine;
 use halo2_prover::{Halo2Prover, OrchardWitness};
+use roi_calculator::ROICalculator;
 use witness_encryption::WitnessEncryption;
 use witness_fetcher::WitnessFetcher;
-use circuits::PassportCircuit;
-use roi_calculator::ROICalculator;
 
 /// CypherLink Prover Node - Autonomous ZK proof generation daemon
 #[derive(Parser, Debug)]
@@ -134,7 +133,9 @@ impl ProverConfig {
         Ok(Self {
             rpc_url: args.rpc_url.clone(),
             program_id,
-            keypair_path: args.keypair.replace("~", &std::env::var("HOME").unwrap_or_default()),
+            keypair_path: args
+                .keypair
+                .replace("~", &std::env::var("HOME").unwrap_or_default()),
             poll_interval: Duration::from_secs(args.poll_interval),
             min_price: args.min_price,
             min_roi: args.min_roi,
@@ -142,7 +143,9 @@ impl ProverConfig {
             mock_proving_time: Duration::from_secs(args.mock_proving_time),
             max_concurrent_jobs: args.max_concurrent_jobs,
             witness_backend_url: args.witness_backend_url.clone(),
-            fhe_server_key_path: args.fhe_server_key_path.clone()
+            fhe_server_key_path: args
+                .fhe_server_key_path
+                .clone()
                 .map(|p| p.replace("~", &std::env::var("HOME").unwrap_or_default())),
         })
     }
@@ -189,18 +192,21 @@ impl ProverNode {
         let encryption_seed = derive_encryption_seed(&keypair);
         let witness_encryption = WitnessEncryption::from_seed(encryption_seed)?;
         let pubkey = witness_encryption.public_key();
-        info!("Witness encryption ready (pubkey: {})", hex::encode(&pubkey));
+        info!("Witness encryption ready (pubkey: {})", hex::encode(pubkey));
 
         // Initialize witness fetcher
         info!("Initializing witness fetcher...");
         let witness_fetcher = WitnessFetcher::new(config.witness_backend_url.clone());
-        info!("Witness fetcher ready (backend: {})", config.witness_backend_url);
+        info!(
+            "Witness fetcher ready (backend: {})",
+            config.witness_backend_url
+        );
 
         // Initialize FHE engine if server key is provided
         let fhe_engine = if let Some(ref key_path) = config.fhe_server_key_path {
             info!("Initializing FHE engine with server key from: {}", key_path);
-            let server_key_bytes = std::fs::read(key_path)
-                .context("Failed to read FHE server key file")?;
+            let server_key_bytes =
+                std::fs::read(key_path).context("Failed to read FHE server key file")?;
             let server_key = fhe_engine::deserialize_server_key(&server_key_bytes)
                 .context("Failed to deserialize FHE server key")?;
             let engine = FheEngine::new(server_key);
@@ -355,24 +361,23 @@ impl ProverNode {
             tokio::spawn(async move {
                 let start_time = std::time::Instant::now();
 
-                if let Err(e) =
-                    Self::process_job(
-                        client,
-                        keypair,
-                        job_pda,
-                        job.id,
-                        job.circuit_type,
-                        job.witness_commitment,
-                        mock_proving_time,
-                        halo2_prover,
-                        witness_encryption,
-                        witness_fetcher,
-                        fhe_engine,
-                        tui_state.clone(),
-                        job_price,
-                        start_time,
-                    )
-                    .await
+                if let Err(e) = Self::process_job(
+                    client,
+                    keypair,
+                    job_pda,
+                    job.id,
+                    job.circuit_type,
+                    job.witness_commitment,
+                    mock_proving_time,
+                    halo2_prover,
+                    witness_encryption,
+                    witness_fetcher,
+                    fhe_engine,
+                    tui_state.clone(),
+                    job_price,
+                    start_time,
+                )
+                .await
                 {
                     error!("Failed to process job {}: {}", job.id, e);
 
@@ -426,13 +431,13 @@ impl ProverNode {
             }
             Err(e) => {
                 warn!("[Job {}] Failed to claim (already claimed?): {}", job_id, e);
-                return Err(e.into());
+                return Err(e);
             }
         }
 
         // Verify claim succeeded
-        let job = fetch_job(&client.rpc_client, &job_pda)
-            .context("Failed to fetch job after claim")?;
+        let job =
+            fetch_job(&client.rpc_client, &job_pda).context("Failed to fetch job after claim")?;
 
         // For ZK jobs: verify we claimed it exclusively
         if let CircuitType::ZcashOrchard = circuit_type {
@@ -450,7 +455,10 @@ impl ProverNode {
             }
 
             if !job.claimed_provers.contains(&keypair.pubkey()) {
-                warn!("[Job {}] We are not in the claimed_provers list, aborting", job_id);
+                warn!(
+                    "[Job {}] We are not in the claimed_provers list, aborting",
+                    job_id
+                );
                 return Ok(());
             }
 
@@ -462,7 +470,10 @@ impl ProverNode {
         }
 
         // Step 2: Download and decrypt witness
-        info!("[Job {}] Downloading encrypted witness from backend...", job_id);
+        info!(
+            "[Job {}] Downloading encrypted witness from backend...",
+            job_id
+        );
 
         let encrypted_witness = witness_fetcher
             .download_witness(&witness_commitment)
@@ -493,9 +504,7 @@ impl ProverNode {
         let proof_bytes = match circuit_type {
             CircuitType::ZcashOrchard => {
                 // Validate witness
-                witness
-                    .validate()
-                    .context("Invalid witness data")?;
+                witness.validate().context("Invalid witness data")?;
 
                 // Generate real Halo2 proof
                 let proof = Self::real_generate_proof(halo2_prover.clone(), witness).await?;
@@ -520,12 +529,9 @@ impl ProverNode {
                 let encrypted_input_bytes = &encrypted_witness;
 
                 // Perform FHE computation
-                let result_bytes = Self::execute_fhe_computation(
-                    engine.clone(),
-                    encrypted_input_bytes,
-                    operation,
-                )
-                .await?;
+                let result_bytes =
+                    Self::execute_fhe_computation(engine.clone(), encrypted_input_bytes, operation)
+                        .await?;
 
                 // Hash result for consensus
                 let result_hash = FheEngine::hash_result(&result_bytes);
@@ -565,7 +571,9 @@ impl ProverNode {
 
                 // Fetch config to get protocol fee recipient
                 let (config_pda, _) = client.get_config_pda();
-                let config_account = client.rpc_client.get_account(&config_pda)
+                let config_account = client
+                    .rpc_client
+                    .get_account(&config_pda)
                     .context("Failed to fetch config account")?;
 
                 // Extract protocol_fee_recipient from config
@@ -588,11 +596,14 @@ impl ProverNode {
 
                 match client.send_and_confirm_transaction(&[submit_ix], &[&*keypair]) {
                     Ok(sig) => {
-                        info!("[Job {}] ZK proof submitted successfully (sig: {})", job_id, sig);
+                        info!(
+                            "[Job {}] ZK proof submitted successfully (sig: {})",
+                            job_id, sig
+                        );
                     }
                     Err(e) => {
                         error!("[Job {}] Failed to submit ZK proof: {}", job_id, e);
-                        return Err(e.into());
+                        return Err(e);
                     }
                 }
             }
@@ -610,7 +621,10 @@ impl ProverNode {
                 );
 
                 // Store encrypted result in witness backend
-                info!("[Job {}] Uploading encrypted result to witness backend...", job_id);
+                info!(
+                    "[Job {}] Uploading encrypted result to witness backend...",
+                    job_id
+                );
 
                 let witness_backend_url = std::env::var("WITNESS_BACKEND_URL")
                     .unwrap_or_else(|_| "http://localhost:3030".to_string());
@@ -630,8 +644,8 @@ impl ProverNode {
                     ));
                 }
 
-                let upload_response: serde_json::Value = response.json()
-                    .context("Failed to parse upload response")?;
+                let upload_response: serde_json::Value =
+                    response.json().context("Failed to parse upload response")?;
 
                 let stored_commitment = upload_response["commitment"]
                     .as_str()
@@ -649,11 +663,14 @@ impl ProverNode {
 
                 match client.send_and_confirm_transaction(&[submit_ix], &[&*keypair]) {
                     Ok(sig) => {
-                        info!("[Job {}] FHE result submitted successfully (sig: {})", job_id, sig);
+                        info!(
+                            "[Job {}] FHE result submitted successfully (sig: {})",
+                            job_id, sig
+                        );
                     }
                     Err(e) => {
                         error!("[Job {}] Failed to submit FHE result: {}", job_id, e);
-                        return Err(e.into());
+                        return Err(e);
                     }
                 }
             }
@@ -719,8 +736,8 @@ impl ProverNode {
         encrypted_input: &[u8],
         operation: &cypherlink_types::FheOperation,
     ) -> Result<Vec<u8>> {
+        use crate::circuits::{CensusCircuit, DemographicsCircuit, PassportCircuit, VotingCircuit};
         use cypherlink_types::FheOperation;
-        use crate::circuits::{CensusCircuit, PassportCircuit, DemographicsCircuit, VotingCircuit};
 
         // encrypted_input contains serialized FheUint8 ciphertext
         let input_bytes = encrypted_input.to_vec();
@@ -753,19 +770,12 @@ impl ProverNode {
                     // Use u16 by default for safety (handles up to 65k)
                     CensusCircuit::compute_sum_u16(input_refs)
                 }
-                FheOperation::Threshold { threshold, greater_or_equal } => {
-                    PassportCircuit::compute_threshold(
-                        &input_bytes,
-                        threshold,
-                        greater_or_equal
-                    )
-                }
+                FheOperation::Threshold {
+                    threshold,
+                    greater_or_equal,
+                } => PassportCircuit::compute_threshold(&input_bytes, threshold, greater_or_equal),
                 FheOperation::RangeCheck { min, max } => {
-                    PassportCircuit::compute_range_check(
-                        &input_bytes,
-                        min,
-                        max
-                    )
+                    PassportCircuit::compute_range_check(&input_bytes, min, max)
                 }
 
                 // TRACK B - Extension Layer
@@ -787,15 +797,19 @@ impl ProverNode {
                     let input_refs: Vec<&[u8]> = inputs.iter().map(|v| v.as_slice()).collect();
 
                     // Compute average (returns encrypted_sum, count)
-                    let (encrypted_sum, count) = DemographicsCircuit::compute_average_u16(input_refs)
-                        .context("Failed to compute average")?;
+                    let (encrypted_sum, count) =
+                        DemographicsCircuit::compute_average_u16(input_refs)
+                            .context("Failed to compute average")?;
 
                     // Serialize result as tuple (encrypted_sum, count)
                     bincode::serialize(&(encrypted_sum, count))
                         .context("Failed to serialize average result")
                 }
 
-                FheOperation::CountIf { ref predicate, expected_count } => {
+                FheOperation::CountIf {
+                    ref predicate,
+                    expected_count,
+                } => {
                     // For CountIf operation, input_bytes contains a serialized vector of encrypted values
                     let inputs: Vec<Vec<u8>> = bincode::deserialize(&input_bytes)
                         .context("Failed to deserialize CountIf inputs")?;
@@ -927,7 +941,9 @@ async fn register_prover(args: &Args, stake_amount: u64) -> Result<()> {
         .parse()
         .context("Invalid program ID format")?;
 
-    let keypair_path = args.keypair.replace("~", &std::env::var("HOME").unwrap_or_default());
+    let keypair_path = args
+        .keypair
+        .replace("~", &std::env::var("HOME").unwrap_or_default());
     let keypair = read_keypair_file(&keypair_path)
         .map_err(|e| anyhow::anyhow!("Failed to read keypair file: {}", e))?;
 
@@ -944,15 +960,16 @@ async fn register_prover(args: &Args, stake_amount: u64) -> Result<()> {
 
     info!("Registering prover...");
     info!("  Authority: {}", keypair.pubkey());
-    info!("  Stake: {} lamports ({} SOL)", stake_amount, stake_amount as f64 / 1_000_000_000.0);
-    info!("  Encryption pubkey: {}", hex::encode(&encryption_pubkey));
+    info!(
+        "  Stake: {} lamports ({} SOL)",
+        stake_amount,
+        stake_amount as f64 / 1_000_000_000.0
+    );
+    info!("  Encryption pubkey: {}", hex::encode(encryption_pubkey));
 
     // Create register instruction
-    let ix = client.register_prover_instruction(
-        &keypair.pubkey(),
-        stake_amount,
-        encryption_pubkey,
-    )?;
+    let ix =
+        client.register_prover_instruction(&keypair.pubkey(), stake_amount, encryption_pubkey)?;
 
     // Send transaction
     let sig = client.send_and_confirm_transaction(&[ix], &[&keypair])?;
@@ -983,7 +1000,9 @@ fn derive_encryption_seed(keypair: &Keypair) -> [u8; 32] {
 
 /// Show the encryption public key for this prover
 fn show_pubkey(args: &Args) -> Result<()> {
-    let keypair_path = args.keypair.replace("~", &std::env::var("HOME").unwrap_or_default());
+    let keypair_path = args
+        .keypair
+        .replace("~", &std::env::var("HOME").unwrap_or_default());
     let keypair = read_keypair_file(&keypair_path)
         .map_err(|e| anyhow::anyhow!("Failed to read keypair file: {}", e))?;
 
@@ -995,7 +1014,7 @@ fn show_pubkey(args: &Args) -> Result<()> {
     println!("Prover Encryption Public Key");
     println!("=============================");
     println!("Authority:       {}", keypair.pubkey());
-    println!("Encryption Key:  {}", hex::encode(&encryption_pubkey));
+    println!("Encryption Key:  {}", hex::encode(encryption_pubkey));
     println!();
     println!("Clients should use this key to encrypt witness data before uploading.");
 
@@ -1010,7 +1029,10 @@ async fn run_setup_wizard(stake_amount: u64) -> Result<()> {
     let _config = wizard.run().await?;
 
     info!("Setup wizard completed successfully!");
-    info!("Configuration saved to: {:?}", config::ProverConfiguration::default_path()?);
+    info!(
+        "Configuration saved to: {:?}",
+        config::ProverConfiguration::default_path()?
+    );
 
     Ok(())
 }

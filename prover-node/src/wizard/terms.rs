@@ -64,8 +64,8 @@ pub async fn save_acceptance(acceptance: &TermsAcceptance) -> Result<PathBuf> {
 
     let path = config_dir.join("terms_acceptance.json");
 
-    let json = serde_json::to_string_pretty(acceptance)
-        .context("Failed to serialize terms acceptance")?;
+    let json =
+        serde_json::to_string_pretty(acceptance).context("Failed to serialize terms acceptance")?;
 
     tokio::fs::write(&path, json)
         .await
@@ -89,8 +89,8 @@ pub async fn load_acceptance() -> Result<Option<TermsAcceptance>> {
         .await
         .context("Failed to read terms acceptance file")?;
 
-    let acceptance: TermsAcceptance = serde_json::from_str(&json)
-        .context("Failed to parse terms acceptance file")?;
+    let acceptance: TermsAcceptance =
+        serde_json::from_str(&json).context("Failed to parse terms acceptance file")?;
 
     Ok(Some(acceptance))
 }
@@ -103,7 +103,7 @@ pub async fn needs_acceptance(backend_url: &str) -> Result<bool> {
         Some(acceptance) => {
             // Check if version or hash changed
             Ok(acceptance.version != latest_terms.version
-               || acceptance.terms_hash != latest_terms.hash)
+                || acceptance.terms_hash != latest_terms.hash)
         }
         None => Ok(true),
     }

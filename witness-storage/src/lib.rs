@@ -55,7 +55,7 @@ async fn upload_witness(
     log::info!(
         "Stored witness: {} bytes, commitment: {}",
         encrypted_witness.len(),
-        hex::encode(&commitment)
+        hex::encode(commitment)
     );
 
     Json(serde_json::json!({
@@ -76,10 +76,7 @@ async fn download_witness(
             arr.copy_from_slice(&bytes);
             arr
         }
-        _ => {
-            return (StatusCode::BAD_REQUEST, "Invalid commitment format")
-                .into_response()
-        }
+        _ => return (StatusCode::BAD_REQUEST, "Invalid commitment format").into_response(),
     };
 
     let storage = state.storage.read().await;
@@ -123,7 +120,7 @@ async fn upload_fhe_result(
     log::info!(
         "Stored FHE result: {} bytes, commitment: {}",
         encrypted_result.len(),
-        hex::encode(&commitment)
+        hex::encode(commitment)
     );
 
     Json(serde_json::json!({
@@ -144,10 +141,7 @@ async fn download_fhe_result(
             arr.copy_from_slice(&bytes);
             arr
         }
-        _ => {
-            return (StatusCode::BAD_REQUEST, "Invalid commitment format")
-                .into_response()
-        }
+        _ => return (StatusCode::BAD_REQUEST, "Invalid commitment format").into_response(),
     };
 
     let storage = state.storage.read().await;

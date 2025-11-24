@@ -25,10 +25,10 @@ async fn test_full_job_lifecycle() {
         &mut banks_client,
         &payer,
         &program_id,
-        1000,           // 10% fee
-        5_000_000_000,  // 5 SOL minimum stake
-        500,            // minimum reputation score
-        600,            // default timeout: 10 minutes
+        1000,          // 10% fee
+        5_000_000_000, // 5 SOL minimum stake
+        500,           // minimum reputation score
+        600,           // default timeout: 10 minutes
     )
     .await
     .unwrap();
@@ -66,10 +66,8 @@ async fn test_full_job_lifecycle() {
     let job_creator = payer.pubkey();
     let job_id = 0u64;
     let job_id_bytes = job_id.to_le_bytes();
-    let (job_pda, _) = Pubkey::find_program_address(
-        &[b"job", job_creator.as_ref(), &job_id_bytes],
-        &program_id,
-    );
+    let (job_pda, _) =
+        Pubkey::find_program_address(&[b"job", job_creator.as_ref(), &job_id_bytes], &program_id);
     let (escrow_pda, _) = Pubkey::find_program_address(&[b"escrow", job_pda.as_ref()], &program_id);
 
     let price_lamports = 1_000_000u64;
@@ -100,7 +98,10 @@ async fn test_full_job_lifecycle() {
     let recent_blockhash = banks_client.get_latest_blockhash().await.unwrap();
     let mut create_job_tx = Transaction::new_with_payer(&[create_job_ix], Some(&payer.pubkey()));
     create_job_tx.sign(&[&payer], recent_blockhash);
-    banks_client.process_transaction(create_job_tx).await.unwrap();
+    banks_client
+        .process_transaction(create_job_tx)
+        .await
+        .unwrap();
 
     // Verify job created correctly
     let job_account = banks_client.get_account(job_pda).await.unwrap().unwrap();
@@ -132,7 +133,10 @@ async fn test_full_job_lifecycle() {
     let mut claim_job_tx =
         Transaction::new_with_payer(&[claim_job_ix], Some(&prover_keypair.pubkey()));
     claim_job_tx.sign(&[&prover_keypair], recent_blockhash);
-    banks_client.process_transaction(claim_job_tx).await.unwrap();
+    banks_client
+        .process_transaction(claim_job_tx)
+        .await
+        .unwrap();
 
     // Verify job was claimed
     let job_account = banks_client.get_account(job_pda).await.unwrap().unwrap();
@@ -191,7 +195,10 @@ async fn test_full_job_lifecycle() {
     let mut submit_proof_tx =
         Transaction::new_with_payer(&[submit_proof_ix], Some(&prover_keypair.pubkey()));
     submit_proof_tx.sign(&[&prover_keypair], recent_blockhash);
-    banks_client.process_transaction(submit_proof_tx).await.unwrap();
+    banks_client
+        .process_transaction(submit_proof_tx)
+        .await
+        .unwrap();
 
     // Verify job completed successfully
     let job_account = banks_client.get_account(job_pda).await.unwrap().unwrap();
@@ -321,7 +328,10 @@ async fn test_multiple_jobs_lifecycle() {
         let mut create_job_tx =
             Transaction::new_with_payer(&[create_job_ix], Some(&payer.pubkey()));
         create_job_tx.sign(&[&payer], recent_blockhash);
-        banks_client.process_transaction(create_job_tx).await.unwrap();
+        banks_client
+            .process_transaction(create_job_tx)
+            .await
+            .unwrap();
 
         // Claim job
         let claim_job_instruction = MarketplaceInstruction::ClaimJob;
@@ -340,7 +350,10 @@ async fn test_multiple_jobs_lifecycle() {
         let mut claim_job_tx =
             Transaction::new_with_payer(&[claim_job_ix], Some(&prover_keypair.pubkey()));
         claim_job_tx.sign(&[&prover_keypair], recent_blockhash);
-        banks_client.process_transaction(claim_job_tx).await.unwrap();
+        banks_client
+            .process_transaction(claim_job_tx)
+            .await
+            .unwrap();
 
         // Submit proof
         let config = banks_client.get_account(config_pda).await.unwrap().unwrap();

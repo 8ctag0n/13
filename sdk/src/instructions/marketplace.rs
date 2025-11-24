@@ -296,15 +296,15 @@ impl InstructionBuilder {
         Ok(Instruction {
             program_id: self.program_id,
             accounts: vec![
-                AccountMeta::new(creator, true),              // 0. creator (signer)
-                AccountMeta::new(job_pda, false),             // 1. job_pda
-                AccountMeta::new(config_pda, false),          // 2. config_pda
-                AccountMeta::new(token_escrow_pda, false),    // 3. token_escrow (PDA)
+                AccountMeta::new(creator, true),                // 0. creator (signer)
+                AccountMeta::new(job_pda, false),               // 1. job_pda
+                AccountMeta::new(config_pda, false),            // 2. config_pda
+                AccountMeta::new(token_escrow_pda, false),      // 3. token_escrow (PDA)
                 AccountMeta::new(creator_token_account, false), // 4. creator's token account
-                AccountMeta::new_readonly(token_mint, false), // 5. token mint
+                AccountMeta::new_readonly(token_mint, false),   // 5. token mint
                 AccountMeta::new_readonly(system_program::id(), false), // 6. system program
-                AccountMeta::new_readonly(token_program_id, false),     // 7. token program
-                AccountMeta::new_readonly(sysvar::rent::id(), false),   // 8. rent sysvar
+                AccountMeta::new_readonly(token_program_id, false), // 7. token program
+                AccountMeta::new_readonly(sysvar::rent::id(), false), // 8. rent sysvar
             ],
             data: instruction_data.pack()?,
         })

@@ -1,6 +1,8 @@
 use anyhow::Result;
 use borsh::BorshDeserialize;
-use cypherlink_sdk::{CircuitType, JobStatus, MarketplaceClient, MarketplaceConfig, ProverAccount, JobAccount};
+use cypherlink_sdk::{
+    CircuitType, JobAccount, JobStatus, MarketplaceClient, MarketplaceConfig, ProverAccount,
+};
 use solana_program_test::{processor, ProgramTest};
 use solana_sdk::{
     signature::{Keypair, Signer},
@@ -28,7 +30,7 @@ async fn test_e2e_complete_marketplace_workflow() -> Result<()> {
 
     let program_id = program_id();
     let program_test = setup_program_test(program_id);
-    let (mut banks_client, payer, recent_blockhash) = program_test.start().await;
+    let (banks_client, payer, recent_blockhash) = program_test.start().await;
 
     let client = MarketplaceClient::new("http://localhost:8899".to_string(), program_id);
 
@@ -41,7 +43,8 @@ async fn test_e2e_complete_marketplace_workflow() -> Result<()> {
     // Fund all accounts
     println!("Phase 1: Funding accounts...");
     for keypair in [&authority, &prover1, &prover2, &job_creator] {
-        let fund_ix = system_instruction::transfer(&payer.pubkey(), &keypair.pubkey(), 10_000_000_000);
+        let fund_ix =
+            system_instruction::transfer(&payer.pubkey(), &keypair.pubkey(), 10_000_000_000);
         let mut tx = Transaction::new_with_payer(&[fund_ix], Some(&payer.pubkey()));
         tx.sign(&[&payer], recent_blockhash);
         banks_client.process_transaction(tx).await?;
@@ -121,7 +124,7 @@ async fn test_e2e_complete_marketplace_workflow() -> Result<()> {
     // ============================================================================
     println!("Phase 4: Creating jobs...");
 
-    let jobs_to_create = vec![
+    let jobs_to_create = [
         (CircuitType::ZcashOrchard, 5_000_000, "ZcashOrchard"),
         (CircuitType::AnonymousVote, 2_000_000, "AnonymousVote"),
         (CircuitType::Credential, 3_000_000, "Credential"),
@@ -263,8 +266,14 @@ async fn test_e2e_complete_marketplace_workflow() -> Result<()> {
     assert_eq!(final_config.total_jobs_completed, 3);
     println!("✓ Marketplace stats verified:");
     println!("  - Total provers: {}", final_config.total_provers);
-    println!("  - Total jobs created: {}", final_config.total_jobs_created);
-    println!("  - Total jobs completed: {}", final_config.total_jobs_completed);
+    println!(
+        "  - Total jobs created: {}",
+        final_config.total_jobs_created
+    );
+    println!(
+        "  - Total jobs completed: {}",
+        final_config.total_jobs_completed
+    );
 
     // Check prover statistics
     let p1_account = banks_client.get_account(prover1_pda).await?.unwrap();
@@ -300,7 +309,7 @@ async fn test_e2e_job_cancellation() -> Result<()> {
 
     let program_id = program_id();
     let program_test = setup_program_test(program_id);
-    let (mut banks_client, payer, recent_blockhash) = program_test.start().await;
+    let (banks_client, payer, recent_blockhash) = program_test.start().await;
 
     let client = MarketplaceClient::new("http://localhost:8899".to_string(), program_id);
     let authority = Keypair::new();
@@ -308,7 +317,8 @@ async fn test_e2e_job_cancellation() -> Result<()> {
 
     // Fund accounts
     for keypair in [&authority, &job_creator] {
-        let fund_ix = system_instruction::transfer(&payer.pubkey(), &keypair.pubkey(), 10_000_000_000);
+        let fund_ix =
+            system_instruction::transfer(&payer.pubkey(), &keypair.pubkey(), 10_000_000_000);
         let mut tx = Transaction::new_with_payer(&[fund_ix], Some(&payer.pubkey()));
         tx.sign(&[&payer], recent_blockhash);
         banks_client.process_transaction(tx).await?;
@@ -365,7 +375,7 @@ async fn test_e2e_concurrent_job_claims() -> Result<()> {
 
     let program_id = program_id();
     let program_test = setup_program_test(program_id);
-    let (mut banks_client, payer, recent_blockhash) = program_test.start().await;
+    let (banks_client, payer, recent_blockhash) = program_test.start().await;
 
     let client = MarketplaceClient::new("http://localhost:8899".to_string(), program_id);
     let authority = Keypair::new();
@@ -375,7 +385,8 @@ async fn test_e2e_concurrent_job_claims() -> Result<()> {
 
     // Fund all accounts
     for keypair in [&authority, &prover1, &prover2, &job_creator] {
-        let fund_ix = system_instruction::transfer(&payer.pubkey(), &keypair.pubkey(), 10_000_000_000);
+        let fund_ix =
+            system_instruction::transfer(&payer.pubkey(), &keypair.pubkey(), 10_000_000_000);
         let mut tx = Transaction::new_with_payer(&[fund_ix], Some(&payer.pubkey()));
         tx.sign(&[&payer], recent_blockhash);
         banks_client.process_transaction(tx).await?;

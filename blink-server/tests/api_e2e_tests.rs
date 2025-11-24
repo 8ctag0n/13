@@ -224,8 +224,16 @@ async fn test_estimate_cost_tier5_histogram_5bins() {
     // Tier 5: 0.1 SOL + 0.02 × bins^1.5
     // For 5 bins: 0.1 + 0.02 × 5^1.5 ≈ 0.324 SOL = 324M lamports per prover
     let min_payment = body["min_payment_lamports"].as_u64().unwrap();
-    assert!(min_payment > 300_000_000, "Expected > 300M, got {}", min_payment);
-    assert!(min_payment < 350_000_000, "Expected < 350M, got {}", min_payment);
+    assert!(
+        min_payment > 300_000_000,
+        "Expected > 300M, got {}",
+        min_payment
+    );
+    assert!(
+        min_payment < 350_000_000,
+        "Expected < 350M, got {}",
+        min_payment
+    );
 
     let total = body["total_min_payment_lamports"].as_u64().unwrap();
     assert_eq!(total, min_payment * 3);
@@ -254,8 +262,16 @@ async fn test_estimate_cost_tier5_histogram_10bins() {
 
     // For 10 bins: 0.1 + 0.02 × 10^1.5 ≈ 0.732 SOL = 732M lamports per prover
     let min_payment = body["min_payment_lamports"].as_u64().unwrap();
-    assert!(min_payment > 700_000_000, "Expected > 700M, got {}", min_payment);
-    assert!(min_payment < 800_000_000, "Expected < 800M, got {}", min_payment);
+    assert!(
+        min_payment > 700_000_000,
+        "Expected > 700M, got {}",
+        min_payment
+    );
+    assert!(
+        min_payment < 800_000_000,
+        "Expected < 800M, got {}",
+        min_payment
+    );
 
     let total = body["total_min_payment_lamports"].as_u64().unwrap();
     assert_eq!(total, min_payment * 3);
@@ -281,7 +297,11 @@ async fn test_estimate_cost_histogram_without_operation_value() {
         .await
         .expect("Failed to send request");
 
-    assert_eq!(response.status(), 200, "Histogram should work without operation_value field");
+    assert_eq!(
+        response.status(),
+        200,
+        "Histogram should work without operation_value field"
+    );
 
     let body: serde_json::Value = response.json().await.expect("Failed to parse JSON");
     assert_eq!(body["complexity_tier"], 5);
@@ -321,7 +341,10 @@ async fn test_estimate_cost_pricing_scales_with_provers() {
     let body_7: serde_json::Value = response_7.json().await.unwrap();
 
     // Per-prover cost should be the same
-    assert_eq!(body_3["min_payment_lamports"], body_7["min_payment_lamports"]);
+    assert_eq!(
+        body_3["min_payment_lamports"],
+        body_7["min_payment_lamports"]
+    );
 
     // Total cost should scale linearly
     let total_3 = body_3["total_min_payment_lamports"].as_u64().unwrap();
@@ -349,7 +372,10 @@ async fn test_estimate_cost_unknown_operation() {
     assert_eq!(response.status(), 400);
 
     let body: serde_json::Value = response.json().await.expect("Failed to parse JSON");
-    assert!(body["error"].as_str().unwrap().contains("Unknown operation"));
+    assert!(body["error"]
+        .as_str()
+        .unwrap()
+        .contains("Unknown operation"));
 }
 
 #[tokio::test]
@@ -388,7 +414,7 @@ async fn test_estimate_cost_all_operations() {
             .json(&payload)
             .send()
             .await
-            .expect(&format!("Failed to send request for {}", op));
+            .unwrap_or_else(|_| panic!("Failed to send request for {}", op));
 
         assert_eq!(
             response.status(),
@@ -398,9 +424,13 @@ async fn test_estimate_cost_all_operations() {
             response.status()
         );
 
-        let body: serde_json::Value = response.json().await.expect(&format!("Failed to parse JSON for {}", op));
+        let body: serde_json::Value = response
+            .json()
+            .await
+            .unwrap_or_else(|_| panic!("Failed to parse JSON for {}", op));
         assert!(
-            body["complexity_tier"].as_u64().unwrap() >= 1 && body["complexity_tier"].as_u64().unwrap() <= 5,
+            body["complexity_tier"].as_u64().unwrap() >= 1
+                && body["complexity_tier"].as_u64().unwrap() <= 5,
             "Invalid tier for operation '{}'",
             op
         );

@@ -51,7 +51,7 @@ impl ProverAccount {
         + 8                      // registration_timestamp
         + 8                      // total_earnings_lamports
         + 32                     // encryption_pubkey
-        + 1;                     // bump
+        + 1; // bump
 
     /// Create a new prover account
     pub fn new(
@@ -78,9 +78,7 @@ impl ProverAccount {
 
     /// Check if prover can claim jobs
     pub fn can_claim_jobs(&self, min_reputation: u32, min_stake: u64) -> bool {
-        self.is_active
-            && self.reputation_score >= min_reputation
-            && self.stake_amount >= min_stake
+        self.is_active && self.reputation_score >= min_reputation && self.stake_amount >= min_stake
     }
 
     /// Update stats after successful job completion
@@ -159,7 +157,8 @@ mod tests {
 
     #[test]
     fn test_prover_job_completion() {
-        let mut prover = ProverAccount::new(Pubkey::new_unique(), 10_000_000_000, 1000, [0u8; 32], 255);
+        let mut prover =
+            ProverAccount::new(Pubkey::new_unique(), 10_000_000_000, 1000, [0u8; 32], 255);
 
         prover.on_job_completed(15, 1_000_000);
         assert_eq!(prover.total_jobs_completed, 1);
@@ -169,7 +168,8 @@ mod tests {
 
     #[test]
     fn test_prover_slashing() {
-        let mut prover = ProverAccount::new(Pubkey::new_unique(), 10_000_000_000, 1000, [0u8; 32], 255);
+        let mut prover =
+            ProverAccount::new(Pubkey::new_unique(), 10_000_000_000, 1000, [0u8; 32], 255);
 
         prover.slash(1_000_000_000, 5_000_000_000); // Slash 1 SOL
         assert_eq!(prover.stake_amount, 9_000_000_000);

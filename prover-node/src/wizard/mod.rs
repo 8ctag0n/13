@@ -3,7 +3,7 @@ pub mod terms;
 pub mod ui;
 pub mod validation;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use solana_sdk::signature::{Keypair, Signer};
 
 use crate::config::ProverConfiguration;
@@ -78,10 +78,7 @@ impl SetupWizard {
         let config_path = config.save().await?;
 
         // Show completion screen
-        ui::print_completion_screen(
-            &config_path.to_string_lossy(),
-            &config.prover_authority,
-        );
+        ui::print_completion_screen(&config_path.to_string_lossy(), &config.prover_authority);
 
         Ok(config)
     }
@@ -96,7 +93,8 @@ impl SetupWizard {
             3, // max retries
         )?;
 
-        let program_id = program_id_str.parse()
+        let program_id = program_id_str
+            .parse()
             .expect("Should be valid after validation");
 
         println!();

@@ -7,11 +7,11 @@
 //! - Voting: Private voting and tallying
 
 pub mod census;
-pub mod passport;
 pub mod demographics;
+pub mod passport;
 pub mod voting;
 
 pub use census::CensusCircuit;
-pub use passport::PassportCircuit;
 pub use demographics::DemographicsCircuit;
+pub use passport::PassportCircuit;
 pub use voting::VotingCircuit;

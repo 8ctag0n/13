@@ -9,10 +9,7 @@ use solana_program::{
     sysvar::{clock::Clock, Sysvar},
 };
 
-use crate::{
-    error::CypherLinkProgramError,
-    state::JobAccount,
-};
+use crate::{error::CypherLinkProgramError, state::JobAccount};
 
 /// Process SubmitFheResult instruction
 pub fn process_submit_fhe_result(
@@ -49,7 +46,8 @@ pub fn process_submit_fhe_result(
         return Err(CypherLinkProgramError::NotFheJob.into());
     }
 
-    let config = job.fhe_config
+    let config = job
+        .fhe_config
         .as_ref()
         .ok_or(CypherLinkProgramError::MissingFheConfig)?;
 
@@ -66,7 +64,11 @@ pub fn process_submit_fhe_result(
     }
 
     // Validate: prover hasn't already submitted
-    if job.fhe_results.iter().any(|r| r.prover == *prover_authority_info.key) {
+    if job
+        .fhe_results
+        .iter()
+        .any(|r| r.prover == *prover_authority_info.key)
+    {
         msg!("Prover already submitted result");
         return Err(CypherLinkProgramError::ResultAlreadySubmitted.into());
     }
@@ -98,7 +100,11 @@ pub fn process_submit_fhe_result(
     msg!("FHE result submitted successfully");
     msg!("  Job ID: {}", job.id);
     msg!("  Prover: {}", prover_authority_info.key);
-    msg!("  Total results: {}/{}", job.fhe_results.len(), config.required_provers);
+    msg!(
+        "  Total results: {}/{}",
+        job.fhe_results.len(),
+        config.required_provers
+    );
 
     Ok(())
 }

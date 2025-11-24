@@ -6,8 +6,8 @@ pub mod witness_encryption;
 pub mod witness_fetcher;
 
 // Re-export commonly used types
-pub use circuits::{CensusCircuit, PassportCircuit, DemographicsCircuit, VotingCircuit};
-pub use fhe_engine::{FheEngine, generate_fhe_keys};
+pub use circuits::{CensusCircuit, DemographicsCircuit, PassportCircuit, VotingCircuit};
+pub use fhe_engine::{generate_fhe_keys, FheEngine};
 pub use halo2_prover::{Halo2Prover, OrchardWitness};
-pub use witness_encryption::{WitnessEncryption, EncryptedWitness};
+pub use witness_encryption::{EncryptedWitness, WitnessEncryption};
 pub use witness_fetcher::WitnessFetcher;

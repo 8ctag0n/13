@@ -1,6 +1,5 @@
 mod common;
 
-use borsh::BorshDeserialize;
 use common::{initialize_marketplace, setup_program_test};
 use cypherlink::{instruction::MarketplaceInstruction, state::ProverAccount};
 use solana_program::{pubkey::Pubkey, system_instruction};
@@ -12,7 +11,7 @@ use solana_sdk::{
 #[tokio::test]
 async fn test_register_prover() {
     let program_id = Pubkey::new_unique();
-    let mut program_test = setup_program_test(program_id);
+    let program_test = setup_program_test(program_id);
 
     let (mut banks_client, payer, _recent_blockhash) = program_test.start().await;
 
@@ -31,20 +30,15 @@ async fn test_register_prover() {
     let prover_keypair = Keypair::new();
     let prover_authority = prover_keypair.pubkey();
 
-    let fund_instruction = system_instruction::transfer(
-        &payer.pubkey(),
-        &prover_authority,
-        10_000_000_000,
-    );
+    let fund_instruction =
+        system_instruction::transfer(&payer.pubkey(), &prover_authority, 10_000_000_000);
     let recent_blockhash = banks_client.get_latest_blockhash().await.unwrap();
     let mut fund_tx = Transaction::new_with_payer(&[fund_instruction], Some(&payer.pubkey()));
     fund_tx.sign(&[&payer], recent_blockhash);
     banks_client.process_transaction(fund_tx).await.unwrap();
 
-    let (prover_pda, _bump) = Pubkey::find_program_address(
-        &[b"prover", prover_authority.as_ref()],
-        &program_id,
-    );
+    let (prover_pda, _bump) =
+        Pubkey::find_program_address(&[b"prover", prover_authority.as_ref()], &program_id);
 
     let register_instruction = MarketplaceInstruction::RegisterProver {
         stake_amount: 5_000_000_000,
@@ -89,7 +83,7 @@ async fn test_register_prover() {
 #[tokio::test]
 async fn test_register_prover_insufficient_stake() {
     let program_id = Pubkey::new_unique();
-    let mut program_test = setup_program_test(program_id);
+    let program_test = setup_program_test(program_id);
 
     let (mut banks_client, payer, _recent_blockhash) = program_test.start().await;
 
@@ -108,20 +102,15 @@ async fn test_register_prover_insufficient_stake() {
     let prover_keypair = Keypair::new();
     let prover_authority = prover_keypair.pubkey();
 
-    let fund_instruction = system_instruction::transfer(
-        &payer.pubkey(),
-        &prover_authority,
-        3_000_000_000,
-    );
+    let fund_instruction =
+        system_instruction::transfer(&payer.pubkey(), &prover_authority, 3_000_000_000);
     let recent_blockhash = banks_client.get_latest_blockhash().await.unwrap();
     let mut fund_tx = Transaction::new_with_payer(&[fund_instruction], Some(&payer.pubkey()));
     fund_tx.sign(&[&payer], recent_blockhash);
     banks_client.process_transaction(fund_tx).await.unwrap();
 
-    let (prover_pda, _) = Pubkey::find_program_address(
-        &[b"prover", prover_authority.as_ref()],
-        &program_id,
-    );
+    let (prover_pda, _) =
+        Pubkey::find_program_address(&[b"prover", prover_authority.as_ref()], &program_id);
 
     let register_instruction = MarketplaceInstruction::RegisterProver {
         stake_amount: 3_000_000_000,
@@ -147,34 +136,32 @@ async fn test_register_prover_insufficient_stake() {
     register_tx.sign(&[&prover_keypair], recent_blockhash);
 
     let result = banks_client.process_transaction(register_tx).await;
-    assert!(result.is_err(), "RegisterProver should fail with insufficient stake");
+    assert!(
+        result.is_err(),
+        "RegisterProver should fail with insufficient stake"
+    );
 }
 
 #[tokio::test]
 async fn test_register_prover_marketplace_not_initialized() {
     let program_id = Pubkey::new_unique();
-    let mut program_test = setup_program_test(program_id);
+    let program_test = setup_program_test(program_id);
 
-    let (mut banks_client, payer, _recent_blockhash) = program_test.start().await;
+    let (banks_client, payer, _recent_blockhash) = program_test.start().await;
 
     let prover_keypair = Keypair::new();
     let prover_authority = prover_keypair.pubkey();
 
-    let fund_instruction = system_instruction::transfer(
-        &payer.pubkey(),
-        &prover_authority,
-        10_000_000_000,
-    );
+    let fund_instruction =
+        system_instruction::transfer(&payer.pubkey(), &prover_authority, 10_000_000_000);
     let recent_blockhash = banks_client.get_latest_blockhash().await.unwrap();
     let mut fund_tx = Transaction::new_with_payer(&[fund_instruction], Some(&payer.pubkey()));
     fund_tx.sign(&[&payer], recent_blockhash);
     banks_client.process_transaction(fund_tx).await.unwrap();
 
     let (config_pda, _) = Pubkey::find_program_address(&[b"config"], &program_id);
-    let (prover_pda, _) = Pubkey::find_program_address(
-        &[b"prover", prover_authority.as_ref()],
-        &program_id,
-    );
+    let (prover_pda, _) =
+        Pubkey::find_program_address(&[b"prover", prover_authority.as_ref()], &program_id);
 
     let register_instruction = MarketplaceInstruction::RegisterProver {
         stake_amount: 5_000_000_000,
@@ -200,5 +187,8 @@ async fn test_register_prover_marketplace_not_initialized() {
     register_tx.sign(&[&prover_keypair], recent_blockhash);
 
     let result = banks_client.process_transaction(register_tx).await;
-    assert!(result.is_err(), "RegisterProver should fail when marketplace not initialized");
+    assert!(
+        result.is_err(),
+        "RegisterProver should fail when marketplace not initialized"
+    );
 }

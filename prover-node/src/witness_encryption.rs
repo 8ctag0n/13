@@ -76,18 +76,19 @@ impl WitnessEncryption {
 
     /// Encrypt witness data for a recipient
     /// This is typically called by the client, but included here for testing
-    pub fn encrypt_witness(
-        witness: &OrchardWitness,
-        recipient_pubkey: &[u8],
-    ) -> Result<Vec<u8>> {
+    pub fn encrypt_witness(witness: &OrchardWitness, recipient_pubkey: &[u8]) -> Result<Vec<u8>> {
         info!("Encrypting witness data");
 
         // Parse recipient public key
         if recipient_pubkey.len() != 32 {
-            anyhow::bail!("Invalid recipient public key length: expected 32, got {}", recipient_pubkey.len());
+            anyhow::bail!(
+                "Invalid recipient public key length: expected 32, got {}",
+                recipient_pubkey.len()
+            );
         }
 
-        let recipient_pubkey_array: [u8; 32] = recipient_pubkey.try_into()
+        let recipient_pubkey_array: [u8; 32] = recipient_pubkey
+            .try_into()
             .map_err(|_| anyhow::anyhow!("Failed to convert public key"))?;
         let recipient_pubkey = PublicKey::from(recipient_pubkey_array);
 
@@ -103,8 +104,7 @@ impl WitnessEncryption {
 
         // Serialize witness using borsh
         let serializable = SerializableWitness::from_witness(witness);
-        let witness_bytes = borsh::to_vec(&serializable)
-            .context("Failed to serialize witness")?;
+        let witness_bytes = borsh::to_vec(&serializable).context("Failed to serialize witness")?;
 
         debug!("Serialized witness: {} bytes", witness_bytes.len());
 
@@ -117,7 +117,10 @@ impl WitnessEncryption {
             .encrypt(&nonce, witness_bytes.as_ref())
             .map_err(|e| anyhow::anyhow!("Encryption failed: {}", e))?;
 
-        debug!("Encrypted witness: {} bytes (includes auth tag)", ciphertext.len());
+        debug!(
+            "Encrypted witness: {} bytes (includes auth tag)",
+            ciphertext.len()
+        );
 
         // Package everything into encrypted envelope
         let encrypted = EncryptedWitness {
@@ -127,10 +130,13 @@ impl WitnessEncryption {
         };
 
         // Serialize encrypted envelope
-        let encrypted_bytes = borsh::to_vec(&encrypted)
-            .context("Failed to serialize encrypted witness")?;
+        let encrypted_bytes =
+            borsh::to_vec(&encrypted).context("Failed to serialize encrypted witness")?;
 
-        info!("Witness encrypted successfully: {} bytes total", encrypted_bytes.len());
+        info!(
+            "Witness encrypted successfully: {} bytes total",
+            encrypted_bytes.len()
+        );
 
         Ok(encrypted_bytes)
     }
@@ -140,8 +146,8 @@ impl WitnessEncryption {
         info!("Decrypting witness data");
 
         // Deserialize encrypted envelope
-        let encrypted_envelope: EncryptedWitness = borsh::from_slice(encrypted)
-            .context("Failed to deserialize encrypted witness")?;
+        let encrypted_envelope: EncryptedWitness =
+            borsh::from_slice(encrypted).context("Failed to deserialize encrypted witness")?;
 
         debug!("Parsed encrypted envelope");
 
@@ -165,8 +171,8 @@ impl WitnessEncryption {
         debug!("Decrypted witness: {} bytes", plaintext.len());
 
         // Deserialize witness
-        let serializable: SerializableWitness = borsh::from_slice(&plaintext)
-            .context("Failed to deserialize witness")?;
+        let serializable: SerializableWitness =
+            borsh::from_slice(&plaintext).context("Failed to deserialize witness")?;
 
         let witness = serializable.to_witness();
 
@@ -263,10 +269,8 @@ mod tests {
         let witness = OrchardWitness::dummy();
 
         // Encrypt for prover
-        let encrypted = WitnessEncryption::encrypt_witness(
-            &witness,
-            &encryption.public_key()
-        ).unwrap();
+        let encrypted =
+            WitnessEncryption::encrypt_witness(&witness, &encryption.public_key()).unwrap();
 
         // Verify encrypted data is not empty
         assert!(!encrypted.is_empty());
@@ -296,10 +300,7 @@ mod tests {
         let witness = OrchardWitness::dummy();
 
         // Encrypt for enc1
-        let encrypted = WitnessEncryption::encrypt_witness(
-            &witness,
-            &enc1.public_key()
-        ).unwrap();
+        let encrypted = WitnessEncryption::encrypt_witness(&witness, &enc1.public_key()).unwrap();
 
         // Try to decrypt with enc2's key (should fail)
         let result = enc2.decrypt_witness(&encrypted);
@@ -323,10 +324,8 @@ mod tests {
         let encryption = WitnessEncryption::new().unwrap();
         let witness = OrchardWitness::dummy();
 
-        let encrypted = WitnessEncryption::encrypt_witness(
-            &witness,
-            &encryption.public_key()
-        ).unwrap();
+        let encrypted =
+            WitnessEncryption::encrypt_witness(&witness, &encryption.public_key()).unwrap();
 
         // Encrypted size should be roughly:
         // - ephemeral pubkey: 32 bytes
@@ -348,10 +347,8 @@ mod tests {
         let encryption = WitnessEncryption::new().unwrap();
         let witness = OrchardWitness::dummy();
 
-        let mut encrypted = WitnessEncryption::encrypt_witness(
-            &witness,
-            &encryption.public_key()
-        ).unwrap();
+        let mut encrypted =
+            WitnessEncryption::encrypt_witness(&witness, &encryption.public_key()).unwrap();
 
         // Tamper with encrypted data
         if let Some(byte) = encrypted.get_mut(50) {
@@ -369,18 +366,17 @@ mod tests {
         let encryption = WitnessEncryption::new().unwrap();
         let witness = OrchardWitness::dummy();
 
-        let encrypted1 = WitnessEncryption::encrypt_witness(
-            &witness,
-            &encryption.public_key()
-        ).unwrap();
+        let encrypted1 =
+            WitnessEncryption::encrypt_witness(&witness, &encryption.public_key()).unwrap();
 
-        let encrypted2 = WitnessEncryption::encrypt_witness(
-            &witness,
-            &encryption.public_key()
-        ).unwrap();
+        let encrypted2 =
+            WitnessEncryption::encrypt_witness(&witness, &encryption.public_key()).unwrap();
 
         // Due to random nonce and ephemeral key, ciphertexts should differ
-        assert_ne!(encrypted1, encrypted2, "Multiple encryptions should produce different ciphertexts");
+        assert_ne!(
+            encrypted1, encrypted2,
+            "Multiple encryptions should produce different ciphertexts"
+        );
 
         // But both should decrypt to same witness
         let decrypted1 = encryption.decrypt_witness(&encrypted1).unwrap();
@@ -399,10 +395,8 @@ mod tests {
 
         // Test encryption performance
         let start = Instant::now();
-        let encrypted = WitnessEncryption::encrypt_witness(
-            &witness,
-            &encryption.public_key()
-        ).unwrap();
+        let encrypted =
+            WitnessEncryption::encrypt_witness(&witness, &encryption.public_key()).unwrap();
         let encrypt_duration = start.elapsed();
 
         // Test decryption performance
@@ -414,10 +408,21 @@ mod tests {
         println!("  Encrypted size: {} bytes", encrypted.len());
         println!("  Encryption time: {:?}", encrypt_duration);
         println!("  Decryption time: {:?}", decrypt_duration);
-        println!("  Total roundtrip: {:?}", encrypt_duration + decrypt_duration);
+        println!(
+            "  Total roundtrip: {:?}",
+            encrypt_duration + decrypt_duration
+        );
 
         // Assert performance is reasonable (< 100ms requirement)
-        assert!(encrypt_duration.as_millis() < 100, "Encryption took too long: {:?}", encrypt_duration);
-        assert!(decrypt_duration.as_millis() < 100, "Decryption took too long: {:?}", decrypt_duration);
+        assert!(
+            encrypt_duration.as_millis() < 100,
+            "Encryption took too long: {:?}",
+            encrypt_duration
+        );
+        assert!(
+            decrypt_duration.as_millis() < 100,
+            "Decryption took too long: {:?}",
+            decrypt_duration
+        );
     }
 }

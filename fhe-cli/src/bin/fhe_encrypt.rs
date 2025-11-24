@@ -2,7 +2,6 @@
 ///
 /// Generates FHE keypair and encrypts user data locally.
 /// Output can be pasted into the ZyberLink webapp.
-
 use anyhow::Result;
 use colored::Colorize;
 use fhe_cli::*;
@@ -41,7 +40,12 @@ fn main() -> Result<()> {
     save_client_key(&client_key, &key_filepath)?;
 
     // Print output
-    print_output(&encrypted_base64, &server_key_base64, &client_key_base64, &key_filepath)?;
+    print_output(
+        &encrypted_base64,
+        &server_key_base64,
+        &client_key_base64,
+        &key_filepath,
+    )?;
 
     Ok(())
 }
@@ -100,7 +104,10 @@ fn print_output(
         key_filepath.display().to_string().bright_blue()
     );
 
-    println!("\n{} Keep this file safe! You'll need it to decrypt the result.", "💡".yellow());
+    println!(
+        "\n{} Keep this file safe! You'll need it to decrypt the result.",
+        "💡".yellow()
+    );
     println!();
 
     Ok(())

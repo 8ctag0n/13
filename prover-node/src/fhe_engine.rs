@@ -9,7 +9,6 @@
 /// - Prover performs homomorphic operations (add, multiply, etc.)
 /// - Result remains encrypted and is returned to client
 /// - Client decrypts final result with their private key
-
 use anyhow::{anyhow, Context, Result};
 use sha3::{Digest, Sha3_256};
 use tfhe::{generate_keys, set_server_key, ClientKey, ConfigBuilder, FheUint8, ServerKey};
@@ -92,8 +91,8 @@ impl FheEngine {
 
         let result = ciphertext * constant;
 
-        let result_bytes = bincode::serialize(&result)
-            .context("Failed to serialize multiplication result")?;
+        let result_bytes =
+            bincode::serialize(&result).context("Failed to serialize multiplication result")?;
 
         Ok(result_bytes)
     }
@@ -114,8 +113,8 @@ impl FheEngine {
 
         let result = ciphertext - constant;
 
-        let result_bytes = bincode::serialize(&result)
-            .context("Failed to serialize subtraction result")?;
+        let result_bytes =
+            bincode::serialize(&result).context("Failed to serialize subtraction result")?;
 
         Ok(result_bytes)
     }
@@ -130,11 +129,7 @@ impl FheEngine {
     ///
     /// # Returns
     /// Serialized encrypted result (a + b)
-    pub fn compute_add_encrypted(
-        &self,
-        encrypted_a: &[u8],
-        encrypted_b: &[u8],
-    ) -> Result<Vec<u8>> {
+    pub fn compute_add_encrypted(&self, encrypted_a: &[u8], encrypted_b: &[u8]) -> Result<Vec<u8>> {
         let ciphertext_a: FheUint8 = bincode::deserialize(encrypted_a)
             .context("Failed to deserialize first input for encrypted addition")?;
 
@@ -143,8 +138,8 @@ impl FheEngine {
 
         let result = ciphertext_a + ciphertext_b;
 
-        let result_bytes = bincode::serialize(&result)
-            .context("Failed to serialize encrypted addition result")?;
+        let result_bytes =
+            bincode::serialize(&result).context("Failed to serialize encrypted addition result")?;
 
         Ok(result_bytes)
     }

@@ -54,15 +54,15 @@ impl MarketplaceConfig {
         + 8                      // total_jobs_created
         + 8                      // total_jobs_completed
         + 1                      // is_paused
-        + 1;                     // bump
+        + 1; // bump
 
     /// Create a new marketplace configuration with default values
     pub fn new(authority: Pubkey, protocol_fee_recipient: Pubkey, bump: u8) -> Self {
         Self {
             authority,
-            fee_basis_points: 1000,        // 10% platform fee
-            min_stake_amount: 5_000_000_000, // 5 SOL minimum stake
-            min_reputation_score: 500,     // Minimum 500/1000 reputation
+            fee_basis_points: 1000,           // 10% platform fee
+            min_stake_amount: 5_000_000_000,  // 5 SOL minimum stake
+            min_reputation_score: 500,        // Minimum 500/1000 reputation
             default_job_timeout_seconds: 600, // 10 minutes default
             protocol_fee_recipient,
             next_job_id: 0,
@@ -99,22 +99,14 @@ mod tests {
 
     #[test]
     fn test_marketplace_config_len() {
-        let config = MarketplaceConfig::new(
-            Pubkey::new_unique(),
-            Pubkey::new_unique(),
-            255,
-        );
+        let config = MarketplaceConfig::new(Pubkey::new_unique(), Pubkey::new_unique(), 255);
         let serialized = borsh::to_vec(&config).unwrap();
         assert_eq!(serialized.len(), MarketplaceConfig::LEN);
     }
 
     #[test]
     fn test_fee_calculation() {
-        let config = MarketplaceConfig::new(
-            Pubkey::new_unique(),
-            Pubkey::new_unique(),
-            255,
-        );
+        let config = MarketplaceConfig::new(Pubkey::new_unique(), Pubkey::new_unique(), 255);
 
         // 10% fee
         assert_eq!(config.calculate_platform_fee(1_000_000), 100_000);
@@ -123,11 +115,7 @@ mod tests {
 
     #[test]
     fn test_job_id_increment() {
-        let mut config = MarketplaceConfig::new(
-            Pubkey::new_unique(),
-            Pubkey::new_unique(),
-            255,
-        );
+        let mut config = MarketplaceConfig::new(Pubkey::new_unique(), Pubkey::new_unique(), 255);
 
         assert_eq!(config.next_job_id(), 0);
         assert_eq!(config.next_job_id(), 1);

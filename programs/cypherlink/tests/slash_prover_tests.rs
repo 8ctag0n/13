@@ -2,8 +2,7 @@ mod common;
 
 use common::{initialize_marketplace, register_prover, setup_program_test};
 use cypherlink::{
-    instruction::MarketplaceInstruction, state::MarketplaceConfig,
-    state::ProverAccount,
+    instruction::MarketplaceInstruction, state::MarketplaceConfig, state::ProverAccount,
 };
 use cypherlink_types::CircuitType;
 use solana_program::pubkey::Pubkey;
@@ -22,10 +21,8 @@ async fn create_job(
 ) -> Result<Pubkey, Box<dyn std::error::Error>> {
     let job_creator = payer.pubkey();
     let job_id_bytes = job_id.to_le_bytes();
-    let (job_pda, _) = Pubkey::find_program_address(
-        &[b"job", job_creator.as_ref(), &job_id_bytes],
-        program_id,
-    );
+    let (job_pda, _) =
+        Pubkey::find_program_address(&[b"job", job_creator.as_ref(), &job_id_bytes], program_id);
     let (escrow_pda, _) = Pubkey::find_program_address(&[b"escrow", job_pda.as_ref()], program_id);
 
     let create_job_instruction = MarketplaceInstruction::CreateJob {
@@ -94,7 +91,7 @@ async fn claim_job(
 #[tokio::test]
 async fn test_slash_prover() {
     let program_id = Pubkey::new_unique();
-    let mut program_test = setup_program_test(program_id);
+    let program_test = setup_program_test(program_id);
 
     let (mut banks_client, payer, _recent_blockhash) = program_test.start().await;
 
@@ -220,7 +217,7 @@ async fn test_slash_prover() {
 #[tokio::test]
 async fn test_slash_prover_deactivation() {
     let program_id = Pubkey::new_unique();
-    let mut program_test = setup_program_test(program_id);
+    let program_test = setup_program_test(program_id);
 
     let (mut banks_client, payer, _recent_blockhash) = program_test.start().await;
 
@@ -278,7 +275,10 @@ async fn test_slash_prover_deactivation() {
             solana_program::instruction::AccountMeta::new(payer.pubkey(), true),
             solana_program::instruction::AccountMeta::new(prover_pda, false),
             solana_program::instruction::AccountMeta::new(job_pda, false),
-            solana_program::instruction::AccountMeta::new(config_data.protocol_fee_recipient, false),
+            solana_program::instruction::AccountMeta::new(
+                config_data.protocol_fee_recipient,
+                false,
+            ),
             solana_program::instruction::AccountMeta::new_readonly(config_pda, false),
         ],
         data: slash_instruction.pack().unwrap(),
@@ -294,14 +294,17 @@ async fn test_slash_prover_deactivation() {
     let prover_account = banks_client.get_account(prover_pda).await.unwrap().unwrap();
     let prover_data: ProverAccount = borsh::from_slice(&prover_account.data).unwrap();
 
-    assert!(!prover_data.is_active, "Prover should be deactivated when stake < min");
+    assert!(
+        !prover_data.is_active,
+        "Prover should be deactivated when stake < min"
+    );
     assert_eq!(prover_data.stake_amount, 4_000_000_000); // 5 SOL - 1 SOL
 }
 
 #[tokio::test]
 async fn test_slash_prover_unauthorized() {
     let program_id = Pubkey::new_unique();
-    let mut program_test = setup_program_test(program_id);
+    let program_test = setup_program_test(program_id);
 
     let (mut banks_client, payer, _recent_blockhash) = program_test.start().await;
 
@@ -371,15 +374,17 @@ async fn test_slash_prover_unauthorized() {
             solana_program::instruction::AccountMeta::new(fake_authority.pubkey(), true),
             solana_program::instruction::AccountMeta::new(prover_pda, false),
             solana_program::instruction::AccountMeta::new(job_pda, false),
-            solana_program::instruction::AccountMeta::new(config_data.protocol_fee_recipient, false),
+            solana_program::instruction::AccountMeta::new(
+                config_data.protocol_fee_recipient,
+                false,
+            ),
             solana_program::instruction::AccountMeta::new_readonly(config_pda, false),
         ],
         data: slash_instruction.pack().unwrap(),
     };
 
     let recent_blockhash = banks_client.get_latest_blockhash().await.unwrap();
-    let mut slash_tx =
-        Transaction::new_with_payer(&[slash_ix], Some(&fake_authority.pubkey()));
+    let mut slash_tx = Transaction::new_with_payer(&[slash_ix], Some(&fake_authority.pubkey()));
     slash_tx.sign(&[&fake_authority], recent_blockhash);
 
     let result = banks_client.process_transaction(slash_tx).await;

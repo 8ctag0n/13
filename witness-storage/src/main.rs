@@ -11,9 +11,7 @@ async fn main() {
 
     let app = create_router(state);
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3030")
-        .await
-        .unwrap();
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3030").await.unwrap();
 
     println!("Witness storage server listening on http://0.0.0.0:3030");
 

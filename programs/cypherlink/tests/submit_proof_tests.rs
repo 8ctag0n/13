@@ -24,10 +24,8 @@ async fn create_job(
 ) -> Result<(Pubkey, Pubkey), Box<dyn std::error::Error>> {
     let job_creator = payer.pubkey();
     let job_id_bytes = job_id.to_le_bytes();
-    let (job_pda, _) = Pubkey::find_program_address(
-        &[b"job", job_creator.as_ref(), &job_id_bytes],
-        program_id,
-    );
+    let (job_pda, _) =
+        Pubkey::find_program_address(&[b"job", job_creator.as_ref(), &job_id_bytes], program_id);
     let (escrow_pda, _) = Pubkey::find_program_address(&[b"escrow", job_pda.as_ref()], program_id);
 
     let create_job_instruction = MarketplaceInstruction::CreateJob {
@@ -96,7 +94,7 @@ async fn claim_job(
 #[tokio::test]
 async fn test_submit_proof() {
     let program_id = Pubkey::new_unique();
-    let mut program_test = setup_program_test(program_id);
+    let program_test = setup_program_test(program_id);
 
     let (mut banks_client, payer, _recent_blockhash) = program_test.start().await;
 
@@ -241,7 +239,10 @@ async fn test_submit_proof() {
         .lamports;
 
     let protocol_gain = protocol_balance_after - protocol_balance_before;
-    assert_eq!(protocol_gain, expected_protocol_fee, "Protocol should receive exactly 100k lamports");
+    assert_eq!(
+        protocol_gain, expected_protocol_fee,
+        "Protocol should receive exactly 100k lamports"
+    );
 
     // Verify prover statistics updated
     let prover_account = banks_client.get_account(prover_pda).await.unwrap().unwrap();
@@ -257,7 +258,7 @@ async fn test_submit_proof() {
 #[tokio::test]
 async fn test_submit_proof_job_not_claimed() {
     let program_id = Pubkey::new_unique();
-    let mut program_test = setup_program_test(program_id);
+    let program_test = setup_program_test(program_id);
 
     let (mut banks_client, payer, _recent_blockhash) = program_test.start().await;
 
@@ -314,7 +315,10 @@ async fn test_submit_proof_job_not_claimed() {
             solana_program::instruction::AccountMeta::new(job_pda, false),
             solana_program::instruction::AccountMeta::new(escrow_pda, false),
             solana_program::instruction::AccountMeta::new(payer.pubkey(), false),
-            solana_program::instruction::AccountMeta::new(config_data.protocol_fee_recipient, false),
+            solana_program::instruction::AccountMeta::new(
+                config_data.protocol_fee_recipient,
+                false,
+            ),
             solana_program::instruction::AccountMeta::new(config_pda, false),
             solana_program::instruction::AccountMeta::new_readonly(
                 solana_program::system_program::id(),
@@ -336,7 +340,7 @@ async fn test_submit_proof_job_not_claimed() {
 #[tokio::test]
 async fn test_submit_proof_wrong_prover() {
     let program_id = Pubkey::new_unique();
-    let mut program_test = setup_program_test(program_id);
+    let program_test = setup_program_test(program_id);
 
     let (mut banks_client, payer, _recent_blockhash) = program_test.start().await;
 
@@ -417,7 +421,10 @@ async fn test_submit_proof_wrong_prover() {
             solana_program::instruction::AccountMeta::new(job_pda, false),
             solana_program::instruction::AccountMeta::new(escrow_pda, false),
             solana_program::instruction::AccountMeta::new(payer.pubkey(), false),
-            solana_program::instruction::AccountMeta::new(config_data.protocol_fee_recipient, false),
+            solana_program::instruction::AccountMeta::new(
+                config_data.protocol_fee_recipient,
+                false,
+            ),
             solana_program::instruction::AccountMeta::new(config_pda, false),
             solana_program::instruction::AccountMeta::new_readonly(
                 solana_program::system_program::id(),
@@ -433,5 +440,8 @@ async fn test_submit_proof_wrong_prover() {
     submit_proof_tx.sign(&[&prover2_keypair], recent_blockhash);
 
     let result = banks_client.process_transaction(submit_proof_tx).await;
-    assert!(result.is_err(), "SubmitProof should fail when wrong prover tries");
+    assert!(
+        result.is_err(),
+        "SubmitProof should fail when wrong prover tries"
+    );
 }

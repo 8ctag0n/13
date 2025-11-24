@@ -8,10 +8,7 @@ pub struct JobQueries;
 
 impl JobQueries {
     /// Insert a new pending job into the database
-    pub async fn insert_pending_job(
-        pool: &PgPool,
-        data: InsertJobData,
-    ) -> Result<i64> {
+    pub async fn insert_pending_job(pool: &PgPool, data: InsertJobData) -> Result<i64> {
         let row: (i64,) = sqlx::query_as(
             r#"
             INSERT INTO temp_job_data (
@@ -52,10 +49,7 @@ impl JobQueries {
     }
 
     /// Get job by job_id
-    pub async fn get_job_by_id(
-        pool: &PgPool,
-        job_id: i64,
-    ) -> Result<Option<TempJobData>> {
+    pub async fn get_job_by_id(pool: &PgPool, job_id: i64) -> Result<Option<TempJobData>> {
         let job = sqlx::query_as::<_, TempJobData>(
             r#"
             SELECT id, job_id, creator_pubkey, encrypted_data, server_key,
@@ -76,11 +70,7 @@ impl JobQueries {
     }
 
     /// Update job status
-    pub async fn update_job_status(
-        pool: &PgPool,
-        job_id: i64,
-        status: JobStatus,
-    ) -> Result<()> {
+    pub async fn update_job_status(pool: &PgPool, job_id: i64, status: JobStatus) -> Result<()> {
         let result = sqlx::query(
             r#"
             UPDATE temp_job_data
@@ -102,10 +92,7 @@ impl JobQueries {
     }
 
     /// Get all jobs by status
-    pub async fn get_jobs_by_status(
-        pool: &PgPool,
-        status: JobStatus,
-    ) -> Result<Vec<TempJobData>> {
+    pub async fn get_jobs_by_status(pool: &PgPool, status: JobStatus) -> Result<Vec<TempJobData>> {
         let jobs = sqlx::query_as::<_, TempJobData>(
             r#"
             SELECT id, job_id, creator_pubkey, encrypted_data, server_key,
@@ -132,7 +119,7 @@ impl JobQueries {
             r#"
             DELETE FROM temp_job_data
             WHERE expires_at < NOW()
-            "#
+            "#,
         )
         .execute(pool)
         .await
@@ -218,7 +205,6 @@ impl NonceQueries {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
 
     // Tests would require a test database instance
     // Implement integration tests separately

@@ -12,18 +12,18 @@ use crate::db::NonceQueries;
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct ValidateJobRequest {
     pub creator_pubkey: String,
-    pub encrypted_data: String,  // base64
-    pub server_key: String,      // base64
-    pub message: String,         // "create_job:{job_id}:{timestamp}:{nonce}"
-    pub signature: String,       // base64
+    pub encrypted_data: String, // base64
+    pub server_key: String,     // base64
+    pub message: String,        // "create_job:{job_id}:{timestamp}:{nonce}"
+    pub signature: String,      // base64
     pub nonce: String,
-    pub operation: String,       // "add" | "multiply"
+    pub operation: String, // "add" | "multiply"
     pub operation_value: u8,
     pub price_lamports: u64,
     pub required_provers: u8,
     pub consensus_threshold: u8,
     #[serde(default = "default_payment_method")]
-    pub payment_method: String,  // "SOL" | "wZEC" (defaults to "SOL")
+    pub payment_method: String, // "SOL" | "wZEC" (defaults to "SOL")
 }
 
 /// Default payment method if not specified
@@ -52,7 +52,7 @@ pub struct JobValidator;
 
 impl JobValidator {
     // Size limits for encrypted data and server key
-    const MAX_ENCRYPTED_DATA_SIZE: usize = 1 * 1024 * 1024; // 1 MB (TFHE encrypted data can be large)
+    const MAX_ENCRYPTED_DATA_SIZE: usize = 1024 * 1024; // 1 MB (TFHE encrypted data can be large)
     const MAX_SERVER_KEY_SIZE: usize = 120 * 1024 * 1024; // 120 MB
     const MIN_SERVER_KEY_SIZE: usize = 40 * 1024 * 1024; // 40 MB
     const MESSAGE_EXPIRY_SECS: i64 = 300; // 5 minutes
@@ -69,9 +69,11 @@ impl JobValidator {
         Self::verify_nonce(&req.nonce, pool).await?;
 
         // 4. Decode base64
-        let encrypted_data = STANDARD.decode(&req.encrypted_data)
+        let encrypted_data = STANDARD
+            .decode(&req.encrypted_data)
             .map_err(|e| anyhow!("Invalid base64 in encrypted_data: {}", e))?;
-        let server_key = STANDARD.decode(&req.server_key)
+        let server_key = STANDARD
+            .decode(&req.server_key)
             .map_err(|e| anyhow!("Invalid base64 in server_key: {}", e))?;
 
         // 5. Validate sizes
@@ -92,7 +94,8 @@ impl JobValidator {
             .map_err(|e| anyhow!("Invalid creator pubkey: {}", e))?;
 
         // 10. Validate payment method and determine token mint
-        let (payment_method, payment_token_mint) = Self::validate_payment_method(&req.payment_method)?;
+        let (payment_method, payment_token_mint) =
+            Self::validate_payment_method(&req.payment_method)?;
 
         Ok(ValidatedJob {
             job_id,
@@ -115,10 +118,13 @@ impl JobValidator {
         // Parse message to extract job_id
         let parts: Vec<&str> = req.message.split(':').collect();
         if parts.len() != 4 || parts[0] != "create_job" {
-            return Err(anyhow!("Invalid message format. Expected: create_job:{{job_id}}:{{timestamp}}:{{nonce}}"));
+            return Err(anyhow!(
+                "Invalid message format. Expected: create_job:{{job_id}}:{{timestamp}}:{{nonce}}"
+            ));
         }
 
-        let job_id = parts[1].parse::<i64>()
+        let job_id = parts[1]
+            .parse::<i64>()
             .map_err(|e| anyhow!("Invalid job_id in message: {}", e))?;
 
         // Parse creator pubkey
@@ -131,7 +137,10 @@ impl JobValidator {
             .map_err(|e| anyhow!("Invalid base58 signature: {}", e))?;
 
         if signature_bytes.len() != 64 {
-            return Err(anyhow!("Invalid signature length: expected 64 bytes, got {}", signature_bytes.len()));
+            return Err(anyhow!(
+                "Invalid signature length: expected 64 bytes, got {}",
+                signature_bytes.len()
+            ));
         }
 
         let mut sig_array = [0u8; 64];
@@ -156,7 +165,8 @@ impl JobValidator {
             return Err(anyhow!("Invalid message format"));
         }
 
-        let timestamp = parts[2].parse::<i64>()
+        let timestamp = parts[2]
+            .parse::<i64>()
             .map_err(|e| anyhow!("Invalid timestamp: {}", e))?;
 
         let now = Utc::now().timestamp();
@@ -167,7 +177,11 @@ impl JobValidator {
         }
 
         if age > Self::MESSAGE_EXPIRY_SECS {
-            return Err(anyhow!("Message expired (age: {}s, max: {}s)", age, Self::MESSAGE_EXPIRY_SECS));
+            return Err(anyhow!(
+                "Message expired (age: {}s, max: {}s)",
+                age,
+                Self::MESSAGE_EXPIRY_SECS
+            ));
         }
 
         Ok(())
@@ -227,7 +241,10 @@ impl JobValidator {
     fn validate_operation(operation: &str) -> Result<()> {
         match operation {
             "add" | "multiply" => Ok(()),
-            _ => Err(anyhow!("Invalid operation: {}. Must be 'add' or 'multiply'", operation)),
+            _ => Err(anyhow!(
+                "Invalid operation: {}. Must be 'add' or 'multiply'",
+                operation
+            )),
         }
     }
 
@@ -303,7 +320,10 @@ mod tests {
         assert!(result.is_ok());
         let (method, mint) = result.unwrap();
         assert_eq!(method, "wZEC");
-        assert_eq!(mint, Some("sXpG9BWgA6hxz9BTVLNTqWSHpbbQKa2LqKH6qD2fCAZ".to_string()));
+        assert_eq!(
+            mint,
+            Some("sXpG9BWgA6hxz9BTVLNTqWSHpbbQKa2LqKH6qD2fCAZ".to_string())
+        );
 
         // Test invalid payment method
         assert!(JobValidator::validate_payment_method("INVALID").is_err());

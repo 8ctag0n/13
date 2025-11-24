@@ -1,21 +1,20 @@
-use anyhow::{Result, Context};
+use anyhow::{Context, Result};
+use borsh::{BorshDeserialize, BorshSerialize};
+use chacha20poly1305::{
+    aead::{Aead, AeadCore, KeyInit, OsRng as AeadRng},
+    ChaCha20Poly1305,
+};
 use cypherlink_sdk::MarketplaceClient;
 use cypherlink_types::{CircuitType, FheOperation};
+use rand::rngs::OsRng;
+use reqwest::Client;
 use solana_sdk::{
     commitment_config::CommitmentConfig,
     signature::{read_keypair_file, Signer},
     transaction::Transaction,
 };
 use std::env;
-use reqwest::Client;
-use serde_json;
-use borsh::{BorshSerialize, BorshDeserialize};
 use x25519_dalek::{EphemeralSecret, PublicKey};
-use chacha20poly1305::{
-    aead::{Aead, AeadCore, KeyInit, OsRng as AeadRng},
-    ChaCha20Poly1305,
-};
-use rand::rngs::OsRng;
 
 /// Encrypted witness envelope (must match prover format)
 #[derive(BorshSerialize, BorshDeserialize)]
@@ -58,8 +57,7 @@ fn encrypt_witness(witness: &OrchardWitness, recipient_pubkey: &[u8; 32]) -> Res
     let encryption_key: [u8; 32] = hash_result.to_bytes();
 
     // Serialize witness using borsh
-    let witness_bytes = borsh::to_vec(&witness)
-        .context("Failed to serialize witness")?;
+    let witness_bytes = borsh::to_vec(&witness).context("Failed to serialize witness")?;
 
     // Generate random nonce (12 bytes for ChaCha20-Poly1305)
     let nonce = ChaCha20Poly1305::generate_nonce(&mut AeadRng);
@@ -78,8 +76,8 @@ fn encrypt_witness(witness: &OrchardWitness, recipient_pubkey: &[u8; 32]) -> Res
     };
 
     // Serialize encrypted envelope
-    let encrypted_bytes = borsh::to_vec(&encrypted)
-        .context("Failed to serialize encrypted witness")?;
+    let encrypted_bytes =
+        borsh::to_vec(&encrypted).context("Failed to serialize encrypted witness")?;
 
     Ok(encrypted_bytes)
 }
@@ -97,7 +95,8 @@ async fn main() -> Result<()> {
         .unwrap_or(15_000_000); // Default 0.015 SOL
 
     // Get configuration from environment or defaults
-    let rpc_url = env::var("SOLANA_RPC_URL").unwrap_or_else(|_| "http://localhost:8899".to_string());
+    let rpc_url =
+        env::var("SOLANA_RPC_URL").unwrap_or_else(|_| "http://localhost:8899".to_string());
     let program_id_str = env::var("PROGRAM_ID")
         .or_else(|_| std::fs::read_to_string("../logs/zyberlink_program_id.txt"))
         .or_else(|_| std::fs::read_to_string("/tmp/zyberlink_program_id.txt"))
@@ -124,11 +123,8 @@ async fn main() -> Result<()> {
     println!();
 
     // Create client
-    let client = MarketplaceClient::new_with_commitment(
-        rpc_url,
-        program_id,
-        CommitmentConfig::confirmed(),
-    );
+    let client =
+        MarketplaceClient::new_with_commitment(rpc_url, program_id, CommitmentConfig::confirmed());
 
     // Determine circuit type and create appropriate job
     let (circuit_type, job_name) = match job_type {
@@ -136,7 +132,7 @@ async fn main() -> Result<()> {
             println!("📊 Creating FHE Computation job...");
             (
                 CircuitType::FheComputation(FheOperation::Add(10)),
-                "FHE Add Operation"
+                "FHE Add Operation",
             )
         }
         "zk" | _ => {
@@ -146,18 +142,25 @@ async fn main() -> Result<()> {
     };
 
     println!("  Type: {}", job_name);
-    println!("  Price: {} lamports ({:.4} SOL)", price, price as f64 / 1e9);
+    println!(
+        "  Price: {} lamports ({:.4} SOL)",
+        price,
+        price as f64 / 1e9
+    );
     println!();
 
     // Load prover's encryption public key
     println!("🔑 Loading prover encryption public key...");
     let prover_pubkey_hex = std::fs::read_to_string("../logs/prover_encryption_pubkey.txt")
         .context("Failed to read prover public key. Run ./demo/01-setup.sh first.")?;
-    let prover_pubkey_bytes = hex::decode(prover_pubkey_hex.trim())
-        .context("Invalid prover public key hex")?;
+    let prover_pubkey_bytes =
+        hex::decode(prover_pubkey_hex.trim()).context("Invalid prover public key hex")?;
 
     if prover_pubkey_bytes.len() != 32 {
-        anyhow::bail!("Invalid prover public key length: expected 32, got {}", prover_pubkey_bytes.len());
+        anyhow::bail!(
+            "Invalid prover public key length: expected 32, got {}",
+            prover_pubkey_bytes.len()
+        );
     }
 
     let mut prover_pubkey = [0u8; 32];
@@ -185,8 +188,8 @@ async fn main() -> Result<()> {
     // Upload encrypted witness to storage backend
     println!("📤 Uploading encrypted witness to storage...");
     let http_client = Client::new();
-    let witness_url = env::var("WITNESS_BACKEND_URL")
-        .unwrap_or_else(|_| "http://localhost:3030".to_string());
+    let witness_url =
+        env::var("WITNESS_BACKEND_URL").unwrap_or_else(|_| "http://localhost:3030".to_string());
 
     let upload_response = http_client
         .post(format!("{}/witness", witness_url))
@@ -225,7 +228,7 @@ async fn main() -> Result<()> {
         witness_commitment,
         encrypted_witness.len() as u32,
         price,
-        600, // 10 minutes timeout
+        600,  // 10 minutes timeout
         None, // No FHE consensus config for now
     )?;
 
@@ -242,7 +245,9 @@ async fn main() -> Result<()> {
 
     // Send transaction
     println!("📤 Sending transaction...");
-    let signature = client.rpc_client.send_and_confirm_transaction_with_spinner(&tx)?;
+    let signature = client
+        .rpc_client
+        .send_and_confirm_transaction_with_spinner(&tx)?;
 
     println!("✅ Transaction confirmed!");
     println!();

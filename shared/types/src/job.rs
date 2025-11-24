@@ -6,10 +6,20 @@ use crate::circuit::CircuitType;
 
 /// Status of a proving job in the marketplace
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    BorshSerialize,
+    BorshDeserialize,
+    Serialize,
+    Deserialize,
+    Default,
 )]
 pub enum JobStatus {
     /// Job has been created and is waiting for a prover to claim it
+    #[default]
     Pending,
     /// Job has been claimed by a prover and is being processed
     Claimed,
@@ -19,12 +29,6 @@ pub enum JobStatus {
     Failed,
     /// Job was cancelled by the creator before completion
     Cancelled,
-}
-
-impl Default for JobStatus {
-    fn default() -> Self {
-        Self::Pending
-    }
 }
 
 /// Represents a proving job in the marketplace

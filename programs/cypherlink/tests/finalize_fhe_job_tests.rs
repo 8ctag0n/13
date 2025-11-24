@@ -2,14 +2,14 @@ mod common;
 
 use borsh::BorshDeserialize;
 use common::{initialize_marketplace, register_prover, setup_program_test};
-use cypherlink::{
-    instruction::MarketplaceInstruction,
-    state::JobAccount,
-};
-use cypherlink_types::{CircuitType, FheConsensusConfig, fhe::FheOperation, JobStatus};
+use cypherlink::{instruction::MarketplaceInstruction, state::JobAccount};
+use cypherlink_types::{fhe::FheOperation, CircuitType, FheConsensusConfig, JobStatus};
 use solana_program::pubkey::Pubkey;
 use solana_program_test::*;
-use solana_sdk::{signature::{Signer, Keypair}, transaction::Transaction};
+use solana_sdk::{
+    signature::{Keypair, Signer},
+    transaction::Transaction,
+};
 
 /// Helper to create and claim an FHE job with 3 provers
 async fn setup_fhe_job(
@@ -25,10 +25,7 @@ async fn setup_fhe_job(
         &[b"job", job_creator.as_ref(), &job_id.to_le_bytes()],
         program_id,
     );
-    let (escrow_pda, _) = Pubkey::find_program_address(
-        &[b"escrow", job_pda.as_ref()],
-        program_id,
-    );
+    let (escrow_pda, _) = Pubkey::find_program_address(&[b"escrow", job_pda.as_ref()], program_id);
 
     let fhe_operation = FheOperation::Add(5);
     let fhe_config = FheConsensusConfig {
@@ -63,19 +60,19 @@ async fn setup_fhe_job(
     };
 
     let recent_blockhash = banks_client.get_latest_blockhash().await.unwrap();
-    let mut create_job_tx =
-        Transaction::new_with_payer(&[create_job_ix], Some(&payer.pubkey()));
+    let mut create_job_tx = Transaction::new_with_payer(&[create_job_ix], Some(&payer.pubkey()));
     create_job_tx.sign(&[payer], recent_blockhash);
-    banks_client.process_transaction(create_job_tx).await.unwrap();
+    banks_client
+        .process_transaction(create_job_tx)
+        .await
+        .unwrap();
 
     // Claim job with all provers
     let mut prover_pdas = Vec::new();
     for prover_keypair in provers {
         let prover_authority = prover_keypair.pubkey();
-        let (prover_pda, _) = Pubkey::find_program_address(
-            &[b"prover", prover_authority.as_ref()],
-            program_id,
-        );
+        let (prover_pda, _) =
+            Pubkey::find_program_address(&[b"prover", prover_authority.as_ref()], program_id);
         prover_pdas.push(prover_pda);
 
         let claim_job_instruction = MarketplaceInstruction::ClaimJob;
@@ -98,7 +95,10 @@ async fn setup_fhe_job(
         let mut claim_job_tx =
             Transaction::new_with_payer(&[claim_job_ix], Some(&prover_authority));
         claim_job_tx.sign(&[prover_keypair], recent_blockhash);
-        banks_client.process_transaction(claim_job_tx).await.unwrap();
+        banks_client
+            .process_transaction(claim_job_tx)
+            .await
+            .unwrap();
     }
 
     (job_pda, escrow_pda, prover_pdas)
@@ -108,7 +108,7 @@ async fn setup_fhe_job(
 #[tokio::test]
 async fn test_finalize_fhe_job_consensus_reached() {
     let program_id = Pubkey::new_unique();
-    let mut program_test = setup_program_test(program_id);
+    let program_test = setup_program_test(program_id);
 
     let (mut banks_client, payer, _recent_blockhash) = program_test.start().await;
 
@@ -169,7 +169,8 @@ async fn test_finalize_fhe_job_consensus_reached() {
         &program_id,
         &config_pda,
         &[&prover1_keypair, &prover2_keypair, &prover3_keypair],
-    ).await;
+    )
+    .await;
 
     // Submit results: 2 matching [5u8; 32], 1 different [9u8; 32]
     let matching_hash = [5u8; 32];
@@ -199,7 +200,10 @@ async fn test_finalize_fhe_job_consensus_reached() {
         let mut submit_result_tx =
             Transaction::new_with_payer(&[submit_result_ix], Some(&prover_authority));
         submit_result_tx.sign(&[prover_keypair], recent_blockhash);
-        banks_client.process_transaction(submit_result_tx).await.unwrap();
+        banks_client
+            .process_transaction(submit_result_tx)
+            .await
+            .unwrap();
     }
 
     // Prover 3 submits different result
@@ -225,11 +229,15 @@ async fn test_finalize_fhe_job_consensus_reached() {
     let mut submit_result_tx =
         Transaction::new_with_payer(&[submit_result_ix], Some(&prover3_authority));
     submit_result_tx.sign(&[&prover3_keypair], recent_blockhash);
-    banks_client.process_transaction(submit_result_tx).await.unwrap();
+    banks_client
+        .process_transaction(submit_result_tx)
+        .await
+        .unwrap();
 
     // Get protocol fee recipient from config
     let config_account = banks_client.get_account(config_pda).await.unwrap().unwrap();
-    let config: cypherlink::state::MarketplaceConfig = borsh::from_slice(&config_account.data).unwrap();
+    let config: cypherlink::state::MarketplaceConfig =
+        borsh::from_slice(&config_account.data).unwrap();
 
     // Finalize FHE job
     let finalizer = payer.pubkey();
@@ -253,7 +261,10 @@ async fn test_finalize_fhe_job_consensus_reached() {
     ];
 
     // Add prover accounts (authority + PDA for each)
-    for (i, prover_keypair) in [&prover1_keypair, &prover2_keypair, &prover3_keypair].iter().enumerate() {
+    for (i, prover_keypair) in [&prover1_keypair, &prover2_keypair, &prover3_keypair]
+        .iter()
+        .enumerate()
+    {
         finalize_accounts.push(solana_program::instruction::AccountMeta::new(
             prover_keypair.pubkey(),
             false,
@@ -296,7 +307,7 @@ async fn test_finalize_fhe_job_consensus_reached() {
 #[tokio::test]
 async fn test_finalize_fhe_job_no_consensus() {
     let program_id = Pubkey::new_unique();
-    let mut program_test = setup_program_test(program_id);
+    let program_test = setup_program_test(program_id);
 
     let (mut banks_client, payer, _recent_blockhash) = program_test.start().await;
 
@@ -357,15 +368,14 @@ async fn test_finalize_fhe_job_no_consensus() {
         &program_id,
         &config_pda,
         &[&prover1_keypair, &prover2_keypair, &prover3_keypair],
-    ).await;
+    )
+    .await;
 
     // Only 1 prover submits result (not enough for consensus)
     let prover1_authority = prover1_keypair.pubkey();
     let result_hash = [5u8; 32];
 
-    let submit_result_instruction = MarketplaceInstruction::SubmitFheResult {
-        result_hash,
-    };
+    let submit_result_instruction = MarketplaceInstruction::SubmitFheResult { result_hash };
 
     let submit_result_ix = solana_program::instruction::Instruction {
         program_id,
@@ -384,11 +394,15 @@ async fn test_finalize_fhe_job_no_consensus() {
     let mut submit_result_tx =
         Transaction::new_with_payer(&[submit_result_ix], Some(&prover1_authority));
     submit_result_tx.sign(&[&prover1_keypair], recent_blockhash);
-    banks_client.process_transaction(submit_result_tx).await.unwrap();
+    banks_client
+        .process_transaction(submit_result_tx)
+        .await
+        .unwrap();
 
     // Get protocol fee recipient from config
     let config_account = banks_client.get_account(config_pda).await.unwrap().unwrap();
-    let config: cypherlink::state::MarketplaceConfig = borsh::from_slice(&config_account.data).unwrap();
+    let config: cypherlink::state::MarketplaceConfig =
+        borsh::from_slice(&config_account.data).unwrap();
 
     // Try to finalize (should fail - not enough submissions)
     let finalizer = payer.pubkey();
@@ -442,7 +456,7 @@ async fn test_finalize_fhe_job_no_consensus() {
 #[tokio::test]
 async fn test_finalize_fhe_job_payment_split() {
     let program_id = Pubkey::new_unique();
-    let mut program_test = setup_program_test(program_id);
+    let program_test = setup_program_test(program_id);
 
     let (mut banks_client, payer, _recent_blockhash) = program_test.start().await;
 
@@ -503,7 +517,8 @@ async fn test_finalize_fhe_job_payment_split() {
         &program_id,
         &config_pda,
         &[&prover1_keypair, &prover2_keypair, &prover3_keypair],
-    ).await;
+    )
+    .await;
 
     // All 3 submit matching result
     let matching_hash = [5u8; 32];
@@ -531,7 +546,10 @@ async fn test_finalize_fhe_job_payment_split() {
         let mut submit_result_tx =
             Transaction::new_with_payer(&[submit_result_ix], Some(&prover_authority));
         submit_result_tx.sign(&[prover_keypair], recent_blockhash);
-        banks_client.process_transaction(submit_result_tx).await.unwrap();
+        banks_client
+            .process_transaction(submit_result_tx)
+            .await
+            .unwrap();
     }
 
     // Get initial balances
@@ -556,7 +574,8 @@ async fn test_finalize_fhe_job_payment_split() {
 
     // Get protocol fee recipient from config
     let config_account = banks_client.get_account(config_pda).await.unwrap().unwrap();
-    let config: cypherlink::state::MarketplaceConfig = borsh::from_slice(&config_account.data).unwrap();
+    let config: cypherlink::state::MarketplaceConfig =
+        borsh::from_slice(&config_account.data).unwrap();
 
     // Finalize FHE job
     let finalizer = payer.pubkey();
@@ -580,7 +599,10 @@ async fn test_finalize_fhe_job_payment_split() {
     ];
 
     // Add prover accounts
-    for (i, prover_keypair) in [&prover1_keypair, &prover2_keypair, &prover3_keypair].iter().enumerate() {
+    for (i, prover_keypair) in [&prover1_keypair, &prover2_keypair, &prover3_keypair]
+        .iter()
+        .enumerate()
+    {
         finalize_accounts.push(solana_program::instruction::AccountMeta::new(
             prover_keypair.pubkey(),
             false,

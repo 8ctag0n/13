@@ -1,18 +1,18 @@
 use anyhow::Result;
 use borsh::BorshDeserialize;
 use solana_client::rpc_client::RpcClient;
-use solana_client::rpc_config::{RpcProgramAccountsConfig, RpcAccountInfoConfig};
-use solana_client::rpc_filter::{RpcFilterType, Memcmp, MemcmpEncodedBytes};
-use solana_sdk::pubkey::Pubkey;
+use solana_client::rpc_config::{RpcAccountInfoConfig, RpcProgramAccountsConfig};
+use solana_client::rpc_filter::RpcFilterType;
 use solana_sdk::commitment_config::CommitmentConfig;
+use solana_sdk::pubkey::Pubkey;
 
 // Re-export types from cypherlink program
-pub use cypherlink_types::{CircuitType, JobStatus, FheConsensusConfig, FheJobResult};
+pub use cypherlink_types::{CircuitType, FheConsensusConfig, FheJobResult, JobStatus};
 
 // Account size constants (must match on-chain program)
 // These are used for RPC filtering to only fetch accounts of the correct type
-const JOB_ACCOUNT_SIZE: usize = 879;      // JobAccount::LEN from programs/cypherlink/src/state/job.rs
-const PROVER_ACCOUNT_SIZE: usize = 114;   // ProverAccount::LEN from programs/cypherlink/src/state/prover.rs
+const JOB_ACCOUNT_SIZE: usize = 879; // JobAccount::LEN from programs/cypherlink/src/state/job.rs
+const PROVER_ACCOUNT_SIZE: usize = 114; // ProverAccount::LEN from programs/cypherlink/src/state/prover.rs
 
 /// Marketplace configuration account
 /// IMPORTANT: Field order must match programs/cypherlink/src/state/config.rs
@@ -115,9 +115,7 @@ pub fn find_jobs_by_status(
     // Configure RPC to only fetch JobAccount-sized accounts (879 bytes)
     // This filters out ProverAccounts (114 bytes), MarketplaceConfig (120 bytes), escrows (0 bytes)
     let config = RpcProgramAccountsConfig {
-        filters: Some(vec![
-            RpcFilterType::DataSize(JOB_ACCOUNT_SIZE as u64),
-        ]),
+        filters: Some(vec![RpcFilterType::DataSize(JOB_ACCOUNT_SIZE as u64)]),
         account_config: RpcAccountInfoConfig {
             encoding: None,
             commitment: Some(CommitmentConfig::confirmed()),
@@ -128,32 +126,56 @@ pub fn find_jobs_by_status(
 
     let accounts = rpc_client.get_program_accounts_with_config(program_id, config)?;
 
-    eprintln!("[DEBUG] find_jobs_by_status: Looking for status {:?}", status);
-    eprintln!("[DEBUG] Total JobAccounts fetched (filtered by size): {}", accounts.len());
+    eprintln!(
+        "[DEBUG] find_jobs_by_status: Looking for status {:?}",
+        status
+    );
+    eprintln!(
+        "[DEBUG] Total JobAccounts fetched (filtered by size): {}",
+        accounts.len()
+    );
 
     let mut jobs = Vec::new();
     for (i, (pubkey, account)) in accounts.iter().enumerate() {
-        eprintln!("[DEBUG] JobAccount #{}: {} ({} bytes)", i, pubkey, account.data.len());
+        eprintln!(
+            "[DEBUG] JobAccount #{}: {} ({} bytes)",
+            i,
+            pubkey,
+            account.data.len()
+        );
 
         // Deserialize - should always succeed since we filtered by size
         match JobAccount::deserialize(&mut &account.data[..]) {
             Ok(job) => {
-                eprintln!("[DEBUG]   -> ID={}, Status={:?}, Circuit={:?}", job.id, job.status, job.circuit_type);
+                eprintln!(
+                    "[DEBUG]   -> ID={}, Status={:?}, Circuit={:?}",
+                    job.id, job.status, job.circuit_type
+                );
                 if job.status == status {
                     eprintln!("[DEBUG]   -> ✓ MATCH! Adding to results");
-                    jobs.push((pubkey.clone(), job));
+                    jobs.push((*pubkey, job));
                 } else {
-                    eprintln!("[DEBUG]   -> Status mismatch (want {:?}, got {:?})", status, job.status);
+                    eprintln!(
+                        "[DEBUG]   -> Status mismatch (want {:?}, got {:?})",
+                        status, job.status
+                    );
                 }
             }
             Err(e) => {
                 // This shouldn't happen since we filtered by exact size
-                eprintln!("[DEBUG]   -> ERROR: Unexpected deserialization failure: {}", e);
+                eprintln!(
+                    "[DEBUG]   -> ERROR: Unexpected deserialization failure: {}",
+                    e
+                );
             }
         }
     }
 
-    eprintln!("[DEBUG] Returning {} jobs with status {:?}", jobs.len(), status);
+    eprintln!(
+        "[DEBUG] Returning {} jobs with status {:?}",
+        jobs.len(),
+        status
+    );
     Ok(jobs)
 }
 
@@ -165,9 +187,7 @@ pub fn find_jobs_by_creator(
     creator: &Pubkey,
 ) -> Result<Vec<(Pubkey, JobAccount)>> {
     let config = RpcProgramAccountsConfig {
-        filters: Some(vec![
-            RpcFilterType::DataSize(JOB_ACCOUNT_SIZE as u64),
-        ]),
+        filters: Some(vec![RpcFilterType::DataSize(JOB_ACCOUNT_SIZE as u64)]),
         account_config: RpcAccountInfoConfig {
             encoding: None,
             commitment: Some(CommitmentConfig::confirmed()),
@@ -198,9 +218,7 @@ pub fn find_jobs_by_prover(
     prover: &Pubkey,
 ) -> Result<Vec<(Pubkey, JobAccount)>> {
     let config = RpcProgramAccountsConfig {
-        filters: Some(vec![
-            RpcFilterType::DataSize(JOB_ACCOUNT_SIZE as u64),
-        ]),
+        filters: Some(vec![RpcFilterType::DataSize(JOB_ACCOUNT_SIZE as u64)]),
         account_config: RpcAccountInfoConfig {
             encoding: None,
             commitment: Some(CommitmentConfig::confirmed()),
@@ -260,9 +278,7 @@ pub fn find_all_provers(
     program_id: &Pubkey,
 ) -> Result<Vec<(Pubkey, ProverAccount)>> {
     let config = RpcProgramAccountsConfig {
-        filters: Some(vec![
-            RpcFilterType::DataSize(PROVER_ACCOUNT_SIZE as u64),
-        ]),
+        filters: Some(vec![RpcFilterType::DataSize(PROVER_ACCOUNT_SIZE as u64)]),
         account_config: RpcAccountInfoConfig {
             encoding: None,
             commitment: Some(CommitmentConfig::confirmed()),
@@ -369,9 +385,7 @@ pub fn parse_events_from_logs(logs: &[String]) -> Vec<MarketplaceEvent> {
                 prover: Pubkey::default(),
             });
         } else if log.contains("Program log: Job cancelled successfully") {
-            events.push(MarketplaceEvent::JobCancelled {
-                job_id: 0,
-            });
+            events.push(MarketplaceEvent::JobCancelled { job_id: 0 });
         } else if log.contains("Program log: Prover slashed") {
             events.push(MarketplaceEvent::ProverSlashed {
                 prover: Pubkey::default(),

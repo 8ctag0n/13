@@ -5,7 +5,6 @@
 /// - High-level helper methods
 /// - Transaction simulation support
 /// - Fluent API for common workflows
-
 use anyhow::Result;
 use cypherlink_types::{CircuitType, FheConsensusConfig, FheOperation};
 use solana_sdk::{
@@ -16,11 +15,7 @@ use solana_sdk::{
     transaction::Transaction,
 };
 
-use crate::{
-    instructions::InstructionBuilder,
-    transaction::TransactionBuilder,
-    MarketplaceClient,
-};
+use crate::{instructions::InstructionBuilder, transaction::TransactionBuilder, MarketplaceClient};
 
 /// Extension trait for wallet-friendly operations
 impl MarketplaceClient {
@@ -149,7 +144,8 @@ impl MarketplaceClient {
         stake_amount: u64,
         encryption_key: [u8; 32],
     ) -> Result<Instruction> {
-        self.instructions().register_prover(prover, stake_amount, encryption_key)
+        self.instructions()
+            .register_prover(prover, stake_amount, encryption_key)
     }
 
     /// Claim job instruction (wallet-compatible)
@@ -164,7 +160,8 @@ impl MarketplaceClient {
         job_pda: Pubkey,
         result_hash: [u8; 32],
     ) -> Result<Instruction> {
-        self.instructions().submit_fhe_result(prover, job_pda, result_hash)
+        self.instructions()
+            .submit_fhe_result(prover, job_pda, result_hash)
     }
 
     // ============================================================================
@@ -324,8 +321,8 @@ impl MarketplaceClient {
         let account = self.rpc_client.get_account(&config_pda)?;
 
         // Parse config to get next_job_id
-        use borsh::BorshDeserialize;
         use crate::helpers::MarketplaceConfig;
+        use borsh::BorshDeserialize;
 
         let config = MarketplaceConfig::try_from_slice(&account.data)?;
         Ok(config.next_job_id)

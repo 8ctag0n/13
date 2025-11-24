@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use std::process::Command;
 
 #[derive(Debug)]
@@ -111,8 +111,12 @@ pub fn validate_rpc_url(url: &str) -> Result<()> {
     }
 
     // Basic URL parsing check
-    url.parse::<url::Url>()
-        .map_err(|e| anyhow::anyhow!("Invalid URL format: {}\nExample: https://api.devnet.solana.com", e))?;
+    url.parse::<url::Url>().map_err(|e| {
+        anyhow::anyhow!(
+            "Invalid URL format: {}\nExample: https://api.devnet.solana.com",
+            e
+        )
+    })?;
 
     Ok(())
 }

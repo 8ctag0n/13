@@ -7,17 +7,16 @@
 /// - Consensus verification
 /// - Payment distribution
 /// - Edge cases and failure scenarios
-
 use anyhow::Result;
 use borsh::BorshDeserialize;
-use cypherlink_sdk::{CircuitType, JobStatus, MarketplaceClient, MarketplaceConfig, ProverAccount, JobAccount};
+use cypherlink_sdk::{CircuitType, JobAccount, MarketplaceClient, ProverAccount};
 use cypherlink_types::{FheConsensusConfig, FheOperation, JobStatus as TypesJobStatus};
-use solana_program_test::{processor, ProgramTest, BanksClient};
+use solana_program_test::{processor, BanksClient, ProgramTest};
 use solana_sdk::{
+    pubkey::Pubkey,
     signature::{Keypair, Signer},
     system_instruction,
     transaction::Transaction,
-    pubkey::Pubkey,
 };
 
 // ============================================================================
@@ -46,10 +45,7 @@ fn create_fhe_result_hash(value: u8) -> [u8; 32] {
 }
 
 /// Get SOL balance of an account
-async fn get_account_balance(
-    banks_client: &mut BanksClient,
-    pubkey: &Pubkey,
-) -> u64 {
+async fn get_account_balance(banks_client: &mut BanksClient, pubkey: &Pubkey) -> u64 {
     banks_client
         .get_account(*pubkey)
         .await
@@ -98,7 +94,14 @@ async fn test_fhe_multi_prover_complete_flow() -> Result<()> {
 
     println!("\n1. Funding accounts...");
     for keypair in [&authority, &prover1, &prover2, &prover3, &job_creator] {
-        fund_account(&mut banks_client, &payer, &keypair.pubkey(), 10_000_000_000, recent_blockhash).await?;
+        fund_account(
+            &mut banks_client,
+            &payer,
+            &keypair.pubkey(),
+            10_000_000_000,
+            recent_blockhash,
+        )
+        .await?;
     }
     println!("   All accounts funded with 10 SOL");
 
@@ -206,33 +209,34 @@ async fn test_fhe_multi_prover_complete_flow() -> Result<()> {
     let consensus_hash = create_fhe_result_hash(100);
 
     for (i, prover) in [&prover1, &prover2].iter().enumerate() {
-        let submit_ix = client.submit_fhe_result_instruction(
-            &prover.pubkey(),
-            &job_pda,
-            consensus_hash,
-        )?;
+        let submit_ix =
+            client.submit_fhe_result_instruction(&prover.pubkey(), &job_pda, consensus_hash)?;
 
         let recent_blockhash = banks_client.get_latest_blockhash().await?;
         let mut tx = Transaction::new_with_payer(&[submit_ix], Some(&prover.pubkey()));
         tx.sign(&[prover], recent_blockhash);
         banks_client.process_transaction(tx).await?;
 
-        println!("   Prover {} submitted result (hash: {:02x}...)", i + 1, consensus_hash[0]);
+        println!(
+            "   Prover {} submitted result (hash: {:02x}...)",
+            i + 1,
+            consensus_hash[0]
+        );
     }
 
     // Prover 3 submits DIFFERENT hash (outlier)
     let outlier_hash = create_fhe_result_hash(200);
-    let submit_ix = client.submit_fhe_result_instruction(
-        &prover3.pubkey(),
-        &job_pda,
-        outlier_hash,
-    )?;
+    let submit_ix =
+        client.submit_fhe_result_instruction(&prover3.pubkey(), &job_pda, outlier_hash)?;
 
     let recent_blockhash = banks_client.get_latest_blockhash().await?;
     let mut tx = Transaction::new_with_payer(&[submit_ix], Some(&prover3.pubkey()));
     tx.sign(&[&prover3], recent_blockhash);
     banks_client.process_transaction(tx).await?;
-    println!("   Prover 3 submitted result (hash: {:02x}...) - DIFFERENT", outlier_hash[0]);
+    println!(
+        "   Prover 3 submitted result (hash: {:02x}...) - DIFFERENT",
+        outlier_hash[0]
+    );
 
     // Verify all results submitted
     let job_account = banks_client.get_account(job_pda).await?.unwrap();
@@ -240,7 +244,11 @@ async fn test_fhe_multi_prover_complete_flow() -> Result<()> {
     assert_eq!(job.fhe_results.len(), 3);
 
     // Verify consensus pattern: 2 matching, 1 different
-    let matching_count = job.fhe_results.iter().filter(|r| r.result_hash == consensus_hash).count();
+    let matching_count = job
+        .fhe_results
+        .iter()
+        .filter(|r| r.result_hash == consensus_hash)
+        .count();
     assert_eq!(matching_count, 2);
     println!("   Results verified: 2 matching, 1 outlier");
 
@@ -262,8 +270,8 @@ async fn test_fhe_multi_prover_complete_flow() -> Result<()> {
         &authority.pubkey(), // finalizer (can be anyone)
         &job_pda,
         &job_creator.pubkey(),
-        &authority.pubkey(), // protocol fee recipient
-        &vec![prover1.pubkey(), prover2.pubkey()], // matching provers
+        &authority.pubkey(),                   // protocol fee recipient
+        &[prover1.pubkey(), prover2.pubkey()], // matching provers
     )?;
 
     let recent_blockhash = banks_client.get_latest_blockhash().await?;
@@ -299,15 +307,27 @@ async fn test_fhe_multi_prover_complete_flow() -> Result<()> {
 
     println!("   Prover 1 gained: {} lamports", prover1_gain);
     println!("   Prover 2 gained: {} lamports", prover2_gain);
-    println!("   Prover 3 gained: {} lamports (should be 0)", prover3_gain);
+    println!(
+        "   Prover 3 gained: {} lamports (should be 0)",
+        prover3_gain
+    );
 
     assert!(prover1_gain > 0, "Prover 1 should receive payment");
     assert!(prover2_gain > 0, "Prover 2 should receive payment");
-    assert_eq!(prover3_gain, 0, "Prover 3 (outlier) should NOT receive payment");
+    assert_eq!(
+        prover3_gain, 0,
+        "Prover 3 (outlier) should NOT receive payment"
+    );
 
     // Verify escrow is nearly drained (rent-exempt minimum may remain)
-    assert!(escrow_balance_after < 1_000_000, "Escrow should be mostly drained (only rent may remain)");
-    println!("   Escrow drained: {} lamports remaining (rent-exempt)", escrow_balance_after);
+    assert!(
+        escrow_balance_after < 1_000_000,
+        "Escrow should be mostly drained (only rent may remain)"
+    );
+    println!(
+        "   Escrow drained: {} lamports remaining (rent-exempt)",
+        escrow_balance_after
+    );
 
     println!("\n{}", "=".repeat(80));
     println!("TEST 1 PASSED!");
@@ -342,7 +362,14 @@ async fn test_fhe_consensus_threshold_not_met() -> Result<()> {
 
     // Fund accounts
     for keypair in [&authority, &prover1, &prover2, &prover3, &job_creator] {
-        fund_account(&mut banks_client, &payer, &keypair.pubkey(), 10_000_000_000, recent_blockhash).await?;
+        fund_account(
+            &mut banks_client,
+            &payer,
+            &keypair.pubkey(),
+            10_000_000_000,
+            recent_blockhash,
+        )
+        .await?;
     }
 
     // Initialize marketplace
@@ -354,7 +381,8 @@ async fn test_fhe_consensus_threshold_not_met() -> Result<()> {
 
     // Register 3 provers
     for (i, prover) in [&prover1, &prover2, &prover3].iter().enumerate() {
-        let reg_ix = client.register_prover_instruction(&prover.pubkey(), 5_000_000, [(i + 1) as u8; 32])?;
+        let reg_ix =
+            client.register_prover_instruction(&prover.pubkey(), 5_000_000, [(i + 1) as u8; 32])?;
         let recent_blockhash = banks_client.get_latest_blockhash().await?;
         let mut tx = Transaction::new_with_payer(&[reg_ix], Some(&prover.pubkey()));
         tx.sign(&[prover], recent_blockhash);
@@ -407,18 +435,24 @@ async fn test_fhe_consensus_threshold_not_met() -> Result<()> {
 
     for (i, prover) in [&prover1, &prover2, &prover3].iter().enumerate() {
         let different_hash = create_fhe_result_hash((i + 1) as u8 * 10);
-        let submit_ix = client.submit_fhe_result_instruction(&prover.pubkey(), &job_pda, different_hash)?;
+        let submit_ix =
+            client.submit_fhe_result_instruction(&prover.pubkey(), &job_pda, different_hash)?;
 
         let recent_blockhash = banks_client.get_latest_blockhash().await?;
         let mut tx = Transaction::new_with_payer(&[submit_ix], Some(&prover.pubkey()));
         tx.sign(&[prover], recent_blockhash);
         banks_client.process_transaction(tx).await?;
 
-        println!("   Prover {} submitted hash: {:02x}...", i + 1, different_hash[0]);
+        println!(
+            "   Prover {} submitted hash: {:02x}...",
+            i + 1,
+            different_hash[0]
+        );
     }
 
     // Step 5: Record creator balance before finalize
-    let creator_balance_before = get_account_balance(&mut banks_client, &job_creator.pubkey()).await;
+    let creator_balance_before =
+        get_account_balance(&mut banks_client, &job_creator.pubkey()).await;
 
     // Step 6: Attempt to finalize (should fail or mark as failed)
     println!("\n5. Attempting to finalize (consensus should fail)...");
@@ -427,7 +461,7 @@ async fn test_fhe_consensus_threshold_not_met() -> Result<()> {
         &job_pda,
         &job_creator.pubkey(),
         &authority.pubkey(),
-        &vec![], // No matching provers
+        &[], // No matching provers
     )?;
 
     let recent_blockhash = banks_client.get_latest_blockhash().await?;
@@ -437,13 +471,23 @@ async fn test_fhe_consensus_threshold_not_met() -> Result<()> {
     let result = banks_client.process_transaction(tx).await;
 
     // Finalize should succeed but mark job as Failed
-    assert!(result.is_ok(), "Finalize should process but mark job as failed");
+    assert!(
+        result.is_ok(),
+        "Finalize should process but mark job as failed"
+    );
 
     // Verify job status
     let job_account = banks_client.get_account(job_pda).await?.unwrap();
     let job = JobAccount::deserialize(&mut &job_account.data[..])?;
-    assert_eq!(job.status, TypesJobStatus::Failed, "Job should be marked as Failed");
-    assert!(job.fhe_consensus_hash.is_none(), "No consensus hash should be set");
+    assert_eq!(
+        job.status,
+        TypesJobStatus::Failed,
+        "Job should be marked as Failed"
+    );
+    assert!(
+        job.fhe_consensus_hash.is_none(),
+        "No consensus hash should be set"
+    );
     println!("   Job correctly marked as Failed (no consensus)");
 
     // Verify creator got refund
@@ -485,7 +529,14 @@ async fn test_fhe_insufficient_provers() -> Result<()> {
 
     // Fund accounts
     for keypair in [&authority, &prover1, &prover2, &prover3, &job_creator] {
-        fund_account(&mut banks_client, &payer, &keypair.pubkey(), 10_000_000_000, recent_blockhash).await?;
+        fund_account(
+            &mut banks_client,
+            &payer,
+            &keypair.pubkey(),
+            10_000_000_000,
+            recent_blockhash,
+        )
+        .await?;
     }
 
     // Initialize marketplace
@@ -497,7 +548,8 @@ async fn test_fhe_insufficient_provers() -> Result<()> {
 
     // Register 3 provers
     for (i, prover) in [&prover1, &prover2, &prover3].iter().enumerate() {
-        let reg_ix = client.register_prover_instruction(&prover.pubkey(), 5_000_000, [(i + 1) as u8; 32])?;
+        let reg_ix =
+            client.register_prover_instruction(&prover.pubkey(), 5_000_000, [(i + 1) as u8; 32])?;
         let recent_blockhash = banks_client.get_latest_blockhash().await?;
         let mut tx = Transaction::new_with_payer(&[reg_ix], Some(&prover.pubkey()));
         tx.sign(&[prover], recent_blockhash);
@@ -547,7 +599,11 @@ async fn test_fhe_insufficient_provers() -> Result<()> {
     // Verify job still in Pending (not fully claimed - needs all 3)
     let job_account = banks_client.get_account(job_pda).await?.unwrap();
     let job = JobAccount::deserialize(&mut &job_account.data[..])?;
-    assert_eq!(job.status, TypesJobStatus::Pending, "Job should remain Pending until all provers claim");
+    assert_eq!(
+        job.status,
+        TypesJobStatus::Pending,
+        "Job should remain Pending until all provers claim"
+    );
     assert_eq!(job.claimed_provers.len(), 2);
     println!("   Only 2 provers claimed (job still Pending)");
 
@@ -563,7 +619,11 @@ async fn test_fhe_insufficient_provers() -> Result<()> {
     // Verify job now in Claimed state
     let job_account = banks_client.get_account(job_pda).await?.unwrap();
     let job = JobAccount::deserialize(&mut &job_account.data[..])?;
-    assert_eq!(job.status, TypesJobStatus::Claimed, "Job should be Claimed after all provers claim");
+    assert_eq!(
+        job.status,
+        TypesJobStatus::Claimed,
+        "Job should be Claimed after all provers claim"
+    );
     assert_eq!(job.claimed_provers.len(), 3);
 
     // Step 5: Only 2 provers submit results (insufficient)
@@ -571,7 +631,8 @@ async fn test_fhe_insufficient_provers() -> Result<()> {
     let consensus_hash = create_fhe_result_hash(100);
 
     for (i, prover) in [&prover1, &prover2].iter().enumerate() {
-        let submit_ix = client.submit_fhe_result_instruction(&prover.pubkey(), &job_pda, consensus_hash)?;
+        let submit_ix =
+            client.submit_fhe_result_instruction(&prover.pubkey(), &job_pda, consensus_hash)?;
         let recent_blockhash = banks_client.get_latest_blockhash().await?;
         let mut tx = Transaction::new_with_payer(&[submit_ix], Some(&prover.pubkey()));
         tx.sign(&[prover], recent_blockhash);
@@ -586,7 +647,7 @@ async fn test_fhe_insufficient_provers() -> Result<()> {
         &job_pda,
         &job_creator.pubkey(),
         &authority.pubkey(),
-        &vec![prover1.pubkey(), prover2.pubkey()],
+        &[prover1.pubkey(), prover2.pubkey()],
     )?;
 
     let recent_blockhash = banks_client.get_latest_blockhash().await?;
@@ -596,7 +657,10 @@ async fn test_fhe_insufficient_provers() -> Result<()> {
     let result = banks_client.process_transaction(tx).await;
 
     // Should fail with InsufficientFheResults error
-    assert!(result.is_err(), "Finalize should fail with insufficient results");
+    assert!(
+        result.is_err(),
+        "Finalize should fail with insufficient results"
+    );
     println!("   Finalize correctly rejected (insufficient results: 2/3)");
 
     // Verify job still in Claimed state
@@ -639,7 +703,14 @@ async fn test_fhe_all_provers_agree() -> Result<()> {
 
     // Fund accounts
     for keypair in [&authority, &prover1, &prover2, &prover3, &job_creator] {
-        fund_account(&mut banks_client, &payer, &keypair.pubkey(), 10_000_000_000, recent_blockhash).await?;
+        fund_account(
+            &mut banks_client,
+            &payer,
+            &keypair.pubkey(),
+            10_000_000_000,
+            recent_blockhash,
+        )
+        .await?;
     }
 
     // Initialize marketplace
@@ -651,7 +722,8 @@ async fn test_fhe_all_provers_agree() -> Result<()> {
 
     // Register 3 provers
     for (i, prover) in [&prover1, &prover2, &prover3].iter().enumerate() {
-        let reg_ix = client.register_prover_instruction(&prover.pubkey(), 5_000_000, [(i + 1) as u8; 32])?;
+        let reg_ix =
+            client.register_prover_instruction(&prover.pubkey(), 5_000_000, [(i + 1) as u8; 32])?;
         let recent_blockhash = banks_client.get_latest_blockhash().await?;
         let mut tx = Transaction::new_with_payer(&[reg_ix], Some(&prover.pubkey()));
         tx.sign(&[prover], recent_blockhash);
@@ -704,12 +776,17 @@ async fn test_fhe_all_provers_agree() -> Result<()> {
     let consensus_hash = create_fhe_result_hash(100);
 
     for (i, prover) in [&prover1, &prover2, &prover3].iter().enumerate() {
-        let submit_ix = client.submit_fhe_result_instruction(&prover.pubkey(), &job_pda, consensus_hash)?;
+        let submit_ix =
+            client.submit_fhe_result_instruction(&prover.pubkey(), &job_pda, consensus_hash)?;
         let recent_blockhash = banks_client.get_latest_blockhash().await?;
         let mut tx = Transaction::new_with_payer(&[submit_ix], Some(&prover.pubkey()));
         tx.sign(&[prover], recent_blockhash);
         banks_client.process_transaction(tx).await?;
-        println!("   Prover {} submitted (hash: {:02x}...)", i + 1, consensus_hash[0]);
+        println!(
+            "   Prover {} submitted (hash: {:02x}...)",
+            i + 1,
+            consensus_hash[0]
+        );
     }
 
     // Step 5: Record balances
@@ -724,7 +801,7 @@ async fn test_fhe_all_provers_agree() -> Result<()> {
         &job_pda,
         &job_creator.pubkey(),
         &authority.pubkey(),
-        &vec![prover1.pubkey(), prover2.pubkey(), prover3.pubkey()], // All 3 match
+        &[prover1.pubkey(), prover2.pubkey(), prover3.pubkey()], // All 3 match
     )?;
 
     let recent_blockhash = banks_client.get_latest_blockhash().await?;
@@ -760,8 +837,14 @@ async fn test_fhe_all_provers_agree() -> Result<()> {
     assert!(prover3_gain > 0, "Prover 3 should receive payment");
 
     // Verify equal distribution (within rounding)
-    assert_eq!(prover1_gain, prover2_gain, "Provers 1 and 2 should get equal payout");
-    assert_eq!(prover2_gain, prover3_gain, "Provers 2 and 3 should get equal payout");
+    assert_eq!(
+        prover1_gain, prover2_gain,
+        "Provers 1 and 2 should get equal payout"
+    );
+    assert_eq!(
+        prover2_gain, prover3_gain,
+        "Provers 2 and 3 should get equal payout"
+    );
 
     println!("   All 3 provers received equal payout!");
 

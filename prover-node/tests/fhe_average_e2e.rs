@@ -5,10 +5,9 @@
 /// 2. Multiple provers claim and execute the job
 /// 3. Provers reach consensus on the result
 /// 4. Payment distribution and verification
-
 use anyhow::Result;
-use tfhe::{generate_keys, set_server_key, ConfigBuilder, FheUint8, FheUint16};
 use tfhe::prelude::*;
+use tfhe::{generate_keys, set_server_key, ConfigBuilder, FheUint16, FheUint8};
 
 #[test]
 fn test_fhe_average_basic_computation() -> Result<()> {
@@ -115,7 +114,7 @@ fn test_fhe_average_consensus_simulation() -> Result<()> {
         let result_bytes = bincode::serialize(&(encrypted_sum.clone(), count))?;
 
         // Hash result (what gets submitted on-chain)
-        use sha3::{Sha3_256, Digest};
+        use sha3::{Digest, Sha3_256};
         let mut hasher = Sha3_256::new();
         hasher.update(&result_bytes);
         let hash: [u8; 32] = hasher.finalize().into();
@@ -132,8 +131,14 @@ fn test_fhe_average_consensus_simulation() -> Result<()> {
 
     // All provers should produce the same hash (consensus)
     println!("\nConsensus check:");
-    assert_eq!(result_hashes[0], result_hashes[1], "Prover 1 and 2 mismatch");
-    assert_eq!(result_hashes[1], result_hashes[2], "Prover 2 and 3 mismatch");
+    assert_eq!(
+        result_hashes[0], result_hashes[1],
+        "Prover 1 and 2 mismatch"
+    );
+    assert_eq!(
+        result_hashes[1], result_hashes[2],
+        "Prover 2 and 3 mismatch"
+    );
     println!("  ✓ All 3 provers reached consensus!");
 
     println!("\n=== ✓ Consensus Test Passed ===\n");

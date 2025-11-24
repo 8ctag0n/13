@@ -1,10 +1,5 @@
 use anyhow::{Context, Result};
-use solana_sdk::{
-    message::Message,
-    pubkey::Pubkey,
-    system_instruction,
-    transaction::Transaction,
-};
+use solana_sdk::{message::Message, pubkey::Pubkey, system_instruction, transaction::Transaction};
 
 /// Build a SOL transfer transaction
 pub fn build_transfer_transaction(
@@ -29,8 +24,7 @@ pub fn build_transfer_transaction(
 pub fn serialize_transaction(tx: &Transaction) -> Result<String> {
     use base64::Engine;
 
-    let serialized = bincode::serialize(tx)
-        .context("Failed to serialize transaction")?;
+    let serialized = bincode::serialize(tx).context("Failed to serialize transaction")?;
 
     Ok(base64::engine::general_purpose::STANDARD.encode(&serialized))
 }
@@ -46,11 +40,7 @@ mod tests {
         let to = Keypair::new();
         let lamports = 1_000_000_000; // 1 SOL
 
-        let tx = build_transfer_transaction(
-            &from.pubkey(),
-            &to.pubkey(),
-            lamports,
-        ).unwrap();
+        let tx = build_transfer_transaction(&from.pubkey(), &to.pubkey(), lamports).unwrap();
 
         assert_eq!(tx.message.instructions.len(), 1);
     }
@@ -60,11 +50,7 @@ mod tests {
         let from = Keypair::new();
         let to = Keypair::new();
 
-        let tx = build_transfer_transaction(
-            &from.pubkey(),
-            &to.pubkey(),
-            1_000_000_000,
-        ).unwrap();
+        let tx = build_transfer_transaction(&from.pubkey(), &to.pubkey(), 1_000_000_000).unwrap();
 
         let encoded = serialize_transaction(&tx).unwrap();
         assert!(!encoded.is_empty());

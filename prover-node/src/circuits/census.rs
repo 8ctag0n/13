@@ -2,9 +2,9 @@
 //!
 //! Implements Sum operation for network member counting
 
-use anyhow::{Result, Context};
-use tfhe::{FheUint8, FheUint16, FheUint32};
+use anyhow::{Context, Result};
 use tfhe::prelude::*;
+use tfhe::{FheUint16, FheUint32, FheUint8};
 
 pub struct CensusCircuit;
 
@@ -48,8 +48,7 @@ impl CensusCircuit {
         }
 
         // Serialize the result
-        bincode::serialize(&sum)
-            .context("Failed to serialize sum result")
+        bincode::serialize(&sum).context("Failed to serialize sum result")
     }
 
     /// Sum with u16 output for larger sums (up to 65535)
@@ -72,7 +71,7 @@ impl CensusCircuit {
         // Add remaining values (cast consumes value, no extra clone needed)
         for ct in ciphertexts[1..].iter() {
             let ct_u16: FheUint16 = ct.clone().cast_into();
-            sum = sum + ct_u16;  // Consume both values to avoid temporary references
+            sum += ct_u16; // Consume both values to avoid temporary references
         }
 
         bincode::serialize(&sum).context("Failed to serialize sum")
@@ -97,7 +96,7 @@ impl CensusCircuit {
         // Add remaining values (cast consumes value, no extra clone needed)
         for ct in ciphertexts[1..].iter() {
             let ct_u32: FheUint32 = ct.clone().cast_into();
-            sum = sum + ct_u32;  // Consume both values to avoid temporary references
+            sum += ct_u32; // Consume both values to avoid temporary references
         }
 
         bincode::serialize(&sum).context("Failed to serialize sum")
@@ -121,8 +120,8 @@ impl CensusCircuit {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tfhe::{ClientKey, ServerKey, ConfigBuilder, generate_keys, set_server_key};
-    use tfhe::prelude::{FheTryEncrypt, FheDecrypt};
+    use tfhe::prelude::{FheDecrypt, FheTryEncrypt};
+    use tfhe::{generate_keys, set_server_key, ClientKey, ConfigBuilder, ServerKey};
 
     fn generate_test_keys() -> (ClientKey, ServerKey) {
         let config = ConfigBuilder::default().build();

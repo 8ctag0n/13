@@ -27,13 +27,20 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
     let migrator = sqlx::migrate::Migrator::new(std::path::Path::new("./blink-server/migrations"))
         .await
         .map_err(|e| {
-            log::error!("Failed to load migrations from ./blink-server/migrations: {}", e);
+            log::error!(
+                "Failed to load migrations from ./blink-server/migrations: {}",
+                e
+            );
             e
         })?;
 
     log::info!("Found {} migrations to apply", migrator.iter().count());
     for migration in migrator.iter() {
-        log::info!("  - Migration: {} ({})", migration.version, migration.description);
+        log::info!(
+            "  - Migration: {} ({})",
+            migration.version,
+            migration.description
+        );
     }
 
     log::info!("Running migrations...");
@@ -48,7 +55,6 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
 
     #[tokio::test]
     async fn test_pool_creation() {

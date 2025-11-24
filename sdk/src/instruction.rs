@@ -55,14 +55,10 @@ pub enum MarketplaceInstruction {
     CancelJob,
 
     /// Slash a prover for misbehavior
-    SlashProver {
-        slash_amount: u64,
-    },
+    SlashProver { slash_amount: u64 },
 
     /// Submit FHE computation result
-    SubmitFheResult {
-        result_hash: [u8; 32],
-    },
+    SubmitFheResult { result_hash: [u8; 32] },
 
     /// Finalize FHE job after consensus reached
     FinalizeFheJob,

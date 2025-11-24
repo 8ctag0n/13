@@ -2,11 +2,11 @@
 //!
 //! Implements CountIf and Histogram operations for vote counting
 
-use anyhow::{Result, Context};
-use cypherlink_types::fhe::FhePredicate;
-use tfhe::{FheUint8, FheBool};
-use tfhe::prelude::*;
 use super::passport::PassportCircuit;
+use anyhow::{Context, Result};
+use cypherlink_types::fhe::FhePredicate;
+use tfhe::prelude::*;
+use tfhe::{FheBool, FheUint8};
 
 pub struct VotingCircuit;
 
@@ -37,8 +37,8 @@ impl VotingCircuit {
         }
 
         // Initialize counter to 0
-        let mut count = FheUint8::try_encrypt_trivial(0u8)
-            .context("Failed to initialize counter")?;
+        let mut count =
+            FheUint8::try_encrypt_trivial(0u8).context("Failed to initialize counter")?;
 
         // PERFORMANCE FIX: Create trivial constants once, outside the loop
         let one = FheUint8::try_encrypt_trivial(1u8)?;
@@ -55,8 +55,7 @@ impl VotingCircuit {
             count = &count + &increment;
         }
 
-        bincode::serialize(&count)
-            .context("Failed to serialize count result")
+        bincode::serialize(&count).context("Failed to serialize count result")
     }
 
     /// Evaluate a predicate on an encrypted value
@@ -66,8 +65,8 @@ impl VotingCircuit {
         match predicate {
             FhePredicate::Equals(value) => {
                 // Deserialize input
-                let value_ct: FheUint8 = bincode::deserialize(encrypted_value)
-                    .context("Failed to deserialize value")?;
+                let value_ct: FheUint8 =
+                    bincode::deserialize(encrypted_value).context("Failed to deserialize value")?;
 
                 // Create encrypted constant
                 let target_ct = FheUint8::try_encrypt_trivial(*value)
@@ -107,11 +106,8 @@ impl VotingCircuit {
 
             FhePredicate::InRange { min, max } => {
                 // Use PassportCircuit::compute_range_check
-                let result_bytes = PassportCircuit::compute_range_check(
-                    encrypted_value,
-                    *min,
-                    *max,
-                )?;
+                let result_bytes =
+                    PassportCircuit::compute_range_check(encrypted_value, *min, *max)?;
 
                 bincode::deserialize(&result_bytes)
                     .context("Failed to deserialize range check result")
@@ -119,8 +115,8 @@ impl VotingCircuit {
 
             FhePredicate::NotEquals(value) => {
                 // Deserialize input
-                let value_ct: FheUint8 = bincode::deserialize(encrypted_value)
-                    .context("Failed to deserialize value")?;
+                let value_ct: FheUint8 =
+                    bincode::deserialize(encrypted_value).context("Failed to deserialize value")?;
 
                 // Create encrypted constant
                 let target_ct = FheUint8::try_encrypt_trivial(*value)
@@ -183,16 +179,15 @@ impl VotingCircuit {
         }
 
         // Serialize the vector of counts
-        bincode::serialize(&bin_counts)
-            .context("Failed to serialize histogram results")
+        bincode::serialize(&bin_counts).context("Failed to serialize histogram results")
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tfhe::{ClientKey, ServerKey, ConfigBuilder, generate_keys, set_server_key};
     use cypherlink_types::fhe::FhePredicate;
+    use tfhe::{generate_keys, set_server_key, ClientKey, ConfigBuilder, ServerKey};
 
     fn generate_test_keys() -> (ClientKey, ServerKey) {
         let config = ConfigBuilder::default().build();
@@ -461,7 +456,10 @@ mod tests {
         println!("CountIf(100 values) took: {:?}", duration);
 
         // CountIf involves comparison + accumulation, expect < 10s
-        assert!(duration.as_secs() < 10, "Performance target: CountIf(100) < 10s");
+        assert!(
+            duration.as_secs() < 10,
+            "Performance target: CountIf(100) < 10s"
+        );
     }
 
     // HISTOGRAM TESTS
@@ -587,9 +585,9 @@ mod tests {
         // 100 voters, age-based voting
         // 20 under 18 (can't vote), 60 adults (18-65), 20 seniors (66+)
         let mut ages = vec![];
-        ages.extend(vec![15u8; 20]);  // Minors
-        ages.extend(vec![30u8; 60]);  // Adults
-        ages.extend(vec![70u8; 20]);  // Seniors
+        ages.extend(vec![15u8; 20]); // Minors
+        ages.extend(vec![30u8; 60]); // Adults
+        ages.extend(vec![70u8; 20]); // Seniors
 
         let mut encrypted = vec![];
         for age in ages {
@@ -610,9 +608,15 @@ mod tests {
 
         let counts: Vec<Vec<u8>> = bincode::deserialize(&histogram_bytes).unwrap();
 
-        let minors: u8 = bincode::deserialize::<FheUint8>(&counts[0]).unwrap().decrypt(&client_key);
-        let eligible: u8 = bincode::deserialize::<FheUint8>(&counts[1]).unwrap().decrypt(&client_key);
-        let seniors: u8 = bincode::deserialize::<FheUint8>(&counts[2]).unwrap().decrypt(&client_key);
+        let minors: u8 = bincode::deserialize::<FheUint8>(&counts[0])
+            .unwrap()
+            .decrypt(&client_key);
+        let eligible: u8 = bincode::deserialize::<FheUint8>(&counts[1])
+            .unwrap()
+            .decrypt(&client_key);
+        let seniors: u8 = bincode::deserialize::<FheUint8>(&counts[2])
+            .unwrap()
+            .decrypt(&client_key);
 
         assert_eq!(minors, 20);
         assert_eq!(eligible, 60);
@@ -656,6 +660,9 @@ mod tests {
         println!("Histogram(50 values, 4 bins) took: {:?}", duration);
 
         // Histogram is 4 CountIf operations, expect < 20s for 50 values
-        assert!(duration.as_secs() < 20, "Performance target: Histogram(50, 4 bins) < 20s");
+        assert!(
+            duration.as_secs() < 20,
+            "Performance target: Histogram(50, 4 bins) < 20s"
+        );
     }
 }

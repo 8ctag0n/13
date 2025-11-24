@@ -1,9 +1,6 @@
 use anyhow::{anyhow, Result};
 use solana_sdk::{
-    hash::Hash,
-    instruction::Instruction,
-    pubkey::Pubkey,
-    signature::{Keypair, Signer},
+    hash::Hash, instruction::Instruction, pubkey::Pubkey, signature::Keypair,
     transaction::Transaction,
 };
 
@@ -154,10 +151,7 @@ impl Default for TransactionBuilder {
 mod tests {
     use super::*;
     use solana_sdk::{
-        instruction::AccountMeta,
-        pubkey::Pubkey,
-        signature::Keypair,
-        signer::Signer,
+        instruction::AccountMeta, pubkey::Pubkey, signature::Keypair, signer::Signer,
     };
 
     #[test]
@@ -213,7 +207,10 @@ mod tests {
 
         assert_eq!(tx.message.instructions.len(), 1);
         // Unsigned transactions may have multiple placeholder signatures depending on required signers
-        assert!(!tx.signatures.is_empty(), "Transaction should have at least one placeholder signature");
+        assert!(
+            !tx.signatures.is_empty(),
+            "Transaction should have at least one placeholder signature"
+        );
     }
 
     #[test]

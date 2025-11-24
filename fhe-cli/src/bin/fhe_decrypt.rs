@@ -1,7 +1,6 @@
 /// FHE Decryption Tool for ZyberLink
 ///
 /// Decrypts FHE computation results using the user's private client key.
-
 use anyhow::{Context, Result};
 use colored::Colorize;
 use fhe_cli::*;
@@ -38,7 +37,10 @@ fn print_header() {
 fn get_encrypted_result() -> Result<String> {
     if atty::is(atty::Stream::Stdin) {
         println!("\n{}", "Enter encrypted result (base64):".bold());
-        println!("{}", "(Paste the encrypted result from the webapp)".dimmed());
+        println!(
+            "{}",
+            "(Paste the encrypted result from the webapp)".dimmed()
+        );
     }
 
     // If piped input, just read one line directly
@@ -62,7 +64,10 @@ fn get_encrypted_result() -> Result<String> {
 
 fn get_client_key() -> Result<tfhe::ClientKey> {
     if atty::is(atty::Stream::Stdin) {
-        println!("\n{}", "Enter client key (base64) or path to key file:".bold());
+        println!(
+            "\n{}",
+            "Enter client key (base64) or path to key file:".bold()
+        );
         println!("{}", "(You can paste the key or provide a file path like ~/.zyberlink/client_keys/key_1234567890.txt)".dimmed());
     }
 
@@ -105,10 +110,14 @@ fn get_client_key() -> Result<tfhe::ClientKey> {
     println!("\n{} Loading client key...", "⏳".yellow());
 
     // Remove any whitespace or newlines
-    let cleaned = input.chars().filter(|c| !c.is_whitespace()).collect::<String>();
+    let cleaned = input
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect::<String>();
 
-    let client_key = deserialize_client_key_base64(&cleaned)
-        .context("Failed to deserialize client key. Make sure it's valid base64 or a valid file path.")?;
+    let client_key = deserialize_client_key_base64(&cleaned).context(
+        "Failed to deserialize client key. Make sure it's valid base64 or a valid file path.",
+    )?;
 
     println!("{} Client key loaded", "✅".green());
 

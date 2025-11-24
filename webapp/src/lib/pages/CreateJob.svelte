@@ -136,6 +136,11 @@
       return;
     }
 
+    if (!encryptedDataFile || !serverKeyFile) {
+      toastStore.add('Please upload encrypted data files', 'error');
+      return;
+    }
+
     isProcessing = true;
 
     try {
@@ -153,7 +158,6 @@
             processingMessage = progress.message;
             console.log(`Token account progress: ${progress.step} - ${progress.message}`);
 
-            // Show toast notifications for key progress steps
             if (progress.step === 'creating') {
               toastStore.add('Creating wZEC token account...', 'info');
             } else if (progress.step === 'success') {
@@ -163,12 +167,107 @@
         );
       }
 
-      processingMessage = 'Preparing transaction...';
+      // Step 1: Read encrypted files
+      processingMessage = 'Reading encrypted data files...';
+      const encryptedDataBuffer = await encryptedDataFile.arrayBuffer();
+      const serverKeyBuffer = await serverKeyFile.arrayBuffer();
 
-      // TODO: Implement actual transaction signing
-      toastStore.add('Transaction signing coming soon!', 'info');
-      // After successful submission:
-      // navigateTo('dashboard');
+      // Convert to base64
+      const encryptedDataBase64 = btoa(
+        String.fromCharCode(...new Uint8Array(encryptedDataBuffer))
+      );
+      const serverKeyBase64 = btoa(
+        String.fromCharCode(...new Uint8Array(serverKeyBuffer))
+      );
+
+      // Step 2: Generate signature
+      processingMessage = 'Generating signature...';
+      const timestamp = Math.floor(Date.now() / 1000);
+      const nonce = Math.random().toString(36).substring(2, 15);
+      const jobId = timestamp * 1000 + Math.floor(Math.random() * 1000);
+      const message = `create_job:${jobId}:${timestamp}:${nonce}`;
+
+      const messageBytes = new TextEncoder().encode(message);
+      const signatureBytes = await $walletStore.signMessage(messageBytes);
+      const signatureBase64 = btoa(
+        String.fromCharCode(...signatureBytes)
+      );
+
+      // Step 3: Call validate-and-build endpoint
+      processingMessage = 'Validating job with backend...';
+      const validateResponse = await fetch('http://localhost:8080/api/jobs/validate-and-build', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          creator_pubkey: $walletStore.publicKey.toString(),
+          encrypted_data: encryptedDataBase64,
+          server_key: serverKeyBase64,
+          message: message,
+          signature: signatureBase64,
+          nonce: nonce,
+          operation: jobData.operation.toLowerCase(),
+          operation_value: jobData.operationValue,
+          price_lamports: jobData.priceLamports,
+          required_provers: jobData.requiredProvers,
+          consensus_threshold: jobData.consensusThreshold,
+          payment_method: jobData.paymentMethod.toUpperCase()
+        })
+      });
+
+      if (!validateResponse.ok) {
+        const errorData = await validateResponse.json();
+        throw new Error(errorData.error || 'Failed to validate job');
+      }
+
+      const { job_id, transaction } = await validateResponse.json();
+      console.log('Job validated with ID:', job_id);
+
+      // Step 4: Deserialize unsigned transaction
+      processingMessage = 'Preparing transaction for signing...';
+      const { Transaction } = await import('@solana/web3.js');
+      const txBytes = Uint8Array.from(atob(transaction), c => c.charCodeAt(0));
+      const tx = Transaction.from(txBytes);
+
+      // Step 5: Get recent blockhash and set fee payer
+      const connection = new Connection('http://localhost:8899', 'confirmed');
+      const { blockhash } = await connection.getLatestBlockhash('confirmed');
+      tx.recentBlockhash = blockhash;
+      tx.feePayer = $walletStore.publicKey;
+
+      // Step 6: Sign transaction with wallet
+      processingMessage = 'Waiting for wallet signature...';
+      toastStore.add('Please sign the transaction in your wallet', 'info');
+      const signedTx = await $walletStore.signTransaction(tx);
+
+      // Step 7: Send transaction to Solana network
+      processingMessage = 'Sending transaction to Solana...';
+      const signature = await connection.sendRawTransaction(signedTx.serialize(), {
+        skipPreflight: false,
+        preflightCommitment: 'confirmed'
+      });
+
+      // Step 8: Wait for confirmation
+      processingMessage = 'Confirming transaction...';
+      await connection.confirmTransaction(signature, 'confirmed');
+      console.log('Transaction confirmed:', signature);
+
+      // Step 9: Confirm with backend
+      processingMessage = 'Finalizing job creation...';
+      const confirmResponse = await fetch(`http://localhost:8080/api/jobs/${job_id}/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          signature: signature
+        })
+      });
+
+      if (!confirmResponse.ok) {
+        throw new Error('Failed to confirm job with backend');
+      }
+
+      // Success!
+      toastStore.add(`Job created successfully! ID: ${job_id}`, 'success');
+      navigateTo('dashboard');
 
     } catch (error) {
       console.error('Error during job creation:', error);

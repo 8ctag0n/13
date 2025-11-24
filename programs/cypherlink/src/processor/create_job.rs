@@ -1,4 +1,4 @@
-use cypherlink_types::{CircuitType, FheConsensusConfig, fhe::FheOperation};
+use cypherlink_types::{CircuitType, FheConsensusConfig};
 use solana_program::{
     account_info::{next_account_info, AccountInfo},
     entrypoint::ProgramResult,
@@ -103,7 +103,8 @@ pub fn process_create_job(
                 .ok_or(CypherLinkProgramError::MissingFheConfig)?;
 
             // Validate consensus config
-            fhe_consensus_config.validate()
+            fhe_consensus_config
+                .validate()
                 .map_err(|_| CypherLinkProgramError::InvalidFheConfig)?;
 
             // Get dynamic cost configuration based on operation complexity
@@ -112,7 +113,8 @@ pub fn process_create_job(
             // Calculate minimum price: operation cost × number of provers
             // Each prover must be compensated for the full computation
             let min_price_per_prover = cost_config.min_payment_lamports;
-            let total_min_price = min_price_per_prover * (fhe_consensus_config.required_provers as u64);
+            let total_min_price =
+                min_price_per_prover * (fhe_consensus_config.required_provers as u64);
 
             if price_lamports < total_min_price {
                 msg!(
@@ -190,7 +192,12 @@ pub fn process_create_job(
             job_info.clone(),
             system_program_info.clone(),
         ],
-        &[&[b"job", creator_info.key.as_ref(), &job_id_bytes, &[job_bump]]],
+        &[&[
+            b"job",
+            creator_info.key.as_ref(),
+            &job_id_bytes,
+            &[job_bump],
+        ]],
     )?;
 
     msg!("Creating escrow account");

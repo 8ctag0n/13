@@ -124,7 +124,8 @@ impl MarketplaceClient {
             &[b"job", job_creator.as_ref(), &job_id_bytes],
             &self.program_id,
         );
-        let (escrow_pda, _) = Pubkey::find_program_address(&[b"escrow", job_pda.as_ref()], &self.program_id);
+        let (escrow_pda, _) =
+            Pubkey::find_program_address(&[b"escrow", job_pda.as_ref()], &self.program_id);
 
         let instruction_data = MarketplaceInstruction::CreateJob {
             circuit_type,
@@ -254,7 +255,8 @@ impl MarketplaceClient {
         let (config_pda, _) = Pubkey::find_program_address(&[b"config"], &self.program_id);
         let (prover_pda, _) =
             Pubkey::find_program_address(&[b"prover", prover_authority.as_ref()], &self.program_id);
-        let (escrow_pda, _) = Pubkey::find_program_address(&[b"escrow", job_pda.as_ref()], &self.program_id);
+        let (escrow_pda, _) =
+            Pubkey::find_program_address(&[b"escrow", job_pda.as_ref()], &self.program_id);
 
         let instruction_data = MarketplaceInstruction::SubmitProof {
             proof_commitment,
@@ -283,7 +285,8 @@ impl MarketplaceClient {
         job_creator: &Pubkey,
         job_pda: &Pubkey,
     ) -> Result<Instruction> {
-        let (escrow_pda, _) = Pubkey::find_program_address(&[b"escrow", job_pda.as_ref()], &self.program_id);
+        let (escrow_pda, _) =
+            Pubkey::find_program_address(&[b"escrow", job_pda.as_ref()], &self.program_id);
 
         let instruction_data = MarketplaceInstruction::CancelJob;
 
@@ -308,7 +311,8 @@ impl MarketplaceClient {
         let (config_pda, _) = Pubkey::find_program_address(&[b"config"], &self.program_id);
         let (prover_pda, _) =
             Pubkey::find_program_address(&[b"prover", prover_authority.as_ref()], &self.program_id);
-        let (escrow_pda, _) = Pubkey::find_program_address(&[b"escrow", job_pda.as_ref()], &self.program_id);
+        let (escrow_pda, _) =
+            Pubkey::find_program_address(&[b"escrow", job_pda.as_ref()], &self.program_id);
 
         let instruction_data = MarketplaceInstruction::SlashProver {
             slash_amount: 0, // TODO: Make this a parameter
@@ -399,7 +403,8 @@ impl MarketplaceClient {
         prover_accounts: &[Pubkey],
     ) -> Result<Instruction> {
         let (config_pda, _) = Pubkey::find_program_address(&[b"config"], &self.program_id);
-        let (escrow_pda, _) = Pubkey::find_program_address(&[b"escrow", job_pda.as_ref()], &self.program_id);
+        let (escrow_pda, _) =
+            Pubkey::find_program_address(&[b"escrow", job_pda.as_ref()], &self.program_id);
 
         let instruction_data = MarketplaceInstruction::FinalizeFheJob;
 
@@ -418,7 +423,7 @@ impl MarketplaceClient {
         for prover_authority in prover_accounts {
             let (prover_pda, _) = Pubkey::find_program_address(
                 &[b"prover", prover_authority.as_ref()],
-                &self.program_id
+                &self.program_id,
             );
             accounts.push(AccountMeta::new(*prover_authority, false));
             accounts.push(AccountMeta::new(prover_pda, false));
@@ -463,11 +468,7 @@ impl MarketplaceClient {
         job_pda: &Pubkey,
         result_hash: [u8; 32],
     ) -> Result<Signature> {
-        let ix = self.submit_fhe_result_instruction(
-            &prover.pubkey(),
-            job_pda,
-            result_hash,
-        )?;
+        let ix = self.submit_fhe_result_instruction(&prover.pubkey(), job_pda, result_hash)?;
 
         self.send_and_confirm_transaction(&[ix], &[prover])
     }
@@ -541,10 +542,7 @@ impl MarketplaceClient {
 
 impl Default for MarketplaceClient {
     fn default() -> Self {
-        Self::new(
-            "http://localhost:8899".to_string(),
-            Pubkey::default(),
-        )
+        Self::new("http://localhost:8899".to_string(), Pubkey::default())
     }
 }
 
@@ -554,19 +552,15 @@ mod tests {
 
     #[test]
     fn test_client_creation() {
-        let client = MarketplaceClient::new(
-            "http://localhost:8899".to_string(),
-            Pubkey::new_unique(),
-        );
+        let client =
+            MarketplaceClient::new("http://localhost:8899".to_string(), Pubkey::new_unique());
         assert_eq!(client.commitment, CommitmentConfig::confirmed());
     }
 
     #[test]
     fn test_pda_derivation() {
-        let client = MarketplaceClient::new(
-            "http://localhost:8899".to_string(),
-            Pubkey::new_unique(),
-        );
+        let client =
+            MarketplaceClient::new("http://localhost:8899".to_string(), Pubkey::new_unique());
 
         let (config_pda, _) = client.get_config_pda();
         assert_ne!(config_pda, Pubkey::default());

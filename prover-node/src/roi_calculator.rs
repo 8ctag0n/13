@@ -1,5 +1,5 @@
-use cypherlink_types::{CircuitType, fhe::FheOperation};
-use log::{debug, info, warn};
+use cypherlink_types::CircuitType;
+use log::{info, warn};
 
 /// ROI calculation result for a job
 #[derive(Debug, Clone)]
@@ -165,11 +165,7 @@ impl ROICalculator {
     /// Get minimum acceptable price for a given operation
     ///
     /// Useful for setting dynamic minimum prices based on operation complexity
-    pub fn get_minimum_price(
-        &self,
-        circuit_type: &CircuitType,
-        required_provers: u8,
-    ) -> u64 {
+    pub fn get_minimum_price(&self, circuit_type: &CircuitType, required_provers: u8) -> u64 {
         let fhe_operation = match circuit_type {
             CircuitType::FheComputation(op) => op,
             _ => return 1_000_000 * (required_provers as u64), // 0.001 SOL per prover
@@ -180,7 +176,8 @@ impl ROICalculator {
         let total_cost_per_prover = (base_cost as f64 * self.operational_cost_multiplier) as u64;
 
         // Calculate minimum price with desired ROI
-        let min_revenue = (total_cost_per_prover as f64 * (1.0 + self.min_roi_percentage / 100.0)) as u64;
+        let min_revenue =
+            (total_cost_per_prover as f64 * (1.0 + self.min_roi_percentage / 100.0)) as u64;
 
         min_revenue * (required_provers as u64)
     }

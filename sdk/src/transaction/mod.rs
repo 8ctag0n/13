@@ -5,7 +5,6 @@
 /// - Set transaction parameters (fee payer, blockhash)
 /// - Build unsigned transactions (for wallet signing)
 /// - Build signed transactions (for CLI/testing)
-
 mod builder;
 
 pub use builder::TransactionBuilder;

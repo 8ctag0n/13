@@ -21,10 +21,8 @@ async fn create_job(
 ) -> Result<(Pubkey, Pubkey), Box<dyn std::error::Error>> {
     let job_creator = payer.pubkey();
     let job_id_bytes = job_id.to_le_bytes();
-    let (job_pda, _) = Pubkey::find_program_address(
-        &[b"job", job_creator.as_ref(), &job_id_bytes],
-        program_id,
-    );
+    let (job_pda, _) =
+        Pubkey::find_program_address(&[b"job", job_creator.as_ref(), &job_id_bytes], program_id);
     let (escrow_pda, _) = Pubkey::find_program_address(&[b"escrow", job_pda.as_ref()], program_id);
 
     let create_job_instruction = MarketplaceInstruction::CreateJob {
@@ -62,7 +60,7 @@ async fn create_job(
 #[tokio::test]
 async fn test_cancel_job() {
     let program_id = Pubkey::new_unique();
-    let mut program_test = setup_program_test(program_id);
+    let program_test = setup_program_test(program_id);
 
     let (mut banks_client, payer, _recent_blockhash) = program_test.start().await;
 
@@ -165,7 +163,7 @@ async fn test_cancel_job() {
 #[tokio::test]
 async fn test_cancel_job_already_claimed() {
     let program_id = Pubkey::new_unique();
-    let mut program_test = setup_program_test(program_id);
+    let program_test = setup_program_test(program_id);
 
     let (mut banks_client, payer, _recent_blockhash) = program_test.start().await;
 
@@ -224,7 +222,10 @@ async fn test_cancel_job_already_claimed() {
     let mut claim_job_tx =
         Transaction::new_with_payer(&[claim_job_ix], Some(&prover_keypair.pubkey()));
     claim_job_tx.sign(&[&prover_keypair], recent_blockhash);
-    banks_client.process_transaction(claim_job_tx).await.unwrap();
+    banks_client
+        .process_transaction(claim_job_tx)
+        .await
+        .unwrap();
 
     // Try to cancel claimed job - should fail
     let cancel_job_instruction = MarketplaceInstruction::CancelJob;
@@ -250,7 +251,7 @@ async fn test_cancel_job_already_claimed() {
 #[tokio::test]
 async fn test_cancel_job_wrong_creator() {
     let program_id = Pubkey::new_unique();
-    let mut program_test = setup_program_test(program_id);
+    let program_test = setup_program_test(program_id);
 
     let (mut banks_client, payer, _recent_blockhash) = program_test.start().await;
 

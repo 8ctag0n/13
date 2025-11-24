@@ -2,8 +2,8 @@
 //!
 //! Implements Average operation for age/demographic analysis
 
-use anyhow::{Result, Context};
 use super::census::CensusCircuit;
+use anyhow::{Context, Result};
 
 pub struct DemographicsCircuit;
 
@@ -83,8 +83,10 @@ impl DemographicsCircuit {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tfhe::{ClientKey, ServerKey, ConfigBuilder, generate_keys, set_server_key, FheUint8, FheUint16};
     use tfhe::prelude::*;
+    use tfhe::{
+        generate_keys, set_server_key, ClientKey, ConfigBuilder, FheUint16, FheUint8, ServerKey,
+    };
 
     fn generate_test_keys() -> (ClientKey, ServerKey) {
         let config = ConfigBuilder::default().build();
@@ -105,9 +107,8 @@ mod tests {
         let bytes2 = bincode::serialize(&age2).unwrap();
         let bytes3 = bincode::serialize(&age3).unwrap();
 
-        let (sum_bytes, count) = DemographicsCircuit::compute_average(
-            vec![&bytes1, &bytes2, &bytes3]
-        ).unwrap();
+        let (sum_bytes, count) =
+            DemographicsCircuit::compute_average(vec![&bytes1, &bytes2, &bytes3]).unwrap();
 
         let sum_ct: FheUint8 = bincode::deserialize(&sum_bytes).unwrap();
         let sum: u8 = sum_ct.decrypt(&client_key);
@@ -180,10 +181,8 @@ mod tests {
         let bytes2 = bincode::serialize(&v2).unwrap();
 
         // Max value 20, count 2, estimated 40 -> use u8
-        let (sum_bytes, count) = DemographicsCircuit::auto_average(
-            vec![&bytes1, &bytes2],
-            20
-        ).unwrap();
+        let (sum_bytes, count) =
+            DemographicsCircuit::auto_average(vec![&bytes1, &bytes2], 20).unwrap();
 
         let sum_ct: FheUint8 = bincode::deserialize(&sum_bytes).unwrap();
         let sum: u8 = sum_ct.decrypt(&client_key);
@@ -276,6 +275,9 @@ mod tests {
         println!("Average(100 values) took: {:?}", duration);
 
         // Average should take similar time to Sum(100) < 5s
-        assert!(duration.as_secs() < 7, "Performance target: Average(100) < 7s");
+        assert!(
+            duration.as_secs() < 7,
+            "Performance target: Average(100) < 7s"
+        );
     }
 }

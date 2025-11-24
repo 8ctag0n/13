@@ -1,23 +1,20 @@
 use anyhow::{Context, Result};
 use log::{debug, info, warn};
-use std::time::Instant;
 use std::sync::Arc;
+use std::time::Instant;
 
 // Halo2 imports
+use ff::PrimeField;
 use halo2_proofs::{
     circuit::{Layouter, SimpleFloorPlanner, Value},
     plonk::{
-        Advice, Circuit, Column, ConstraintSystem, Error as PlonkError, Instance as InstanceColumn,
-        ProvingKey, Selector, keygen_vk, keygen_pk, create_proof,
+        create_proof, keygen_pk, keygen_vk, Advice, Circuit, Column, ConstraintSystem,
+        Error as PlonkError, Instance as InstanceColumn, ProvingKey, Selector,
     },
-    poly::{
-        commitment::Params,
-        Rotation,
-    },
+    poly::{commitment::Params, Rotation},
     transcript::Blake2bWrite,
 };
 use pasta_curves::{pallas, vesta};
-use ff::PrimeField;
 use rand::rngs::OsRng;
 
 /// Witness data for Zcash Orchard action
@@ -139,9 +136,7 @@ impl OrchardCircuit {
         ));
 
         // Compute value commitment: cv = v * G + rcv * H (simplified)
-        let value_commitment = note_value
-            .zip(rcv)
-            .map(|(v, r)| v + r); // Simplified commitment
+        let value_commitment = note_value.zip(rcv).map(|(v, r)| v + r); // Simplified commitment
 
         Self {
             note_value,
@@ -236,31 +231,14 @@ impl Circuit<pallas::Base> for OrchardCircuit {
                 )?;
 
                 // Compute and assign difference
-                let diff = self.note_value
-                    .zip(self.output_value)
-                    .map(|(n, o)| n - o);
+                let diff = self.note_value.zip(self.output_value).map(|(n, o)| n - o);
 
-                region.assign_advice(
-                    || "difference",
-                    config.advice[2],
-                    0,
-                    || diff,
-                )?;
+                region.assign_advice(|| "difference", config.advice[2], 0, || diff)?;
 
                 // Assign other witness data
-                region.assign_advice(
-                    || "note_rho",
-                    config.advice[3],
-                    0,
-                    || self.note_rho,
-                )?;
+                region.assign_advice(|| "note_rho", config.advice[3], 0, || self.note_rho)?;
 
-                region.assign_advice(
-                    || "merkle_root",
-                    config.advice[4],
-                    0,
-                    || self.merkle_root,
-                )?;
+                region.assign_advice(|| "merkle_root", config.advice[4], 0, || self.merkle_root)?;
 
                 // Assign value commitment to row 1
                 region.assign_advice(
@@ -283,9 +261,7 @@ impl Circuit<pallas::Base> for OrchardCircuit {
 fn bytes_to_field(bytes: &[u8]) -> pallas::Base {
     use blake2b_simd::Params;
 
-    let hash = Params::new()
-        .hash_length(64)
-        .hash(bytes);
+    let hash = Params::new().hash_length(64).hash(bytes);
 
     // Take first 32 bytes and interpret as field element
     let mut repr = [0u8; 32];
@@ -416,12 +392,13 @@ impl Halo2Prover {
             anyhow::bail!("Prover not initialized");
         }
 
-        let pk = self.proving_key.as_ref()
+        let pk = self
+            .proving_key
+            .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Proving key not generated. Call setup() first."))?;
 
         // Validate witness
-        witness.validate()
-            .context("Invalid witness data")?;
+        witness.validate().context("Invalid witness data")?;
 
         debug!("Witness validated, building circuit...");
 

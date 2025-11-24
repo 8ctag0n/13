@@ -2,9 +2,9 @@
 //!
 //! Implements Threshold and RangeCheck operations for zk-passport
 
-use tfhe::{FheUint8, FheBool};
-use tfhe::prelude::{FheTryEncrypt, FheOrd, FheTryTrivialEncrypt};
-use anyhow::{Result, Context};
+use anyhow::{Context, Result};
+use tfhe::prelude::{FheOrd, FheTryTrivialEncrypt};
+use tfhe::{FheBool, FheUint8};
 
 pub struct PassportCircuit;
 
@@ -40,14 +40,13 @@ impl PassportCircuit {
 
         // Perform comparison using FHE
         let result: FheBool = if greater_or_equal {
-            value_ct.ge(&threshold_ct)  // >=
+            value_ct.ge(&threshold_ct) // >=
         } else {
-            value_ct.lt(&threshold_ct)  // <
+            value_ct.lt(&threshold_ct) // <
         };
 
         // Serialize the boolean result
-        bincode::serialize(&result)
-            .context("Failed to serialize threshold result")
+        bincode::serialize(&result).context("Failed to serialize threshold result")
     }
 
     /// Verify encrypted value is within valid range [min, max]
@@ -66,11 +65,7 @@ impl PassportCircuit {
     /// let result = PassportCircuit::compute_range_check(&age, 18, 65)?;
     /// // decrypt(result) = true (18 <= 25 <= 65)
     /// ```
-    pub fn compute_range_check(
-        encrypted_value: &[u8],
-        min: u8,
-        max: u8,
-    ) -> Result<Vec<u8>> {
+    pub fn compute_range_check(encrypted_value: &[u8], min: u8, max: u8) -> Result<Vec<u8>> {
         if min > max {
             anyhow::bail!("Invalid range: min ({}) > max ({})", min, max);
         }
@@ -80,10 +75,8 @@ impl PassportCircuit {
             .context("Failed to deserialize encrypted value")?;
 
         // Create encrypted min and max
-        let min_ct = FheUint8::try_encrypt_trivial(min)
-            .context("Failed to encrypt min value")?;
-        let max_ct = FheUint8::try_encrypt_trivial(max)
-            .context("Failed to encrypt max value")?;
+        let min_ct = FheUint8::try_encrypt_trivial(min).context("Failed to encrypt min value")?;
+        let max_ct = FheUint8::try_encrypt_trivial(max).context("Failed to encrypt max value")?;
 
         // Check: value >= min AND value <= max
         let ge_min: FheBool = value_ct.ge(&min_ct);
@@ -92,16 +85,15 @@ impl PassportCircuit {
         // Combine with AND
         let in_range: FheBool = ge_min & le_max;
 
-        bincode::serialize(&in_range)
-            .context("Failed to serialize range check result")
+        bincode::serialize(&in_range).context("Failed to serialize range check result")
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tfhe::{ConfigBuilder, generate_keys, set_server_key, ClientKey, ServerKey};
     use tfhe::prelude::*;
+    use tfhe::{generate_keys, set_server_key, ClientKey, ConfigBuilder, ServerKey};
 
     fn generate_test_keys() -> (ClientKey, ServerKey) {
         let config = ConfigBuilder::default().build();
@@ -338,7 +330,10 @@ mod tests {
         // FHE comparison operations are inherently slow (50-60s with default parameters)
         // This is expected behavior for encrypted comparisons
         // In production: use hardware acceleration (GPU/FPGA) and optimized parameters
-        assert!(duration.as_secs() < 120, "Performance target: Threshold < 120s (FHE comparison baseline)");
+        assert!(
+            duration.as_secs() < 120,
+            "Performance target: Threshold < 120s (FHE comparison baseline)"
+        );
     }
 
     #[test]
@@ -373,13 +368,19 @@ mod tests {
         assert!(in_range);
 
         println!("\n=== PERFORMANCE RESULT ===");
-        println!("RangeCheck operation (2 comparisons + AND) took: {:?}", duration);
+        println!(
+            "RangeCheck operation (2 comparisons + AND) took: {:?}",
+            duration
+        );
         println!("NOTE: RangeCheck = 2 FHE comparisons + 1 AND gate (computationally expensive)");
         println!("Production optimizations: hardware acceleration, parameter tuning, caching");
 
         // RangeCheck does 2 comparisons + 1 AND, expect ~100-120s with default parameters
         // This is expected behavior for encrypted range verification
         // In production: use hardware acceleration (GPU/FPGA) and optimized parameters
-        assert!(duration.as_secs() < 180, "Performance target: RangeCheck < 180s (FHE double comparison baseline)");
+        assert!(
+            duration.as_secs() < 180,
+            "Performance target: RangeCheck < 180s (FHE double comparison baseline)"
+        );
     }
 }

@@ -6,7 +6,6 @@
 /// 3. Prover-side computation
 /// 4. Result hashing for consensus
 /// 5. Client-side decryption and verification
-
 use prover_node::{fhe_engine::FheEngine, generate_fhe_keys};
 use tfhe::{prelude::*, FheUint8};
 
@@ -21,11 +20,15 @@ fn test_fhe_engine_integration() {
     // Step 2: Client encrypts value
     println!("  2. Client encrypting value...");
     let plaintext_value = 100u8;
-    let encrypted = FheUint8::try_encrypt(plaintext_value, &client_key)
-        .expect("Failed to encrypt value");
+    let encrypted =
+        FheUint8::try_encrypt(plaintext_value, &client_key).expect("Failed to encrypt value");
     let encrypted_bytes = bincode::serialize(&encrypted).expect("Failed to serialize ciphertext");
 
-    println!("     Encrypted {} to {} bytes", plaintext_value, encrypted_bytes.len());
+    println!(
+        "     Encrypted {} to {} bytes",
+        plaintext_value,
+        encrypted_bytes.len()
+    );
 
     // Step 3: Prover computes on encrypted data
     println!("  3. Prover computing on encrypted data...");
@@ -75,7 +78,9 @@ fn test_fhe_multiply_operation() {
     // Compute
     let engine = FheEngine::new(server_key);
     let multiplier = 6u8;
-    let result_bytes = engine.compute_multiply(&encrypted_bytes, multiplier).unwrap();
+    let result_bytes = engine
+        .compute_multiply(&encrypted_bytes, multiplier)
+        .unwrap();
 
     // Decrypt
     let result: FheUint8 = bincode::deserialize(&result_bytes).unwrap();
@@ -156,7 +161,10 @@ fn test_fhe_consensus_hashing() {
     let result_bytes_2 = engine.compute_add(&encrypted_bytes, 20).unwrap();
     let hash3 = FheEngine::hash_result(&result_bytes_2);
 
-    assert_ne!(hash1, hash3, "Different results should produce different hashes");
+    assert_ne!(
+        hash1, hash3,
+        "Different results should produce different hashes"
+    );
 
     println!("FHE consensus hashing test PASSED!");
 }
@@ -206,14 +214,16 @@ fn test_fhe_performance_benchmark() {
     );
 
     println!("\nFHE performance benchmark PASSED!");
-    println!("  Total operation time: {:?}", encrypt_time + add_time + decrypt_time);
+    println!(
+        "  Total operation time: {:?}",
+        encrypt_time + add_time + decrypt_time
+    );
 }
 
 #[test]
 fn test_fhe_key_serialization_roundtrip() {
     use prover_node::fhe_engine::{
-        deserialize_client_key, deserialize_server_key, serialize_client_key,
-        serialize_server_key,
+        deserialize_client_key, deserialize_server_key, serialize_client_key, serialize_server_key,
     };
 
     println!("Testing FHE key serialization...");
@@ -225,8 +235,14 @@ fn test_fhe_key_serialization_roundtrip() {
     let client_bytes = serialize_client_key(&client_key).unwrap();
     let server_bytes = serialize_server_key(&server_key).unwrap();
 
-    println!("  Client key size: {:.2} MB", client_bytes.len() as f64 / 1_000_000.0);
-    println!("  Server key size: {:.2} MB", server_bytes.len() as f64 / 1_000_000.0);
+    println!(
+        "  Client key size: {:.2} MB",
+        client_bytes.len() as f64 / 1_000_000.0
+    );
+    println!(
+        "  Server key size: {:.2} MB",
+        server_bytes.len() as f64 / 1_000_000.0
+    );
 
     // Deserialize
     let client_key_restored = deserialize_client_key(&client_bytes).unwrap();

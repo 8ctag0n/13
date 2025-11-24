@@ -16,10 +16,7 @@ use crate::{
 
 /// Find consensus among FHE results
 /// Returns Some(hash) if consensus reached, None if failed
-fn find_consensus(
-    results: &[FheJobResult],
-    consensus_threshold: u8,
-) -> Option<[u8; 32]> {
+fn find_consensus(results: &[FheJobResult], consensus_threshold: u8) -> Option<[u8; 32]> {
     let mut hash_counts: HashMap<[u8; 32], usize> = HashMap::new();
 
     for result in results {
@@ -46,10 +43,7 @@ fn find_consensus(
 /// 7. [] clock_sysvar
 /// 8-N. [writable] prover_authority_accounts (dynamic, in same order as fhe_results)
 /// N+1-M. [writable] prover_pda_accounts (dynamic, in same order as fhe_results)
-pub fn process_finalize_fhe_job(
-    program_id: &Pubkey,
-    accounts: &[AccountInfo],
-) -> ProgramResult {
+pub fn process_finalize_fhe_job(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResult {
     let account_info_iter = &mut accounts.iter();
 
     // Fixed accounts
@@ -91,7 +85,8 @@ pub fn process_finalize_fhe_job(
         return Err(CypherLinkProgramError::NotFheJob.into());
     }
 
-    let config = job.fhe_config
+    let config = job
+        .fhe_config
         .as_ref()
         .ok_or(CypherLinkProgramError::MissingFheConfig)?;
 
@@ -119,15 +114,17 @@ pub fn process_finalize_fhe_job(
 
     // Validate: creator account matches job creator
     if creator_info.key != &job.creator {
-        msg!("Creator account mismatch: expected {}, got {}", job.creator, creator_info.key);
+        msg!(
+            "Creator account mismatch: expected {}, got {}",
+            job.creator,
+            creator_info.key
+        );
         return Err(CypherLinkProgramError::InvalidAccount.into());
     }
 
     // Validate: escrow PDA
-    let (escrow_pda, _) = Pubkey::find_program_address(
-        &[b"escrow", job_info.key.as_ref()],
-        program_id,
-    );
+    let (escrow_pda, _) =
+        Pubkey::find_program_address(&[b"escrow", job_info.key.as_ref()], program_id);
     if escrow_info.key != &escrow_pda {
         msg!("Invalid escrow account");
         return Err(CypherLinkProgramError::InvalidAccount.into());
@@ -170,12 +167,14 @@ pub fn process_finalize_fhe_job(
             job.completed_at = Some(current_time);
 
             // Identify matching and mismatching provers
-            let matching_results: Vec<_> = job.fhe_results
+            let matching_results: Vec<_> = job
+                .fhe_results
                 .iter()
                 .filter(|r| r.result_hash == consensus_hash)
                 .collect();
 
-            let mismatching_results: Vec<_> = job.fhe_results
+            let mismatching_results: Vec<_> = job
+                .fhe_results
                 .iter()
                 .filter(|r| r.result_hash != consensus_hash)
                 .collect();
@@ -247,7 +246,8 @@ pub fn process_finalize_fhe_job(
                 }
 
                 // Load prover account
-                let mut prover_account: ProverAccount = borsh::from_slice(&prover_pda_info.data.borrow())?;
+                let mut prover_account: ProverAccount =
+                    borsh::from_slice(&prover_pda_info.data.borrow())?;
 
                 // Check if this prover matched consensus
                 let is_matching = result.result_hash == consensus_hash;
@@ -266,7 +266,7 @@ pub fn process_finalize_fhe_job(
                     // Update reputation: +10 for honest work
                     prover_account.on_job_completed(
                         (current_time - result.submitted_at) as u32,
-                        payout_per_prover
+                        payout_per_prover,
                     );
 
                     msg!(
@@ -311,7 +311,11 @@ pub fn process_finalize_fhe_job(
                 .checked_add(refund_amount)
                 .ok_or(CypherLinkProgramError::Overflow)?;
 
-            msg!("Refunded {} lamports to creator {}", refund_amount, creator_info.key);
+            msg!(
+                "Refunded {} lamports to creator {}",
+                refund_amount,
+                creator_info.key
+            );
 
             // Penalize ALL provers (-50 reputation each)
             for (result_idx, result) in job.fhe_results.iter().enumerate() {
@@ -345,7 +349,8 @@ pub fn process_finalize_fhe_job(
                 }
 
                 // Load and penalize prover
-                let mut prover_account: ProverAccount = borsh::from_slice(&prover_pda_info.data.borrow())?;
+                let mut prover_account: ProverAccount =
+                    borsh::from_slice(&prover_pda_info.data.borrow())?;
                 prover_account.on_job_failed();
 
                 msg!(

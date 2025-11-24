@@ -2,11 +2,8 @@ mod common;
 
 use borsh::BorshDeserialize;
 use common::{initialize_marketplace, setup_program_test};
-use cypherlink::{
-    instruction::MarketplaceInstruction,
-    state::{JobAccount, MarketplaceConfig},
-};
-use cypherlink_types::{CircuitType, FheConsensusConfig, fhe::FheOperation};
+use cypherlink::{instruction::MarketplaceInstruction, state::JobAccount};
+use cypherlink_types::{fhe::FheOperation, CircuitType, FheConsensusConfig};
 use solana_program::pubkey::Pubkey;
 use solana_program_test::*;
 use solana_sdk::{signature::Signer, transaction::Transaction};
@@ -15,7 +12,7 @@ use solana_sdk::{signature::Signer, transaction::Transaction};
 #[tokio::test]
 async fn test_tier1_add_sufficient_price() {
     let program_id = Pubkey::new_unique();
-    let mut program_test = setup_program_test(program_id);
+    let program_test = setup_program_test(program_id);
 
     let (mut banks_client, payer, _recent_blockhash) = program_test.start().await;
 
@@ -34,13 +31,10 @@ async fn test_tier1_add_sufficient_price() {
     let job_creator = payer.pubkey();
     let job_id = 0u64;
     let job_id_bytes = job_id.to_le_bytes();
-    let (job_pda, _) = Pubkey::find_program_address(
-        &[b"job", job_creator.as_ref(), &job_id_bytes],
-        &program_id,
-    );
+    let (job_pda, _) =
+        Pubkey::find_program_address(&[b"job", job_creator.as_ref(), &job_id_bytes], &program_id);
 
-    let (escrow_pda, _) =
-        Pubkey::find_program_address(&[b"escrow", job_pda.as_ref()], &program_id);
+    let (escrow_pda, _) = Pubkey::find_program_address(&[b"escrow", job_pda.as_ref()], &program_id);
 
     // Tier 1 operation: Add
     // Min price: 0.001 SOL per prover × 3 provers = 0.003 SOL = 3_000_000 lamports
@@ -57,7 +51,7 @@ async fn test_tier1_add_sufficient_price() {
         witness_commitment: [1u8; 32],
         witness_size: 2048,
         price_lamports: 3_000_000, // Exactly minimum
-        timeout_seconds: 0, // Use dynamic timeout
+        timeout_seconds: 0,        // Use dynamic timeout
         fhe_config: Some(fhe_config),
     };
 
@@ -77,8 +71,7 @@ async fn test_tier1_add_sufficient_price() {
     };
 
     let recent_blockhash = banks_client.get_latest_blockhash().await.unwrap();
-    let mut create_job_tx =
-        Transaction::new_with_payer(&[create_job_ix], Some(&payer.pubkey()));
+    let mut create_job_tx = Transaction::new_with_payer(&[create_job_ix], Some(&payer.pubkey()));
     create_job_tx.sign(&[&payer], recent_blockhash);
 
     let result = banks_client.process_transaction(create_job_tx).await;
@@ -106,7 +99,7 @@ async fn test_tier1_add_sufficient_price() {
 #[tokio::test]
 async fn test_tier1_add_insufficient_price() {
     let program_id = Pubkey::new_unique();
-    let mut program_test = setup_program_test(program_id);
+    let program_test = setup_program_test(program_id);
 
     let (mut banks_client, payer, _recent_blockhash) = program_test.start().await;
 
@@ -125,13 +118,10 @@ async fn test_tier1_add_insufficient_price() {
     let job_creator = payer.pubkey();
     let job_id = 0u64;
     let job_id_bytes = job_id.to_le_bytes();
-    let (job_pda, _) = Pubkey::find_program_address(
-        &[b"job", job_creator.as_ref(), &job_id_bytes],
-        &program_id,
-    );
+    let (job_pda, _) =
+        Pubkey::find_program_address(&[b"job", job_creator.as_ref(), &job_id_bytes], &program_id);
 
-    let (escrow_pda, _) =
-        Pubkey::find_program_address(&[b"escrow", job_pda.as_ref()], &program_id);
+    let (escrow_pda, _) = Pubkey::find_program_address(&[b"escrow", job_pda.as_ref()], &program_id);
 
     // Tier 1 operation: Add
     let fhe_operation = FheOperation::Add(5);
@@ -167,8 +157,7 @@ async fn test_tier1_add_insufficient_price() {
     };
 
     let recent_blockhash = banks_client.get_latest_blockhash().await.unwrap();
-    let mut create_job_tx =
-        Transaction::new_with_payer(&[create_job_ix], Some(&payer.pubkey()));
+    let mut create_job_tx = Transaction::new_with_payer(&[create_job_ix], Some(&payer.pubkey()));
     create_job_tx.sign(&[&payer], recent_blockhash);
 
     let result = banks_client.process_transaction(create_job_tx).await;
@@ -186,7 +175,7 @@ async fn test_tier1_add_insufficient_price() {
 #[tokio::test]
 async fn test_tier3_threshold_higher_price() {
     let program_id = Pubkey::new_unique();
-    let mut program_test = setup_program_test(program_id);
+    let program_test = setup_program_test(program_id);
 
     let (mut banks_client, payer, _recent_blockhash) = program_test.start().await;
 
@@ -205,13 +194,10 @@ async fn test_tier3_threshold_higher_price() {
     let job_creator = payer.pubkey();
     let job_id = 0u64;
     let job_id_bytes = job_id.to_le_bytes();
-    let (job_pda, _) = Pubkey::find_program_address(
-        &[b"job", job_creator.as_ref(), &job_id_bytes],
-        &program_id,
-    );
+    let (job_pda, _) =
+        Pubkey::find_program_address(&[b"job", job_creator.as_ref(), &job_id_bytes], &program_id);
 
-    let (escrow_pda, _) =
-        Pubkey::find_program_address(&[b"escrow", job_pda.as_ref()], &program_id);
+    let (escrow_pda, _) = Pubkey::find_program_address(&[b"escrow", job_pda.as_ref()], &program_id);
 
     // Tier 3 operation: Threshold
     // Min price: 0.005 SOL per prover × 3 provers = 0.015 SOL = 15_000_000 lamports
@@ -251,8 +237,7 @@ async fn test_tier3_threshold_higher_price() {
     };
 
     let recent_blockhash = banks_client.get_latest_blockhash().await.unwrap();
-    let mut create_job_tx =
-        Transaction::new_with_payer(&[create_job_ix], Some(&payer.pubkey()));
+    let mut create_job_tx = Transaction::new_with_payer(&[create_job_ix], Some(&payer.pubkey()));
     create_job_tx.sign(&[&payer], recent_blockhash);
 
     let result = banks_client.process_transaction(create_job_tx).await;
@@ -277,7 +262,7 @@ async fn test_tier3_threshold_higher_price() {
 #[tokio::test]
 async fn test_pricing_scales_with_provers() {
     let program_id = Pubkey::new_unique();
-    let mut program_test = setup_program_test(program_id);
+    let program_test = setup_program_test(program_id);
 
     let (mut banks_client, payer, _recent_blockhash) = program_test.start().await;
 
@@ -296,13 +281,10 @@ async fn test_pricing_scales_with_provers() {
     let job_creator = payer.pubkey();
     let job_id = 0u64;
     let job_id_bytes = job_id.to_le_bytes();
-    let (job_pda, _) = Pubkey::find_program_address(
-        &[b"job", job_creator.as_ref(), &job_id_bytes],
-        &program_id,
-    );
+    let (job_pda, _) =
+        Pubkey::find_program_address(&[b"job", job_creator.as_ref(), &job_id_bytes], &program_id);
 
-    let (escrow_pda, _) =
-        Pubkey::find_program_address(&[b"escrow", job_pda.as_ref()], &program_id);
+    let (escrow_pda, _) = Pubkey::find_program_address(&[b"escrow", job_pda.as_ref()], &program_id);
 
     // Same operation but with 5 provers instead of 3
     // Should require 5_000_000 lamports instead of 3_000_000
@@ -339,8 +321,7 @@ async fn test_pricing_scales_with_provers() {
     };
 
     let recent_blockhash = banks_client.get_latest_blockhash().await.unwrap();
-    let mut create_job_tx =
-        Transaction::new_with_payer(&[create_job_ix], Some(&payer.pubkey()));
+    let mut create_job_tx = Transaction::new_with_payer(&[create_job_ix], Some(&payer.pubkey()));
     create_job_tx.sign(&[&payer], recent_blockhash);
 
     let result = banks_client.process_transaction(create_job_tx).await;

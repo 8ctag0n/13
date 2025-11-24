@@ -1,11 +1,11 @@
 use anyhow::{Context, Result};
 use base64::Engine;
 use clap::Parser;
-use tfhe::prelude::*;
-use tfhe::{generate_keys, ConfigBuilder, FheUint8};
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::PathBuf;
+use tfhe::prelude::*;
+use tfhe::{generate_keys, ConfigBuilder, FheUint8};
 
 /// Generate TFHE test keys for E2E testing and CI/CD
 #[derive(Parser, Debug)]
@@ -38,8 +38,7 @@ fn main() -> Result<()> {
     println!();
 
     // Create output directory
-    fs::create_dir_all(&args.output_dir)
-        .context("Failed to create output directory")?;
+    fs::create_dir_all(&args.output_dir).context("Failed to create output directory")?;
 
     println!("Generating TFHE keys...");
     println!("⚠️  This may take 3-7 minutes depending on your CPU");
@@ -53,35 +52,37 @@ fn main() -> Result<()> {
     println!();
 
     // Serialize server key
-    let server_key_bytes = bincode::serialize(&server_key)
-        .context("Failed to serialize server key")?;
+    let server_key_bytes =
+        bincode::serialize(&server_key).context("Failed to serialize server key")?;
 
-    println!("Server key size: {} bytes ({:.2} MB)",
-             server_key_bytes.len(),
-             server_key_bytes.len() as f64 / 1024.0 / 1024.0);
+    println!(
+        "Server key size: {} bytes ({:.2} MB)",
+        server_key_bytes.len(),
+        server_key_bytes.len() as f64 / 1024.0 / 1024.0
+    );
 
     // Encode to base64
     let server_key_b64 = base64::engine::general_purpose::STANDARD.encode(&server_key_bytes);
 
     // Save server key
     let server_key_path = args.output_dir.join("server_key.b64");
-    let mut server_key_file = File::create(&server_key_path)
-        .context("Failed to create server_key.b64")?;
-    server_key_file.write_all(server_key_b64.as_bytes())
+    let mut server_key_file =
+        File::create(&server_key_path).context("Failed to create server_key.b64")?;
+    server_key_file
+        .write_all(server_key_b64.as_bytes())
         .context("Failed to write server key")?;
 
     println!("✅ Server key saved: {:?}", server_key_path);
 
     // Also save binary version for faster loading in tests
     let server_key_bin_path = args.output_dir.join("server_key.bin");
-    fs::write(&server_key_bin_path, &server_key_bytes)
-        .context("Failed to write server_key.bin")?;
+    fs::write(&server_key_bin_path, &server_key_bytes).context("Failed to write server_key.bin")?;
     println!("✅ Server key (binary) saved: {:?}", server_key_bin_path);
 
     // Generate encrypted test data
     let encrypted_value = FheUint8::encrypt(args.test_value, &client_key);
-    let encrypted_bytes = bincode::serialize(&encrypted_value)
-        .context("Failed to serialize encrypted data")?;
+    let encrypted_bytes =
+        bincode::serialize(&encrypted_value).context("Failed to serialize encrypted data")?;
     let encrypted_b64 = base64::engine::general_purpose::STANDARD.encode(&encrypted_bytes);
 
     println!();
@@ -89,9 +90,10 @@ fn main() -> Result<()> {
 
     // Save encrypted data
     let encrypted_path = args.output_dir.join("encrypted_data.b64");
-    let mut encrypted_file = File::create(&encrypted_path)
-        .context("Failed to create encrypted_data.b64")?;
-    encrypted_file.write_all(encrypted_b64.as_bytes())
+    let mut encrypted_file =
+        File::create(&encrypted_path).context("Failed to create encrypted_data.b64")?;
+    encrypted_file
+        .write_all(encrypted_b64.as_bytes())
         .context("Failed to write encrypted data")?;
 
     println!("✅ Encrypted data saved: {:?}", encrypted_path);
@@ -125,8 +127,7 @@ fn main() -> Result<()> {
     );
 
     let readme_path = args.output_dir.join("README.md");
-    fs::write(&readme_path, metadata)
-        .context("Failed to write README.md")?;
+    fs::write(&readme_path, metadata).context("Failed to write README.md")?;
     println!("✅ Metadata saved: {:?}", readme_path);
 
     println!();

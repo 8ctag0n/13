@@ -65,10 +65,8 @@ pub async fn register_prover(
     stake_amount: u64,
 ) -> Result<Pubkey, Box<dyn std::error::Error>> {
     let prover_authority = prover_keypair.pubkey();
-    let (prover_pda, _) = Pubkey::find_program_address(
-        &[b"prover", prover_authority.as_ref()],
-        program_id,
-    );
+    let (prover_pda, _) =
+        Pubkey::find_program_address(&[b"prover", prover_authority.as_ref()], program_id);
 
     // Fund the prover
     let fund_instruction = solana_program::system_instruction::transfer(

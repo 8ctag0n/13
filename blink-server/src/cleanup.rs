@@ -46,7 +46,8 @@ impl CleanupService {
 
     /// Delete expired jobs from database
     async fn cleanup_expired_jobs(&self) -> Result<(), sqlx::Error> {
-        let count = JobQueries::delete_expired_jobs(&self.pool).await
+        let count = JobQueries::delete_expired_jobs(&self.pool)
+            .await
             .map_err(|e| sqlx::Error::Protocol(format!("Cleanup failed: {}", e)))?;
 
         if count > 0 {
@@ -60,7 +61,8 @@ impl CleanupService {
     async fn cleanup_old_nonces(&self) -> Result<(), sqlx::Error> {
         const ONE_DAY_SECS: i64 = 86400;
 
-        let count = NonceQueries::delete_old_nonces(&self.pool, ONE_DAY_SECS).await
+        let count = NonceQueries::delete_old_nonces(&self.pool, ONE_DAY_SECS)
+            .await
             .map_err(|e| sqlx::Error::Protocol(format!("Cleanup failed: {}", e)))?;
 
         if count > 0 {
@@ -83,7 +85,6 @@ pub fn spawn_cleanup_task(pool: PgPool, interval_secs: u64) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
 
     #[test]
     fn test_cleanup_service_creation() {

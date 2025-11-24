@@ -10,7 +10,8 @@ use std::env;
 /// Initialize the CypherLink program
 fn main() -> Result<()> {
     // Get configuration
-    let rpc_url = env::var("SOLANA_RPC_URL").unwrap_or_else(|_| "http://localhost:8899".to_string());
+    let rpc_url =
+        env::var("SOLANA_RPC_URL").unwrap_or_else(|_| "http://localhost:8899".to_string());
     let program_id_str = env::var("PROGRAM_ID")
         .or_else(|_| std::fs::read_to_string("../logs/zyberlink_program_id.txt"))
         .or_else(|_| std::fs::read_to_string("/tmp/zyberlink_program_id.txt"))
@@ -20,7 +21,7 @@ fn main() -> Result<()> {
     let keypair_path = env::var("KEYPAIR_PATH")
         .unwrap_or_else(|_| format!("{}/.config/solana/id.json", env::var("HOME").unwrap()));
 
-    println!("🔧 Initializing CypherLink Program");
+    println!(" Initializing CypherLink Program");
     println!("  RPC URL: {}", rpc_url);
     println!("  Program ID: {}", program_id);
     println!();
@@ -31,19 +32,16 @@ fn main() -> Result<()> {
     println!("  Authority: {}", keypair.pubkey());
 
     // Create client
-    let client = MarketplaceClient::new_with_commitment(
-        rpc_url,
-        program_id,
-        CommitmentConfig::confirmed(),
-    );
+    let client =
+        MarketplaceClient::new_with_commitment(rpc_url, program_id, CommitmentConfig::confirmed());
 
     // Create initialize instruction
     let ix = client.initialize_instruction(
         &keypair.pubkey(),
-        250,        // 2.5% fee
+        250,         // 2.5% fee
         100_000_000, // 0.1 SOL min stake
-        0,          // 0 min reputation
-        3600,       // 1 hour default timeout
+        0,           // 0 min reputation
+        3600,        // 1 hour default timeout
     )?;
 
     // Get recent blockhash
@@ -57,10 +55,12 @@ fn main() -> Result<()> {
         recent_blockhash,
     );
 
-    println!("📤 Sending initialization transaction...");
+    println!(" Sending initialization transaction...");
 
     // Send transaction
-    let signature = client.rpc_client.send_and_confirm_transaction_with_spinner(&tx)?;
+    let signature = client
+        .rpc_client
+        .send_and_confirm_transaction_with_spinner(&tx)?;
 
     println!("✅ Program initialized successfully!");
     println!("  Signature: {}", signature);

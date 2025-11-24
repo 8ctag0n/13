@@ -1,7 +1,6 @@
 /// FHE CLI utilities for ZyberLink
 ///
 /// Provides encryption/decryption tools for user-side FHE operations.
-
 use anyhow::{Context, Result};
 use base64::Engine;
 use std::fs;
@@ -14,8 +13,7 @@ pub fn get_keys_directory() -> Result<PathBuf> {
     let keys_dir = home.join(".zyberlink").join("client_keys");
 
     // Create directory if it doesn't exist
-    fs::create_dir_all(&keys_dir)
-        .context("Failed to create keys directory")?;
+    fs::create_dir_all(&keys_dir).context("Failed to create keys directory")?;
 
     Ok(keys_dir)
 }
@@ -87,15 +85,13 @@ pub fn deserialize_encrypted_base64(base64_str: &str) -> Result<Vec<u8>> {
 /// Save client key to file
 pub fn save_client_key(client_key: &ClientKey, filepath: &PathBuf) -> Result<()> {
     let base64_key = serialize_client_key_base64(client_key)?;
-    fs::write(filepath, base64_key)
-        .context("Failed to write client key to file")?;
+    fs::write(filepath, base64_key).context("Failed to write client key to file")?;
     Ok(())
 }
 
 /// Load client key from file
 pub fn load_client_key(filepath: &PathBuf) -> Result<ClientKey> {
-    let base64_key = fs::read_to_string(filepath)
-        .context("Failed to read client key file")?;
+    let base64_key = fs::read_to_string(filepath).context("Failed to read client key file")?;
     deserialize_client_key_base64(base64_key.trim())
 }
 

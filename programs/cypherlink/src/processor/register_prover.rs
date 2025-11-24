@@ -36,10 +36,8 @@ pub fn process_register_prover(
     }
 
     // Derive and verify prover PDA
-    let (prover_pda, bump) = Pubkey::find_program_address(
-        &[b"prover", prover_authority_info.key.as_ref()],
-        program_id,
-    );
+    let (prover_pda, bump) =
+        Pubkey::find_program_address(&[b"prover", prover_authority_info.key.as_ref()], program_id);
 
     if prover_info.key != &prover_pda {
         msg!("Invalid prover account");
@@ -101,11 +99,7 @@ pub fn process_register_prover(
     // Transfer stake from prover to prover account
     msg!("Transferring stake: {} lamports", stake_amount);
     solana_program::program::invoke(
-        &system_instruction::transfer(
-            prover_authority_info.key,
-            prover_info.key,
-            stake_amount,
-        ),
+        &system_instruction::transfer(prover_authority_info.key, prover_info.key, stake_amount),
         &[
             prover_authority_info.clone(),
             prover_info.clone(),

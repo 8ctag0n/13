@@ -1,15 +1,13 @@
-pub mod state;
 pub mod error;
 pub mod instruction;
 pub mod processor;
+pub mod state;
 
-pub use state::*;
 pub use error::*;
 pub use instruction::*;
+pub use state::*;
 
-use solana_program::{
-    account_info::AccountInfo, entrypoint, pubkey::Pubkey,
-};
+use solana_program::{account_info::AccountInfo, entrypoint, pubkey::Pubkey};
 
 entrypoint!(process_instruction);
 

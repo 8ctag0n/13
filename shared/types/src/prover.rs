@@ -71,8 +71,9 @@ impl Prover {
             self.avg_completion_time_secs = completion_time_secs;
         } else {
             // Weighted average: 80% old average, 20% new sample
-            self.avg_completion_time_secs =
-                ((self.avg_completion_time_secs as u64 * 4 + completion_time_secs as u64) / 5) as u32;
+            self.avg_completion_time_secs = ((self.avg_completion_time_secs as u64 * 4
+                + completion_time_secs as u64)
+                / 5) as u32;
         }
     }
 

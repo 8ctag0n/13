@@ -8,13 +8,12 @@ use ratatui::{
     backend::{Backend, CrosstermBackend},
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
-    text::{Line, Span, Text},
-    widgets::{Block, Borders, Gauge, List, ListItem, Paragraph, Wrap},
+    text::{Line, Span},
+    widgets::{Block, Borders, List, ListItem, Paragraph},
     Frame, Terminal,
 };
 use std::{
-    env,
-    io,
+    env, io,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
@@ -104,7 +103,7 @@ impl TUIState {
         F: FnOnce(&mut ProverStats),
     {
         if let Ok(mut stats) = self.stats.lock() {
-            updater(&mut *stats);
+            updater(&mut stats);
         }
     }
 
@@ -184,10 +183,10 @@ impl TUIApp {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(3),  // Header
-                Constraint::Length(9),  // Stats panel
-                Constraint::Min(0),     // Job list
-                Constraint::Length(3),  // Footer
+                Constraint::Length(3), // Header
+                Constraint::Length(9), // Stats panel
+                Constraint::Min(0),    // Job list
+                Constraint::Length(3), // Footer
             ])
             .split(size);
 
@@ -214,7 +213,11 @@ impl TUIApp {
                     .add_modifier(Modifier::BOLD),
             )
             .alignment(Alignment::Center)
-            .block(Block::default().borders(Borders::ALL).style(Style::default().fg(Color::White)));
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .style(Style::default().fg(Color::White)),
+            );
 
         f.render_widget(title, area);
     }
@@ -240,9 +243,17 @@ impl TUIApp {
             .split(area);
 
         // Status line
-        let status_state = if stats.jobs_claimed > 0 { "active" } else { "idle" };
+        let status_state = if stats.jobs_claimed > 0 {
+            "active"
+        } else {
+            "idle"
+        };
         let status_icon = get_status_icon(status_state, self.use_emoji);
-        let status_text = if stats.jobs_claimed > 0 { "ACTIVE" } else { "IDLE" };
+        let status_text = if stats.jobs_claimed > 0 {
+            "ACTIVE"
+        } else {
+            "IDLE"
+        };
         let status_line = format!(
             " Status: {} {} | RPC: {}ms | Block: {} | Uptime: {}",
             status_icon,
@@ -263,31 +274,29 @@ impl TUIApp {
         f.render_widget(status, stat_chunks[0]);
 
         // Jobs line
-        let jobs_text = vec![
-            Line::from(vec![
-                Span::raw(" Jobs:  "),
-                Span::styled(
-                    format!("{} ", stats.jobs_pending),
-                    Style::default().fg(Color::Yellow),
-                ),
-                Span::raw("pending | "),
-                Span::styled(
-                    format!("{} ", stats.jobs_claimed),
-                    Style::default().fg(Color::Cyan),
-                ),
-                Span::raw("claimed | "),
-                Span::styled(
-                    format!("{} ", stats.jobs_completed),
-                    Style::default().fg(Color::Green),
-                ),
-                Span::raw("done | "),
-                Span::styled(
-                    format!("{} ", stats.jobs_failed),
-                    Style::default().fg(Color::Red),
-                ),
-                Span::raw("failed"),
-            ]),
-        ];
+        let jobs_text = vec![Line::from(vec![
+            Span::raw(" Jobs:  "),
+            Span::styled(
+                format!("{} ", stats.jobs_pending),
+                Style::default().fg(Color::Yellow),
+            ),
+            Span::raw("pending | "),
+            Span::styled(
+                format!("{} ", stats.jobs_claimed),
+                Style::default().fg(Color::Cyan),
+            ),
+            Span::raw("claimed | "),
+            Span::styled(
+                format!("{} ", stats.jobs_completed),
+                Style::default().fg(Color::Green),
+            ),
+            Span::raw("done | "),
+            Span::styled(
+                format!("{} ", stats.jobs_failed),
+                Style::default().fg(Color::Red),
+            ),
+            Span::raw("failed"),
+        ])];
 
         let jobs = Paragraph::new(jobs_text).block(
             Block::default()
@@ -299,27 +308,25 @@ impl TUIApp {
 
         // Performance line
         let earnings_sol = stats.total_earnings_lamports as f64 / 1_000_000_000.0;
-        let perf_text = vec![
-            Line::from(vec![
-                Span::raw(" Earnings: "),
-                Span::styled(
-                    format!("{:.4} SOL", earnings_sol),
-                    Style::default()
-                        .fg(Color::Green)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::raw(" | Reputation: "),
-                Span::styled(
-                    format!("{}/1000", stats.reputation_score),
-                    Style::default().fg(Color::Cyan),
-                ),
-                Span::raw(" | Avg Time: "),
-                Span::styled(
-                    format!("{:.1}s", stats.avg_proof_time_secs),
-                    Style::default().fg(Color::Magenta),
-                ),
-            ]),
-        ];
+        let perf_text = vec![Line::from(vec![
+            Span::raw(" Earnings: "),
+            Span::styled(
+                format!("{:.4} SOL", earnings_sol),
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" | Reputation: "),
+            Span::styled(
+                format!("{}/1000", stats.reputation_score),
+                Style::default().fg(Color::Cyan),
+            ),
+            Span::raw(" | Avg Time: "),
+            Span::styled(
+                format!("{:.1}s", stats.avg_proof_time_secs),
+                Style::default().fg(Color::Magenta),
+            ),
+        ])];
 
         let perf = Paragraph::new(perf_text).block(
             Block::default()
@@ -377,7 +384,11 @@ impl TUIApp {
         let footer = Paragraph::new(" Press 'q' or ESC to quit ")
             .style(Style::default().fg(Color::DarkGray))
             .alignment(Alignment::Center)
-            .block(Block::default().borders(Borders::ALL).style(Style::default().fg(Color::White)));
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .style(Style::default().fg(Color::White)),
+            );
 
         f.render_widget(footer, area);
     }
@@ -432,9 +443,7 @@ pub fn setup_terminal() -> Result<Terminal<CrosstermBackend<io::Stdout>>> {
 }
 
 /// Restore terminal to normal mode
-pub fn restore_terminal(
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-) -> Result<()> {
+pub fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
     disable_raw_mode()?;
     execute!(
         terminal.backend_mut(),

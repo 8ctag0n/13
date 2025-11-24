@@ -3,7 +3,6 @@
 /// This example demonstrates how to use the SDK with wallet integration.
 /// Instructions are built WITHOUT signing, allowing wallets (Phantom, Solflare, etc.)
 /// to handle the signing process.
-
 use cypherlink_sdk::MarketplaceClient;
 use cypherlink_types::{CircuitType, FheOperation};
 use solana_sdk::pubkey::Pubkey;
@@ -44,7 +43,10 @@ fn main() -> anyhow::Result<()> {
 
     println!("✅ Transaction ready for wallet:");
     println!("   Fee payer: {}", transaction.message.account_keys[0]);
-    println!("   Instructions: {}", transaction.message.instructions.len());
+    println!(
+        "   Instructions: {}",
+        transaction.message.instructions.len()
+    );
     println!("   Signers required: {}", transaction.signatures.len());
     println!("   Status: UNSIGNED - ready for wallet\n");
 

@@ -62,15 +62,16 @@ impl ProverConfiguration {
 
         // Ensure directory exists
         if let Some(parent) = path.parent() {
-            tokio::fs::create_dir_all(parent).await
+            tokio::fs::create_dir_all(parent)
+                .await
                 .context("Failed to create config directory")?;
         }
 
         // Write config
-        let json = serde_json::to_string_pretty(self)
-            .context("Failed to serialize config")?;
+        let json = serde_json::to_string_pretty(self).context("Failed to serialize config")?;
 
-        tokio::fs::write(&path, json).await
+        tokio::fs::write(&path, json)
+            .await
             .context("Failed to write config file")?;
 
         Ok(path)
@@ -80,19 +81,17 @@ impl ProverConfiguration {
     pub async fn load() -> Result<Self> {
         let path = Self::default_path()?;
 
-        let json = tokio::fs::read_to_string(&path).await
+        let json = tokio::fs::read_to_string(&path)
+            .await
             .context("Failed to read config file")?;
 
-        let config: Self = serde_json::from_str(&json)
-            .context("Failed to parse config file")?;
+        let config: Self = serde_json::from_str(&json).context("Failed to parse config file")?;
 
         Ok(config)
     }
 
     /// Check if configuration exists
     pub fn exists() -> bool {
-        Self::default_path()
-            .map(|p| p.exists())
-            .unwrap_or(false)
+        Self::default_path().map(|p| p.exists()).unwrap_or(false)
     }
 }

@@ -27,7 +27,10 @@ pub fn print_banner() {
 
 /// Print welcome message
 pub fn print_welcome_message() {
-    println!("\n{}", style("Welcome to Zyberlink Prover Node Setup!").bold());
+    println!(
+        "\n{}",
+        style("Welcome to Zyberlink Prover Node Setup!").bold()
+    );
     println!("\nThis wizard will guide you through:");
     println!("  {} System requirements validation", style("✓").green());
     println!("  {} Solana keypair configuration", style("✓").green());
@@ -39,7 +42,12 @@ pub fn print_welcome_message() {
 
 /// Print step header
 pub fn print_step_header(current: usize, total: usize, title: &str) {
-    println!("\n{}", style(format!("[{}/{}] {}", current, total, title)).bold().cyan());
+    println!(
+        "\n{}",
+        style(format!("[{}/{}] {}", current, total, title))
+            .bold()
+            .cyan()
+    );
     println!("{}", style("━".repeat(60)).cyan());
 }
 
@@ -158,7 +166,11 @@ where
 /// Print validation check result
 pub fn print_check_result(name: &str, passed: bool, details: Option<&str>) {
     let icon = if passed { "✓" } else { "✗" };
-    let color = if passed { style(icon).green() } else { style(icon).red() };
+    let color = if passed {
+        style(icon).green()
+    } else {
+        style(icon).red()
+    };
 
     if let Some(det) = details {
         println!("{} {} {}", color, name, style(det).dim());
@@ -203,18 +215,25 @@ impl Spinner {
     }
 
     pub fn success(self, msg: &str) {
-        self.pb.finish_with_message(format!("{} {}", style("✓").green(), msg));
+        self.pb
+            .finish_with_message(format!("{} {}", style("✓").green(), msg));
     }
 
     pub fn error(self, msg: &str) {
-        self.pb.finish_with_message(format!("{} {}", style("✗").red(), msg));
+        self.pb
+            .finish_with_message(format!("{} {}", style("✗").red(), msg));
     }
 }
 
 /// Print final completion screen
 pub fn print_completion_screen(config_path: &str, prover_pubkey: &str) {
     println!("\n{}", style("━".repeat(60)).green());
-    println!("{}", style("🎉 Setup Complete! Your prover is ready!").green().bold());
+    println!(
+        "{}",
+        style("🎉 Setup Complete! Your prover is ready!")
+            .green()
+            .bold()
+    );
     println!("{}", style("━".repeat(60)).green());
 
     println!("\n{}", style("Configuration saved to:").bold());
@@ -224,10 +243,19 @@ pub fn print_completion_screen(config_path: &str, prover_pubkey: &str) {
     println!("  {}", style(prover_pubkey).cyan());
 
     println!("\n{}", style("Next steps:").bold());
-    println!("  1. Start your prover:  {}", style("zyberlink-prover run").green());
-    println!("  2. Monitor with TUI:   {}", style("zyberlink-prover run --tui-mode").green());
+    println!(
+        "  1. Start your prover:  {}",
+        style("zyberlink-prover run").green()
+    );
+    println!(
+        "  2. Monitor with TUI:   {}",
+        style("zyberlink-prover run --tui-mode").green()
+    );
 
-    println!("\n{}", style("Need help? Visit https://docs.zyberlink.io").dim());
+    println!(
+        "\n{}",
+        style("Need help? Visit https://docs.zyberlink.io").dim()
+    );
     println!();
 }
 
@@ -262,19 +290,14 @@ pub fn print_solana_pay_qr(url: &str) -> anyhow::Result<()> {
 }
 
 /// Generate Solana Action/Blink URL for funding request
-pub fn generate_blink_url(
-    recipient: &str,
-    amount_lamports: u64,
-) -> String {
+pub fn generate_blink_url(recipient: &str, amount_lamports: u64) -> String {
     let amount_sol = amount_lamports as f64 / 1_000_000_000.0;
     let blink_server = std::env::var("BLINK_SERVER_URL")
         .unwrap_or_else(|_| "https://blink.zyberlink.io".to_string());
 
     let action_url = format!(
         "{}/api/actions/fund-prover?pubkey={}&amount={}",
-        blink_server,
-        recipient,
-        amount_sol
+        blink_server, recipient, amount_sol
     );
 
     // Encode action URL for dial.to
@@ -298,10 +321,19 @@ pub fn print_funding_instructions(
     println!("\n{}", style("Option 1: Scan QR Code").bold());
     println!("  Use any Solana wallet app to scan the QR code above");
 
-    println!("\n{}", style("Option 2: Use Solana Blink (Recommended)").bold());
+    println!(
+        "\n{}",
+        style("Option 2: Use Solana Blink (Recommended)").bold()
+    );
     println!("  {}", style(blink_url).cyan());
-    println!("  {}", style("  → Works in any browser with wallet extension").dim());
-    println!("  {}", style("  → Shareable on Twitter, Discord, etc.").dim());
+    println!(
+        "  {}",
+        style("  → Works in any browser with wallet extension").dim()
+    );
+    println!(
+        "  {}",
+        style("  → Shareable on Twitter, Discord, etc.").dim()
+    );
 
     println!("\n{}", style("Option 3: Solana Pay Link").bold());
     println!("  {}", style(solana_pay_url).cyan());
@@ -309,7 +341,10 @@ pub fn print_funding_instructions(
 
     println!("\n{}", style("Option 4: Manual Transfer").bold());
     println!("  Recipient: {}", style(recipient).cyan());
-    println!("  Amount:    {} SOL", style(format!("{:.4}", amount_sol)).green().bold());
+    println!(
+        "  Amount:    {} SOL",
+        style(format!("{:.4}", amount_sol)).green().bold()
+    );
 
     println!("\n{}", style("━".repeat(60)).cyan());
     println!();

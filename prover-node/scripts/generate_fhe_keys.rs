@@ -8,7 +8,6 @@
 /// Output:
 ///   - fhe_client_key.bin (keep private - for clients only)
 ///   - fhe_server_key.bin (public - for provers)
-
 use anyhow::{Context, Result};
 use clap::Parser;
 use std::fs;
@@ -56,10 +55,8 @@ fn main() -> Result<()> {
     let server_bytes =
         fhe_engine::serialize_server_key(&server_key).context("Failed to serialize server key")?;
 
-    fs::write(&client_key_path, &client_bytes)
-        .context("Failed to write client key file")?;
-    fs::write(&server_key_path, &server_bytes)
-        .context("Failed to write server key file")?;
+    fs::write(&client_key_path, &client_bytes).context("Failed to write client key file")?;
+    fs::write(&server_key_path, &server_bytes).context("Failed to write server key file")?;
 
     println!("\nKeys saved:");
     println!(
@@ -83,13 +80,17 @@ fn main() -> Result<()> {
         let encrypted = FheUint8::try_encrypt(test_value, &client_key)
             .context("Failed to encrypt test value")?;
 
-        let encrypted_bytes = bincode::serialize(&encrypted)
-            .context("Failed to serialize encrypted test value")?;
+        let encrypted_bytes =
+            bincode::serialize(&encrypted).context("Failed to serialize encrypted test value")?;
 
         let test_file = args.output_dir.join("test_encrypted_value.bin");
         fs::write(&test_file, &encrypted_bytes).context("Failed to write test encrypted value")?;
 
-        println!("  Test encrypted value: {} ({} bytes)", test_file.display(), encrypted_bytes.len());
+        println!(
+            "  Test encrypted value: {} ({} bytes)",
+            test_file.display(),
+            encrypted_bytes.len()
+        );
         println!("  Plaintext value: {}", test_value);
 
         // Also save metadata
@@ -115,7 +116,10 @@ fn main() -> Result<()> {
     println!("\nNext steps:");
     println!("1. Keep fhe_client_key.bin private (clients use this to encrypt/decrypt)");
     println!("2. Distribute fhe_server_key.bin to prover nodes");
-    println!("3. Configure prover with: --fhe-server-key-path {}", server_key_path.display());
+    println!(
+        "3. Configure prover with: --fhe-server-key-path {}",
+        server_key_path.display()
+    );
     println!("\nExample prover command:");
     println!("  cypherlink-prover \\");
     println!("    --program-id <PROGRAM_ID> \\");

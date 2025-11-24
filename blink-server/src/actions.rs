@@ -84,13 +84,16 @@ pub async fn get_fund_prover_action(query: web::Query<FundProverQuery>) -> impl 
     log::info!("GET /api/actions/fund-prover - query: {:?}", query);
 
     // Build action links
-    let base_url = std::env::var("BASE_URL")
-        .unwrap_or_else(|_| "http://localhost:8080".to_string());
+    let base_url =
+        std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
 
     let mut actions = vec![
         LinkedAction {
             label: "Stake 0.1 SOL".to_string(),
-            href: format!("{}/api/actions/fund-prover?amount=0.1&pubkey={{pubkey}}", base_url),
+            href: format!(
+                "{}/api/actions/fund-prover?amount=0.1&pubkey={{pubkey}}",
+                base_url
+            ),
             parameters: Some(vec![ActionParameter {
                 name: "pubkey".to_string(),
                 label: "Prover Public Key".to_string(),
@@ -100,7 +103,10 @@ pub async fn get_fund_prover_action(query: web::Query<FundProverQuery>) -> impl 
         },
         LinkedAction {
             label: "Stake 0.5 SOL".to_string(),
-            href: format!("{}/api/actions/fund-prover?amount=0.5&pubkey={{pubkey}}", base_url),
+            href: format!(
+                "{}/api/actions/fund-prover?amount=0.5&pubkey={{pubkey}}",
+                base_url
+            ),
             parameters: Some(vec![ActionParameter {
                 name: "pubkey".to_string(),
                 label: "Prover Public Key".to_string(),
@@ -110,7 +116,10 @@ pub async fn get_fund_prover_action(query: web::Query<FundProverQuery>) -> impl 
         },
         LinkedAction {
             label: "Stake 1 SOL".to_string(),
-            href: format!("{}/api/actions/fund-prover?amount=1&pubkey={{pubkey}}", base_url),
+            href: format!(
+                "{}/api/actions/fund-prover?amount=1&pubkey={{pubkey}}",
+                base_url
+            ),
             parameters: Some(vec![ActionParameter {
                 name: "pubkey".to_string(),
                 label: "Prover Public Key".to_string(),
@@ -123,7 +132,10 @@ pub async fn get_fund_prover_action(query: web::Query<FundProverQuery>) -> impl 
     // Add custom amount option
     actions.push(LinkedAction {
         label: "Custom Amount".to_string(),
-        href: format!("{}/api/actions/fund-prover?amount={{amount}}&pubkey={{pubkey}}", base_url),
+        href: format!(
+            "{}/api/actions/fund-prover?amount={{amount}}&pubkey={{pubkey}}",
+            base_url
+        ),
         parameters: Some(vec![
             ActionParameter {
                 name: "amount".to_string(),
@@ -218,19 +230,16 @@ pub async fn post_fund_prover_action(
     };
 
     // Build transaction
-    let transaction = match tx_builder::build_transfer_transaction(
-        &sender_pubkey,
-        &recipient_pubkey,
-        lamports,
-    ) {
-        Ok(tx) => tx,
-        Err(e) => {
-            log::error!("Failed to build transaction: {}", e);
-            return HttpResponse::InternalServerError().json(serde_json::json!({
-                "error": "Failed to build transaction"
-            }));
-        }
-    };
+    let transaction =
+        match tx_builder::build_transfer_transaction(&sender_pubkey, &recipient_pubkey, lamports) {
+            Ok(tx) => tx,
+            Err(e) => {
+                log::error!("Failed to build transaction: {}", e);
+                return HttpResponse::InternalServerError().json(serde_json::json!({
+                    "error": "Failed to build transaction"
+                }));
+            }
+        };
 
     // Serialize transaction
     let encoded_tx = match tx_builder::serialize_transaction(&transaction) {

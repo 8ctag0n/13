@@ -83,10 +83,7 @@ pub async fn step_keypair_setup() -> Result<(Keypair, PathBuf)> {
 
     let choice = ui::select(
         "Do you have an existing Solana keypair?",
-        &[
-            "Use existing keypair",
-            "Generate new keypair",
-        ],
+        &["Use existing keypair", "Generate new keypair"],
     )?;
 
     let (keypair, path) = match choice {
@@ -121,8 +118,12 @@ async fn load_existing_keypair() -> Result<(Keypair, PathBuf)> {
     let expanded = shellexpand::tilde(&path_str);
     let path = PathBuf::from(expanded.as_ref());
 
-    let keypair = read_keypair_file(&path)
-        .map_err(|e| anyhow::anyhow!("Failed to read keypair file: {}\n\nMake sure the file is a valid Solana keypair JSON.", e))?;
+    let keypair = read_keypair_file(&path).map_err(|e| {
+        anyhow::anyhow!(
+            "Failed to read keypair file: {}\n\nMake sure the file is a valid Solana keypair JSON.",
+            e
+        )
+    })?;
 
     Ok((keypair, path))
 }
@@ -140,8 +141,7 @@ async fn generate_new_keypair() -> Result<(Keypair, PathBuf)> {
 
     // Create parent directory if needed
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .context("Failed to create keypair directory")?;
+        std::fs::create_dir_all(parent).context("Failed to create keypair directory")?;
     }
 
     write_keypair_file(&keypair, &path)
@@ -186,10 +186,7 @@ pub async fn step_network_setup() -> Result<(Network, String, RpcClient)> {
 
     // Test connection
     let spinner = ui::Spinner::new("Testing connection...");
-    let client = RpcClient::new_with_commitment(
-        rpc_url.clone(),
-        CommitmentConfig::confirmed(),
-    );
+    let client = RpcClient::new_with_commitment(rpc_url.clone(), CommitmentConfig::confirmed());
 
     match client.get_version() {
         Ok(version) => {
@@ -223,7 +220,8 @@ pub async fn step_balance_check(
 ) -> Result<()> {
     ui::print_step_header(4, 6, "Balance Check & Funding");
 
-    let balance = client.get_balance(&keypair.pubkey())
+    let balance = client
+        .get_balance(&keypair.pubkey())
         .context("Failed to fetch balance")?;
 
     let required_sol = required_lamports as f64 / 1_000_000_000.0;
@@ -232,7 +230,11 @@ pub async fn step_balance_check(
     println!("\n{}", console::style("Balance Requirements:").bold());
     println!("  • Prover stake:        {:.4} SOL", required_sol);
     println!("  • Transaction fees:    ~0.0015 SOL");
-    println!("  {} Total required:      {:.4} SOL", console::style("").dim(), required_sol + 0.0015);
+    println!(
+        "  {} Total required:      {:.4} SOL",
+        console::style("").dim(),
+        required_sol + 0.0015
+    );
     println!();
     println!("  Current balance:       {:.4} SOL", balance_sol);
 
@@ -244,7 +246,10 @@ pub async fn step_balance_check(
 
     // Insufficient balance - show Solana Pay funding
     let shortfall = (required_lamports - balance) as f64 / 1_000_000_000.0;
-    ui::print_warning(&format!("⚠ Insufficient balance! Need {:.4} more SOL", shortfall));
+    ui::print_warning(&format!(
+        "⚠ Insufficient balance! Need {:.4} more SOL",
+        shortfall
+    ));
 
     // Generate Solana Pay URL
     let solana_pay_url = ui::generate_solana_pay_url(
@@ -255,10 +260,8 @@ pub async fn step_balance_check(
     );
 
     // Generate Solana Blink URL
-    let blink_url = ui::generate_blink_url(
-        &keypair.pubkey().to_string(),
-        required_lamports - balance,
-    );
+    let blink_url =
+        ui::generate_blink_url(&keypair.pubkey().to_string(), required_lamports - balance);
 
     // Display QR code and funding instructions
     ui::print_solana_pay_qr(&solana_pay_url)?;
@@ -295,11 +298,7 @@ pub async fn step_balance_check(
     Ok(())
 }
 
-async fn request_airdrop(
-    client: &RpcClient,
-    keypair: &Keypair,
-    amount: u64,
-) -> Result<()> {
+async fn request_airdrop(client: &RpcClient, keypair: &Keypair, amount: u64) -> Result<()> {
     ui::print_info("Requesting airdrop...");
 
     match client.request_airdrop(&keypair.pubkey(), amount) {
@@ -341,7 +340,10 @@ async fn wait_for_manual_funding(
         match client.get_balance(&keypair.pubkey()) {
             Ok(balance) => {
                 let balance_sol = balance as f64 / 1_000_000_000.0;
-                println!("  Current: {:.4} SOL / {:.4} SOL required", balance_sol, required_sol);
+                println!(
+                    "  Current: {:.4} SOL / {:.4} SOL required",
+                    balance_sol, required_sol
+                );
 
                 if balance >= required {
                     ui::print_success("✓ Received SOL!");
@@ -372,8 +374,14 @@ pub async fn step_register_prover(
     println!("\n{}", console::style("Registration Details:").bold());
     println!("  Authority:       {}", keypair.pubkey());
     println!("  Program ID:      {}", program_id);
-    println!("  Stake Amount:    {:.4} SOL", stake_amount as f64 / 1_000_000_000.0);
-    println!("  Encryption Key:  {}...", hex::encode(&encryption_pubkey[..8]));
+    println!(
+        "  Stake Amount:    {:.4} SOL",
+        stake_amount as f64 / 1_000_000_000.0
+    );
+    println!(
+        "  Encryption Key:  {}...",
+        hex::encode(&encryption_pubkey[..8])
+    );
 
     println!();
     if !ui::confirm("Proceed with registration?")? {
@@ -416,10 +424,7 @@ pub async fn step_register_prover(
 }
 
 /// Step 5: Accept Terms & Conditions
-pub async fn step_terms_acceptance(
-    keypair: &Keypair,
-    backend_url: &str,
-) -> Result<()> {
+pub async fn step_terms_acceptance(keypair: &Keypair, backend_url: &str) -> Result<()> {
     ui::print_step_header(5, 6, "Terms & Conditions");
 
     // Fetch latest terms
@@ -429,18 +434,32 @@ pub async fn step_terms_acceptance(
 
     println!();
     println!("{}", console::style("━".repeat(60)).cyan());
-    println!("{}", console::style("ZYBERLINK PROVER TERMS & CONDITIONS").cyan().bold());
+    println!(
+        "{}",
+        console::style("ZYBERLINK PROVER TERMS & CONDITIONS")
+            .cyan()
+            .bold()
+    );
     println!("{}", console::style("━".repeat(60)).cyan());
     println!();
-    println!("{}", console::style(format!("Version: {}", terms_response.version)).dim());
-    println!("{}", console::style(format!("Updated: {}", terms_response.updated_at)).dim());
+    println!(
+        "{}",
+        console::style(format!("Version: {}", terms_response.version)).dim()
+    );
+    println!(
+        "{}",
+        console::style(format!("Updated: {}", terms_response.updated_at)).dim()
+    );
     println!();
     println!("{}", console::style("━".repeat(60)).cyan());
     println!();
 
     // Display terms (first 500 chars with scroll option)
     let preview = if terms_response.terms.len() > 500 {
-        format!("{}...\n\n(Full terms available at https://zyberlink.io/terms)", &terms_response.terms[..500])
+        format!(
+            "{}...\n\n(Full terms available at https://zyberlink.io/terms)",
+            &terms_response.terms[..500]
+        )
     } else {
         terms_response.terms.clone()
     };

@@ -1,7 +1,7 @@
 pub mod config;
-pub mod prover;
 pub mod job;
+pub mod prover;
 
 pub use config::*;
-pub use prover::*;
 pub use job::*;
+pub use prover::*;

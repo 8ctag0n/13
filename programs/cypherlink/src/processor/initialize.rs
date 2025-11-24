@@ -10,10 +10,7 @@ use solana_program::{
     sysvar::Sysvar,
 };
 
-use crate::{
-    error::CypherLinkProgramError,
-    state::MarketplaceConfig,
-};
+use crate::{error::CypherLinkProgramError, state::MarketplaceConfig};
 
 /// Process Initialize instruction
 pub fn process_initialize(

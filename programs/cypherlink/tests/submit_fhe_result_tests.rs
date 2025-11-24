@@ -2,20 +2,20 @@ mod common;
 
 use borsh::BorshDeserialize;
 use common::{initialize_marketplace, register_prover, setup_program_test};
-use cypherlink::{
-    instruction::MarketplaceInstruction,
-    state::JobAccount,
-};
-use cypherlink_types::{CircuitType, FheConsensusConfig, fhe::FheOperation, JobStatus};
+use cypherlink::{instruction::MarketplaceInstruction, state::JobAccount};
+use cypherlink_types::{fhe::FheOperation, CircuitType, FheConsensusConfig, JobStatus};
 use solana_program::pubkey::Pubkey;
 use solana_program_test::*;
-use solana_sdk::{signature::{Signer, Keypair}, transaction::Transaction};
+use solana_sdk::{
+    signature::{Keypair, Signer},
+    transaction::Transaction,
+};
 
 /// Test 1: Submit FHE result successfully
 #[tokio::test]
 async fn test_submit_fhe_result_success() {
     let program_id = Pubkey::new_unique();
-    let mut program_test = setup_program_test(program_id);
+    let program_test = setup_program_test(program_id);
 
     let (mut banks_client, payer, _recent_blockhash) = program_test.start().await;
 
@@ -76,10 +76,7 @@ async fn test_submit_fhe_result_success() {
         &[b"job", job_creator.as_ref(), &job_id.to_le_bytes()],
         &program_id,
     );
-    let (escrow_pda, _) = Pubkey::find_program_address(
-        &[b"escrow", job_pda.as_ref()],
-        &program_id,
-    );
+    let (escrow_pda, _) = Pubkey::find_program_address(&[b"escrow", job_pda.as_ref()], &program_id);
 
     let fhe_operation = FheOperation::Add(5);
     let fhe_config = FheConsensusConfig {
@@ -114,18 +111,18 @@ async fn test_submit_fhe_result_success() {
     };
 
     let recent_blockhash = banks_client.get_latest_blockhash().await.unwrap();
-    let mut create_job_tx =
-        Transaction::new_with_payer(&[create_job_ix], Some(&payer.pubkey()));
+    let mut create_job_tx = Transaction::new_with_payer(&[create_job_ix], Some(&payer.pubkey()));
     create_job_tx.sign(&[&payer], recent_blockhash);
-    banks_client.process_transaction(create_job_tx).await.unwrap();
+    banks_client
+        .process_transaction(create_job_tx)
+        .await
+        .unwrap();
 
     // 4. Claim job with all 3 provers
     for prover_keypair in [&prover1_keypair, &prover2_keypair, &prover3_keypair] {
         let prover_authority = prover_keypair.pubkey();
-        let (prover_pda, _) = Pubkey::find_program_address(
-            &[b"prover", prover_authority.as_ref()],
-            &program_id,
-        );
+        let (prover_pda, _) =
+            Pubkey::find_program_address(&[b"prover", prover_authority.as_ref()], &program_id);
 
         let claim_job_instruction = MarketplaceInstruction::ClaimJob;
         let claim_job_ix = solana_program::instruction::Instruction {
@@ -147,16 +144,17 @@ async fn test_submit_fhe_result_success() {
         let mut claim_job_tx =
             Transaction::new_with_payer(&[claim_job_ix], Some(&prover_authority));
         claim_job_tx.sign(&[prover_keypair], recent_blockhash);
-        banks_client.process_transaction(claim_job_tx).await.unwrap();
+        banks_client
+            .process_transaction(claim_job_tx)
+            .await
+            .unwrap();
     }
 
     // 5. Submit FHE result from prover1
     let prover1_authority = prover1_keypair.pubkey();
     let result_hash = [2u8; 32];
 
-    let submit_result_instruction = MarketplaceInstruction::SubmitFheResult {
-        result_hash,
-    };
+    let submit_result_instruction = MarketplaceInstruction::SubmitFheResult { result_hash };
 
     let submit_result_ix = solana_program::instruction::Instruction {
         program_id,
@@ -200,7 +198,7 @@ async fn test_submit_fhe_result_success() {
 #[tokio::test]
 async fn test_submit_fhe_result_duplicate() {
     let program_id = Pubkey::new_unique();
-    let mut program_test = setup_program_test(program_id);
+    let program_test = setup_program_test(program_id);
 
     let (mut banks_client, payer, _recent_blockhash) = program_test.start().await;
 
@@ -260,10 +258,7 @@ async fn test_submit_fhe_result_duplicate() {
         &[b"job", job_creator.as_ref(), &job_id.to_le_bytes()],
         &program_id,
     );
-    let (escrow_pda, _) = Pubkey::find_program_address(
-        &[b"escrow", job_pda.as_ref()],
-        &program_id,
-    );
+    let (escrow_pda, _) = Pubkey::find_program_address(&[b"escrow", job_pda.as_ref()], &program_id);
 
     let fhe_operation = FheOperation::Add(5);
     let fhe_config = FheConsensusConfig {
@@ -298,18 +293,18 @@ async fn test_submit_fhe_result_duplicate() {
     };
 
     let recent_blockhash = banks_client.get_latest_blockhash().await.unwrap();
-    let mut create_job_tx =
-        Transaction::new_with_payer(&[create_job_ix], Some(&payer.pubkey()));
+    let mut create_job_tx = Transaction::new_with_payer(&[create_job_ix], Some(&payer.pubkey()));
     create_job_tx.sign(&[&payer], recent_blockhash);
-    banks_client.process_transaction(create_job_tx).await.unwrap();
+    banks_client
+        .process_transaction(create_job_tx)
+        .await
+        .unwrap();
 
     // Claim job with all 3 provers
     for prover_keypair in [&prover_keypair, &prover2_keypair, &prover3_keypair] {
         let prover_authority = prover_keypair.pubkey();
-        let (prover_pda, _) = Pubkey::find_program_address(
-            &[b"prover", prover_authority.as_ref()],
-            &program_id,
-        );
+        let (prover_pda, _) =
+            Pubkey::find_program_address(&[b"prover", prover_authority.as_ref()], &program_id);
 
         let claim_job_instruction = MarketplaceInstruction::ClaimJob;
         let claim_job_ix = solana_program::instruction::Instruction {
@@ -331,16 +326,17 @@ async fn test_submit_fhe_result_duplicate() {
         let mut claim_job_tx =
             Transaction::new_with_payer(&[claim_job_ix], Some(&prover_authority));
         claim_job_tx.sign(&[prover_keypair], recent_blockhash);
-        banks_client.process_transaction(claim_job_tx).await.unwrap();
+        banks_client
+            .process_transaction(claim_job_tx)
+            .await
+            .unwrap();
     }
 
     // Submit result once (should succeed)
     let prover_authority = prover_keypair.pubkey();
     let result_hash = [2u8; 32];
 
-    let submit_result_instruction = MarketplaceInstruction::SubmitFheResult {
-        result_hash,
-    };
+    let submit_result_instruction = MarketplaceInstruction::SubmitFheResult { result_hash };
 
     let submit_result_ix = solana_program::instruction::Instruction {
         program_id,
@@ -383,7 +379,7 @@ async fn test_submit_fhe_result_duplicate() {
 #[tokio::test]
 async fn test_submit_fhe_result_unauthorized() {
     let program_id = Pubkey::new_unique();
-    let mut program_test = setup_program_test(program_id);
+    let program_test = setup_program_test(program_id);
 
     let (mut banks_client, payer, _recent_blockhash) = program_test.start().await;
 
@@ -457,10 +453,7 @@ async fn test_submit_fhe_result_unauthorized() {
         &[b"job", job_creator.as_ref(), &job_id.to_le_bytes()],
         &program_id,
     );
-    let (escrow_pda, _) = Pubkey::find_program_address(
-        &[b"escrow", job_pda.as_ref()],
-        &program_id,
-    );
+    let (escrow_pda, _) = Pubkey::find_program_address(&[b"escrow", job_pda.as_ref()], &program_id);
 
     let fhe_operation = FheOperation::Add(5);
     let fhe_config = FheConsensusConfig {
@@ -495,18 +488,18 @@ async fn test_submit_fhe_result_unauthorized() {
     };
 
     let recent_blockhash = banks_client.get_latest_blockhash().await.unwrap();
-    let mut create_job_tx =
-        Transaction::new_with_payer(&[create_job_ix], Some(&payer.pubkey()));
+    let mut create_job_tx = Transaction::new_with_payer(&[create_job_ix], Some(&payer.pubkey()));
     create_job_tx.sign(&[&payer], recent_blockhash);
-    banks_client.process_transaction(create_job_tx).await.unwrap();
+    banks_client
+        .process_transaction(create_job_tx)
+        .await
+        .unwrap();
 
     // Only Prover A, prover2, and prover3 claim (NOT Prover B)
     for prover_keypair in [&prover_a_keypair, &prover2_keypair, &prover3_keypair] {
         let prover_authority = prover_keypair.pubkey();
-        let (prover_pda, _) = Pubkey::find_program_address(
-            &[b"prover", prover_authority.as_ref()],
-            &program_id,
-        );
+        let (prover_pda, _) =
+            Pubkey::find_program_address(&[b"prover", prover_authority.as_ref()], &program_id);
 
         let claim_job_instruction = MarketplaceInstruction::ClaimJob;
         let claim_job_ix = solana_program::instruction::Instruction {
@@ -528,16 +521,17 @@ async fn test_submit_fhe_result_unauthorized() {
         let mut claim_job_tx =
             Transaction::new_with_payer(&[claim_job_ix], Some(&prover_authority));
         claim_job_tx.sign(&[prover_keypair], recent_blockhash);
-        banks_client.process_transaction(claim_job_tx).await.unwrap();
+        banks_client
+            .process_transaction(claim_job_tx)
+            .await
+            .unwrap();
     }
 
     // Prover B tries to submit result (should fail - did not claim)
     let prover_b_authority = prover_b_keypair.pubkey();
     let result_hash = [2u8; 32];
 
-    let submit_result_instruction = MarketplaceInstruction::SubmitFheResult {
-        result_hash,
-    };
+    let submit_result_instruction = MarketplaceInstruction::SubmitFheResult { result_hash };
 
     let submit_result_ix = solana_program::instruction::Instruction {
         program_id,

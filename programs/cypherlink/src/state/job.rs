@@ -1,5 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use cypherlink_types::{CircuitType, JobStatus, FheConsensusConfig, FheJobResult};
+use cypherlink_types::{CircuitType, FheConsensusConfig, FheJobResult, JobStatus};
 use solana_program::pubkey::Pubkey;
 
 /// On-chain job account
@@ -57,7 +57,6 @@ pub struct JobAccount {
     pub bump: u8,
 
     // ========== FHE-SPECIFIC FIELDS ==========
-
     /// FHE consensus configuration (only for FHE jobs)
     /// For ZK jobs, this is None
     pub fhe_config: Option<FheConsensusConfig>,
@@ -96,7 +95,7 @@ impl JobAccount {
         + 1 + 20                         // fhe_config (Option<FheConsensusConfig>)
         + 4                              // claimed_provers (Vec len)
         + 4                              // fhe_results (Vec len)
-        + 1 + 32;                        // fhe_consensus_hash (Option<[u8; 32]>)
+        + 1 + 32; // fhe_consensus_hash (Option<[u8; 32]>)
 
     // Total with padding for dynamic fields
     // Allow for up to 5 provers: 5 * (32 + 73) = 525 bytes

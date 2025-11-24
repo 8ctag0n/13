@@ -5,11 +5,10 @@
 /// 2. Multiple provers count encrypted votes
 /// 3. Provers reach consensus on vote tallies
 /// 4. Payment distribution and verification
-
 use anyhow::Result;
-use tfhe::{generate_keys, set_server_key, ConfigBuilder, FheUint8};
-use tfhe::prelude::*;
 use cypherlink_types::fhe::FhePredicate;
+use tfhe::prelude::*;
+use tfhe::{generate_keys, set_server_key, ConfigBuilder, FheUint8};
 
 #[test]
 fn test_fhe_voting_basic_count() -> Result<()> {
@@ -48,7 +47,10 @@ fn test_fhe_voting_basic_count() -> Result<()> {
 
     // Step 3: Create job witness
     let witness_data = bincode::serialize(&encrypted_votes)?;
-    println!("\nStep 3: Job witness created: {} bytes", witness_data.len());
+    println!(
+        "\nStep 3: Job witness created: {} bytes",
+        witness_data.len()
+    );
 
     // Step 4: Prover tallies votes for each option
     println!("\nStep 4: Prover counting votes...");
@@ -127,7 +129,7 @@ fn test_fhe_voting_consensus() -> Result<()> {
         let count_bytes = VotingCircuit::compute_count_if(input_refs, &predicate)?;
 
         // Hash result
-        use sha3::{Sha3_256, Digest};
+        use sha3::{Digest, Sha3_256};
         let mut hasher = Sha3_256::new();
         hasher.update(&count_bytes);
         let hash: [u8; 32] = hasher.finalize().into();
@@ -143,8 +145,14 @@ fn test_fhe_voting_consensus() -> Result<()> {
 
     // Consensus check
     println!("\nConsensus check:");
-    assert_eq!(result_hashes[0], result_hashes[1], "Prover 1 and 2 mismatch");
-    assert_eq!(result_hashes[1], result_hashes[2], "Prover 2 and 3 mismatch");
+    assert_eq!(
+        result_hashes[0], result_hashes[1],
+        "Prover 1 and 2 mismatch"
+    );
+    assert_eq!(
+        result_hashes[1], result_hashes[2],
+        "Prover 2 and 3 mismatch"
+    );
     println!("  ✓ All 3 provers reached consensus!");
 
     println!("\n=== ✓ Consensus Test Passed ===\n");
@@ -195,7 +203,10 @@ fn test_fhe_voting_age_eligibility() -> Result<()> {
 
     println!("  Eligible voters: {}", eligible_count);
     println!("  Total participants: {}", ages.len());
-    println!("  Ineligible (minors): {}", ages.len() as u8 - eligible_count);
+    println!(
+        "  Ineligible (minors): {}",
+        ages.len() as u8 - eligible_count
+    );
 
     // Verify: 60 adults + 30 seniors = 90 eligible
     assert_eq!(eligible_count, 90);
@@ -218,9 +229,9 @@ fn test_fhe_voting_dao_scenario() -> Result<()> {
     // DAO Proposal: 3 options (0=Abstain, 1=Yes, 2=No)
     // 200 DAO members vote
     let mut votes = Vec::new();
-    votes.extend(vec![0u8; 20]);  // 20 abstentions
+    votes.extend(vec![0u8; 20]); // 20 abstentions
     votes.extend(vec![1u8; 120]); // 120 yes
-    votes.extend(vec![2u8; 60]);  // 60 no
+    votes.extend(vec![2u8; 60]); // 60 no
 
     println!("DAO Voting: {} members", votes.len());
     println!("  Expected: 20 abstain, 120 yes, 60 no");
@@ -296,7 +307,10 @@ fn test_fhe_voting_dao_scenario() -> Result<()> {
         println!("  ✗ PROPOSAL REJECTED");
     }
 
-    assert!(yes_percentage > 50.0, "Proposal should pass with 66.7% yes votes");
+    assert!(
+        yes_percentage > 50.0,
+        "Proposal should pass with 66.7% yes votes"
+    );
 
     println!("\n=== ✓ DAO Voting Test Passed ===\n");
 
@@ -356,7 +370,11 @@ fn test_fhe_voting_performance_large_scale() -> Result<()> {
     assert_eq!(count, 100); // 500 / 5 = 100 votes per option
 
     println!("\nPerformance Summary:");
-    println!("  Encryption: {:?} ({:.2} votes/sec)", encrypt_time, 500.0 / encrypt_time.as_secs_f64());
+    println!(
+        "  Encryption: {:?} ({:.2} votes/sec)",
+        encrypt_time,
+        500.0 / encrypt_time.as_secs_f64()
+    );
     println!("  Counting:   {:?}", count_time);
     println!("  Total:      {:?}", encrypt_time + count_time);
 

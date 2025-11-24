@@ -1,15 +1,11 @@
 mod common;
 
-use borsh::BorshDeserialize;
 use common::{initialize_marketplace, setup_program_test};
-use cypherlink::{
-    instruction::MarketplaceInstruction,
-    state::JobAccount,
-};
-use cypherlink_types::{CircuitType, FheConsensusConfig, fhe::FheOperation};
+use cypherlink::instruction::MarketplaceInstruction;
+use cypherlink_types::{fhe::FheOperation, CircuitType, FheConsensusConfig};
 use solana_program::pubkey::Pubkey;
 use solana_program_test::*;
-use solana_sdk::{signature::{Signer, Keypair}, transaction::Transaction};
+use solana_sdk::signature::Signer;
 
 /// Test 1: Create FHE job with wZEC payment
 ///
@@ -24,7 +20,7 @@ use solana_sdk::{signature::{Signer, Keypair}, transaction::Transaction};
 #[tokio::test]
 async fn test_create_fhe_job_with_token() {
     let program_id = Pubkey::new_unique();
-    let mut program_test = setup_program_test(program_id);
+    let program_test = setup_program_test(program_id);
 
     // TODO: Add SPL Token program to program_test
     // program_test.add_program("spl_token", spl_token::id(), processor!(spl_token::processor::Processor::process));
@@ -155,7 +151,7 @@ async fn test_create_fhe_job_with_token() {
 #[tokio::test]
 async fn test_create_job_with_token_insufficient_balance() {
     let program_id = Pubkey::new_unique();
-    let mut program_test = setup_program_test(program_id);
+    let program_test = setup_program_test(program_id);
 
     let (mut banks_client, payer, _recent_blockhash) = program_test.start().await;
 
@@ -226,7 +222,7 @@ async fn test_create_job_with_token_insufficient_balance() {
 #[tokio::test]
 async fn test_create_job_with_token_dynamic_pricing() {
     let program_id = Pubkey::new_unique();
-    let mut program_test = setup_program_test(program_id);
+    let program_test = setup_program_test(program_id);
 
     let (mut banks_client, payer, _recent_blockhash) = program_test.start().await;
 

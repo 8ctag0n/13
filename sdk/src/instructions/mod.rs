@@ -5,7 +5,6 @@
 /// - Return pure Instruction objects
 /// - Can be used with any Solana wallet
 /// - Support transaction simulation
-
 mod marketplace;
 
 pub use marketplace::InstructionBuilder;

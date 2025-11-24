@@ -1,13 +1,14 @@
+use crate::fhe::FheOperation;
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
-use crate::fhe::FheOperation;
 
 /// Type of ZK circuit/proof or FHE computation being requested
 #[derive(
-    Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize,
+    Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize, Default,
 )]
 pub enum CircuitType {
     /// Zcash Orchard shielded transaction proof
+    #[default]
     ZcashOrchard,
 
     /// Anonymous voting proof
@@ -39,33 +40,27 @@ impl CircuitType {
     /// These are rough estimates for a mid-range desktop CPU
     pub fn estimated_proving_time_secs(&self) -> u32 {
         match self {
-            CircuitType::ZcashOrchard => 15,  // 10-15 seconds typical
-            CircuitType::AnonymousVote => 5,  // Simpler circuit
-            CircuitType::Credential => 8,     // Medium complexity
+            CircuitType::ZcashOrchard => 15, // 10-15 seconds typical
+            CircuitType::AnonymousVote => 5, // Simpler circuit
+            CircuitType::Credential => 8,    // Medium complexity
             CircuitType::FheComputation(op) => {
                 // Convert milliseconds to seconds (round up)
                 let ms = op.estimated_compute_time_ms();
-                (ms + 999) / 1000  // Ceiling division
+                ms.div_ceil(1000) // Ceiling division
             }
-            CircuitType::Custom(_) => 20,     // Conservative estimate
+            CircuitType::Custom(_) => 20, // Conservative estimate
         }
     }
 
     /// Estimate typical witness size in bytes
     pub fn estimated_witness_size_bytes(&self) -> usize {
         match self {
-            CircuitType::ZcashOrchard => 2048,   // ~2KB
-            CircuitType::AnonymousVote => 512,   // ~512B
-            CircuitType::Credential => 1024,     // ~1KB
-            CircuitType::FheComputation(_) => 65856,  // ~64KB from spike
-            CircuitType::Custom(_) => 4096,      // ~4KB conservative
+            CircuitType::ZcashOrchard => 2048,       // ~2KB
+            CircuitType::AnonymousVote => 512,       // ~512B
+            CircuitType::Credential => 1024,         // ~1KB
+            CircuitType::FheComputation(_) => 65856, // ~64KB from spike
+            CircuitType::Custom(_) => 4096,          // ~4KB conservative
         }
-    }
-}
-
-impl Default for CircuitType {
-    fn default() -> Self {
-        Self::ZcashOrchard
     }
 }
 
@@ -78,7 +73,10 @@ mod tests {
         assert_eq!(CircuitType::ZcashOrchard.name(), "Zcash Orchard");
         assert_eq!(CircuitType::AnonymousVote.name(), "Anonymous Vote");
         assert_eq!(CircuitType::Credential.name(), "Credential");
-        assert_eq!(CircuitType::Custom("MyCircuit".to_string()).name(), "MyCircuit");
+        assert_eq!(
+            CircuitType::Custom("MyCircuit".to_string()).name(),
+            "MyCircuit"
+        );
     }
 
     #[test]

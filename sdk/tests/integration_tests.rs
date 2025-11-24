@@ -15,19 +15,18 @@ fn program_id() -> solana_sdk::pubkey::Pubkey {
 }
 
 fn setup_program_test(program_id: solana_sdk::pubkey::Pubkey) -> ProgramTest {
-    let mut program_test = ProgramTest::new(
+    ProgramTest::new(
         "cypherlink",
         program_id,
         processor!(cypherlink::process_instruction),
-    );
-    program_test
+    )
 }
 
 #[tokio::test]
 async fn test_initialize_marketplace() {
     let program_id = program_id();
     let program_test = setup_program_test(program_id);
-    let (mut banks_client, payer, recent_blockhash) = program_test.start().await;
+    let (banks_client, payer, recent_blockhash) = program_test.start().await;
 
     let client = MarketplaceClient::new("http://localhost:8899".to_string(), program_id);
 
@@ -35,10 +34,10 @@ async fn test_initialize_marketplace() {
     let init_ix = client
         .initialize_instruction(
             &payer.pubkey(),
-            1000,           // 10% fee
-            5_000_000_000,  // 5 SOL stake
-            500,            // min reputation
-            600,            // 10 min timeout
+            1000,          // 10% fee
+            5_000_000_000, // 5 SOL stake
+            500,           // min reputation
+            600,           // 10 min timeout
         )
         .unwrap();
 
@@ -57,7 +56,7 @@ async fn test_initialize_marketplace() {
 async fn test_register_prover() {
     let program_id = program_id();
     let program_test = setup_program_test(program_id);
-    let (mut banks_client, payer, recent_blockhash) = program_test.start().await;
+    let (banks_client, payer, recent_blockhash) = program_test.start().await;
 
     let client = MarketplaceClient::new("http://localhost:8899".to_string(), program_id);
 
@@ -100,7 +99,7 @@ async fn test_register_prover() {
 async fn test_create_job() {
     let program_id = program_id();
     let program_test = setup_program_test(program_id);
-    let (mut banks_client, payer, recent_blockhash) = program_test.start().await;
+    let (banks_client, payer, recent_blockhash) = program_test.start().await;
 
     let client = MarketplaceClient::new("http://localhost:8899".to_string(), program_id);
 
@@ -147,7 +146,7 @@ async fn test_create_job() {
 async fn test_full_job_lifecycle() {
     let program_id = program_id();
     let program_test = setup_program_test(program_id);
-    let (mut banks_client, payer, recent_blockhash) = program_test.start().await;
+    let (banks_client, payer, recent_blockhash) = program_test.start().await;
 
     let client = MarketplaceClient::new("http://localhost:8899".to_string(), program_id);
 
@@ -235,7 +234,7 @@ async fn test_full_job_lifecycle() {
 async fn test_cancel_job() {
     let program_id = program_id();
     let program_test = setup_program_test(program_id);
-    let (mut banks_client, payer, recent_blockhash) = program_test.start().await;
+    let (banks_client, payer, recent_blockhash) = program_test.start().await;
 
     let client = MarketplaceClient::new("http://localhost:8899".to_string(), program_id);
 
@@ -268,7 +267,9 @@ async fn test_cancel_job() {
     let (job_pda, _) = client.get_job_pda(&payer.pubkey(), 0);
 
     // Cancel job
-    let cancel_ix = client.cancel_job_instruction(&payer.pubkey(), &job_pda).unwrap();
+    let cancel_ix = client
+        .cancel_job_instruction(&payer.pubkey(), &job_pda)
+        .unwrap();
     let recent_blockhash = banks_client.get_latest_blockhash().await.unwrap();
     let mut tx = Transaction::new_with_payer(&[cancel_ix], Some(&payer.pubkey()));
     tx.sign(&[&payer], recent_blockhash);
@@ -276,14 +277,17 @@ async fn test_cancel_job() {
 
     // Job account should still exist (cancelled, not closed)
     let job_account = banks_client.get_account(job_pda).await.unwrap();
-    assert!(job_account.is_some(), "Job account should still exist after cancellation");
+    assert!(
+        job_account.is_some(),
+        "Job account should still exist after cancellation"
+    );
 }
 
 #[tokio::test]
 async fn test_multiple_jobs() {
     let program_id = program_id();
     let program_test = setup_program_test(program_id);
-    let (mut banks_client, payer, recent_blockhash) = program_test.start().await;
+    let (banks_client, payer, recent_blockhash) = program_test.start().await;
 
     let client = MarketplaceClient::new("http://localhost:8899".to_string(), program_id);
 

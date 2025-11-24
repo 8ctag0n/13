@@ -1,6 +1,6 @@
+use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
-use anyhow::{Context, Result};
 
 /// Disk-based persistence layer for witness data and FHE results
 pub struct DiskPersistence {
@@ -17,9 +17,9 @@ impl DiskPersistence {
         let base_path = base_path.as_ref().to_path_buf();
 
         // Create directories if they don't exist
-        fs::create_dir_all(&base_path.join("witnesses"))
+        fs::create_dir_all(base_path.join("witnesses"))
             .context("Failed to create witnesses directory")?;
-        fs::create_dir_all(&base_path.join("fhe_results"))
+        fs::create_dir_all(base_path.join("fhe_results"))
             .context("Failed to create fhe_results directory")?;
 
         Ok(Self { base_path })
@@ -29,7 +29,10 @@ impl DiskPersistence {
     ///
     /// The file is stored at: {base_path}/witnesses/{hex(commitment)}
     pub fn save_witness(&self, commitment: &[u8; 32], data: &[u8]) -> Result<()> {
-        let path = self.base_path.join("witnesses").join(hex::encode(commitment));
+        let path = self
+            .base_path
+            .join("witnesses")
+            .join(hex::encode(commitment));
         fs::write(path, data).context("Failed to save witness to disk")
     }
 
@@ -37,9 +40,14 @@ impl DiskPersistence {
     ///
     /// Returns None if the witness doesn't exist on disk
     pub fn load_witness(&self, commitment: &[u8; 32]) -> Result<Option<Vec<u8>>> {
-        let path = self.base_path.join("witnesses").join(hex::encode(commitment));
+        let path = self
+            .base_path
+            .join("witnesses")
+            .join(hex::encode(commitment));
         if path.exists() {
-            Ok(Some(fs::read(path).context("Failed to read witness from disk")?))
+            Ok(Some(
+                fs::read(path).context("Failed to read witness from disk")?,
+            ))
         } else {
             Ok(None)
         }
@@ -49,7 +57,10 @@ impl DiskPersistence {
     ///
     /// The file is stored at: {base_path}/fhe_results/{hex(commitment)}
     pub fn save_fhe_result(&self, commitment: &[u8; 32], data: &[u8]) -> Result<()> {
-        let path = self.base_path.join("fhe_results").join(hex::encode(commitment));
+        let path = self
+            .base_path
+            .join("fhe_results")
+            .join(hex::encode(commitment));
         fs::write(path, data).context("Failed to save FHE result to disk")
     }
 
@@ -57,9 +68,14 @@ impl DiskPersistence {
     ///
     /// Returns None if the FHE result doesn't exist on disk
     pub fn load_fhe_result(&self, commitment: &[u8; 32]) -> Result<Option<Vec<u8>>> {
-        let path = self.base_path.join("fhe_results").join(hex::encode(commitment));
+        let path = self
+            .base_path
+            .join("fhe_results")
+            .join(hex::encode(commitment));
         if path.exists() {
-            Ok(Some(fs::read(path).context("Failed to read FHE result from disk")?))
+            Ok(Some(
+                fs::read(path).context("Failed to read FHE result from disk")?,
+            ))
         } else {
             Ok(None)
         }
@@ -67,7 +83,10 @@ impl DiskPersistence {
 
     /// Delete witness from disk
     pub fn delete_witness(&self, commitment: &[u8; 32]) -> Result<()> {
-        let path = self.base_path.join("witnesses").join(hex::encode(commitment));
+        let path = self
+            .base_path
+            .join("witnesses")
+            .join(hex::encode(commitment));
         if path.exists() {
             fs::remove_file(path).context("Failed to delete witness from disk")?;
         }
@@ -76,7 +95,10 @@ impl DiskPersistence {
 
     /// Delete FHE result from disk
     pub fn delete_fhe_result(&self, commitment: &[u8; 32]) -> Result<()> {
-        let path = self.base_path.join("fhe_results").join(hex::encode(commitment));
+        let path = self
+            .base_path
+            .join("fhe_results")
+            .join(hex::encode(commitment));
         if path.exists() {
             fs::remove_file(path).context("Failed to delete FHE result from disk")?;
         }
