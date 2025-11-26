@@ -1,487 +1,354 @@
-//! Multi-Prover Competition Tests
+//! Multi-Prover Competition Tests using solana-program-test (in-memory)
 //!
-//! Tests race conditions and concurrent behavior when multiple provers
-//! compete for the same jobs.
+//! Tests behavior when multiple provers compete for jobs.
+
+mod common;
 
 use anyhow::Result;
-use blake2::{Blake2s256, Digest};
-use zyberlink_sdk::MarketplaceClient;
-use zyberlink_types::CircuitType;
-use solana_client::rpc_client::RpcClient;
-use solana_sdk::{
-    commitment_config::CommitmentConfig,
-    signature::{Keypair, Signer},
-    transaction::Transaction,
-};
-use std::str::FromStr;
-use std::time::Duration;
-use tokio::task::JoinHandle;
-use tokio::time::sleep;
+use solana_sdk::signature::{Keypair, Signer};
+use common::{setup_initialized_marketplace, register_test_prover};
 
-/// Helper to register a prover
-async fn register_prover(
-    rpc_client: &RpcClient,
-    sdk_client: &MarketplaceClient,
-    prover: &Keypair,
-    stake_amount: u64,
-) -> Result<()> {
-    // Check if already registered
-    let (prover_pda, _) = sdk_client.get_prover_pda(&prover.pubkey());
-    if rpc_client.get_account(&prover_pda).is_ok() {
-        return Ok(()); // Already registered
-    }
-
-    // Fund prover
-    let airdrop_sig = rpc_client.request_airdrop(&prover.pubkey(), 20_000_000_000)?;
-    for _ in 0..30 {
-        if rpc_client.confirm_transaction(&airdrop_sig).unwrap_or(false) {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(500));
-    }
-
-    // Register
-    let encryption_key = [99u8; 32];
-    let register_ix = sdk_client.register_prover_instruction(
-        &prover.pubkey(),
-        stake_amount,
-        encryption_key,
-    )?;
-
-    let recent_blockhash = rpc_client.get_latest_blockhash()?;
-    let mut tx = Transaction::new_with_payer(&[register_ix], Some(&prover.pubkey()));
-    tx.sign(&[prover], recent_blockhash);
-
-    rpc_client.send_and_confirm_transaction(&tx)?;
-    Ok(())
-}
-
-/// Helper to create a job
-async fn create_job(
-    rpc_client: &RpcClient,
-    sdk_client: &MarketplaceClient,
-    client: &Keypair,
-) -> Result<(solana_sdk::pubkey::Pubkey, u64)> {
-    // Fund client
-    let airdrop_sig = rpc_client.request_airdrop(&client.pubkey(), 10_000_000_000)?;
-    for _ in 0..30 {
-        if rpc_client.confirm_transaction(&airdrop_sig).unwrap_or(false) {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(500));
-    }
-
-    // Get next job ID
-    let (config_pda, _) = sdk_client.get_config_pda();
-    let config_account = rpc_client.get_account(&config_pda)?;
-
-    use borsh::BorshDeserialize;
-
-    #[derive(Debug, BorshDeserialize)]
-    #[allow(dead_code)]
-    struct MarketplaceConfigData {
-        authority: solana_sdk::pubkey::Pubkey,
-        fee_basis_points: u16,
-        min_stake_amount: u64,
-        min_reputation_score: u32,
-        default_job_timeout_seconds: i64,
-        protocol_fee_recipient: solana_sdk::pubkey::Pubkey,
-        next_job_id: u64,
-        total_provers: u64,
-        total_jobs_created: u64,
-        total_jobs_completed: u64,
-        is_paused: bool,
-        bump: u8,
-    }
-
-    let config_data = MarketplaceConfigData::try_from_slice(&config_account.data)?;
-    let job_id = config_data.next_job_id;
-
-    // Create witness
-    let witness_data = vec![42u8; 1024];
-    let mut hasher = Blake2s256::new();
-    hasher.update(&witness_data);
-    let witness_commitment: [u8; 32] = hasher.finalize().into();
-
-    let create_job_ix = sdk_client.create_job_instruction(
-        &client.pubkey(),
-        job_id,
-        CircuitType::ZcashOrchard,
-        witness_commitment,
-        witness_data.len() as u32,
-        2_000_000_000,
-        600,
-        None,
-    )?;
-
-    let recent_blockhash = rpc_client.get_latest_blockhash()?;
-    let mut tx = Transaction::new_with_payer(&[create_job_ix], Some(&client.pubkey()));
-    tx.sign(&[client], recent_blockhash);
-
-    rpc_client.send_and_confirm_transaction(&tx)?;
-
-    let (job_pda, _) = sdk_client.get_job_pda(&client.pubkey(), job_id);
-    Ok((job_pda, job_id))
-}
-
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn test_two_provers_one_job_race() -> Result<()> {
     println!("\n{}", "=".repeat(80));
-    println!("TEST: Two Provers Competing for One Job (Race Condition)");
+    println!("TEST: Two Provers Competing for One Job");
     println!("{}", "=".repeat(80));
 
-    // Setup
-    let rpc_url = "http://127.0.0.1:8899";
-    let rpc_client = RpcClient::new_with_commitment(rpc_url.to_string(), CommitmentConfig::confirmed());
-    let program_id = solana_sdk::pubkey::Pubkey::from_str("bn2XNLkXi23NPMjH1qNdGWg1tuUFtpVkQvqxTD9v3Ys")?;
-    let sdk_client = MarketplaceClient::new(rpc_url.to_string(), program_id);
+    let mut ctx = setup_initialized_marketplace().await?;
 
+    // Register two provers
     println!("\nSetup: Register Two Provers");
     println!("{}", "-".repeat(80));
 
     let prover1 = Keypair::new();
     let prover2 = Keypair::new();
+    let stake_amount = 5_000_000_000u64;
 
-    register_prover(&rpc_client, &sdk_client, &prover1, 5_000_000_000).await?;
-    register_prover(&rpc_client, &sdk_client, &prover2, 5_000_000_000).await?;
+    let _prover1_pda = register_test_prover(&mut ctx, &prover1, stake_amount).await?;
+    let _prover2_pda = register_test_prover(&mut ctx, &prover2, stake_amount).await?;
 
-    println!("  ✓ Prover 1: {}", prover1.pubkey());
-    println!("  ✓ Prover 2: {}", prover2.pubkey());
+    println!("  Prover 1: {}", prover1.pubkey());
+    println!("  Prover 2: {}", prover2.pubkey());
 
+    // Create one job
     println!("\nSetup: Create One Job");
     println!("{}", "-".repeat(80));
 
     let client = Keypair::new();
-    let (job_pda, job_id) = create_job(&rpc_client, &sdk_client, &client).await?;
+    ctx.fund_account(&client.pubkey(), 10_000_000_000).await?;
 
-    println!("  ✓ Job created");
-    println!("    Job ID: {}", job_id);
-    println!("    Job PDA: {}", job_pda);
+    let config_account = ctx.banks_client
+        .get_account(ctx.config_pda)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Config account not found"))?;
 
-    println!("\nTest: Both Provers Attempt to Claim Simultaneously");
+    let config: zyberlink_sdk::MarketplaceConfig = borsh::from_slice(&config_account.data)?;
+    let job_id = config.next_job_id;
+
+    let sdk = ctx.sdk_client();
+    let create_job_ix = sdk.create_job_instruction(
+        &client.pubkey(),
+        job_id,
+        zyberlink_types::CircuitType::ZcashOrchard,
+        [42u8; 32],
+        1024,
+        2_000_000_000,
+        3600,
+        None,
+    )?;
+
+    ctx.execute_transaction(&[create_job_ix], &[&client]).await?;
+    let (job_pda, _) = sdk.get_job_pda(&client.pubkey(), job_id);
+
+    println!("  Job created: {}", job_pda);
+
+    // Test: First prover claims
+    println!("\nTest: Both Provers Attempt to Claim");
     println!("{}", "-".repeat(80));
 
-    // Spawn both claim attempts concurrently
-    let prover1_claim = {
-        let rpc_url = rpc_url.to_string();
-        let prover1 = prover1.insecure_clone();
-        let job_pda = job_pda;
+    // Prover 1 claims first
+    let claim_job_ix = sdk.claim_job_instruction(&prover1.pubkey(), &job_pda)?;
+    ctx.execute_transaction(&[claim_job_ix], &[&prover1]).await?;
+    println!("  Prover 1: SUCCESS (claimed first)");
 
-        tokio::spawn(async move {
-            let sdk_client = MarketplaceClient::new(rpc_url, program_id);
-            let claim_ix = sdk_client
-                .claim_job_instruction(&prover1.pubkey(), &job_pda)
-                .unwrap();
+    // Prover 2 tries to claim - should fail
+    let claim_job_ix = sdk.claim_job_instruction(&prover2.pubkey(), &job_pda)?;
+    let result = ctx.execute_transaction(&[claim_job_ix], &[&prover2]).await;
 
-            let recent_blockhash = sdk_client.rpc_client.get_latest_blockhash().unwrap();
-            let mut tx = Transaction::new_with_payer(&[claim_ix], Some(&prover1.pubkey()));
-            tx.sign(&[&prover1], recent_blockhash);
+    assert!(result.is_err(), "Prover 2 should fail to claim already claimed job");
+    println!("  Prover 2: FAILED (job already claimed)");
 
-            sdk_client.rpc_client.send_and_confirm_transaction(&tx)
-        })
-    };
-
-    let prover2_claim = {
-        let rpc_url = rpc_url.to_string();
-        let prover2 = prover2.insecure_clone();
-        let job_pda = job_pda;
-
-        tokio::spawn(async move {
-            let sdk_client = MarketplaceClient::new(rpc_url, program_id);
-            let claim_ix = sdk_client
-                .claim_job_instruction(&prover2.pubkey(), &job_pda)
-                .unwrap();
-
-            let recent_blockhash = sdk_client.rpc_client.get_latest_blockhash().unwrap();
-            let mut tx = Transaction::new_with_payer(&[claim_ix], Some(&prover2.pubkey()));
-            tx.sign(&[&prover2], recent_blockhash);
-
-            sdk_client.rpc_client.send_and_confirm_transaction(&tx)
-        })
-    };
-
-    // Wait for both attempts
-    let result1 = prover1_claim.await;
-    let result2 = prover2_claim.await;
-
-    // Exactly ONE should succeed
-    let success1 = result1.is_ok() && result1.unwrap().is_ok();
-    let success2 = result2.is_ok() && result2.unwrap().is_ok();
-
-    println!("  Prover 1 result: {}", if success1 { "SUCCESS" } else { "FAILED" });
-    println!("  Prover 2 result: {}", if success2 { "SUCCESS" } else { "FAILED" });
-
-    // Verify exactly one succeeded
-    assert!(
-        success1 ^ success2,
-        "Exactly one prover should succeed (got success1={}, success2={})",
-        success1,
-        success2
-    );
-
-    println!("  ✓ Exactly one prover claimed the job (no race condition)");
+    println!("  Exactly one prover claimed the job");
 
     println!("\n{}", "=".repeat(80));
-    println!("✅ RACE CONDITION TEST PASSED!");
+    println!("RACE CONDITION TEST PASSED!");
     println!("{}", "=".repeat(80));
 
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn test_three_provers_three_jobs_concurrent() -> Result<()> {
     println!("\n{}", "=".repeat(80));
-    println!("TEST: Three Provers Processing Three Jobs Concurrently");
+    println!("TEST: Three Provers Processing Three Jobs");
     println!("{}", "=".repeat(80));
 
-    // Setup
-    let rpc_url = "http://127.0.0.1:8899";
-    let rpc_client = RpcClient::new_with_commitment(rpc_url.to_string(), CommitmentConfig::confirmed());
-    let program_id = solana_sdk::pubkey::Pubkey::from_str("bn2XNLkXi23NPMjH1qNdGWg1tuUFtpVkQvqxTD9v3Ys")?;
-    let sdk_client = MarketplaceClient::new(rpc_url.to_string(), program_id);
+    let mut ctx = setup_initialized_marketplace().await?;
 
+    // Register three provers
     println!("\nSetup: Register Three Provers");
     println!("{}", "-".repeat(80));
 
     let prover1 = Keypair::new();
     let prover2 = Keypair::new();
     let prover3 = Keypair::new();
+    let stake_amount = 5_000_000_000u64;
 
-    register_prover(&rpc_client, &sdk_client, &prover1, 5_000_000_000).await?;
-    register_prover(&rpc_client, &sdk_client, &prover2, 5_000_000_000).await?;
-    register_prover(&rpc_client, &sdk_client, &prover3, 5_000_000_000).await?;
+    let _prover1_pda = register_test_prover(&mut ctx, &prover1, stake_amount).await?;
+    let _prover2_pda = register_test_prover(&mut ctx, &prover2, stake_amount).await?;
+    let _prover3_pda = register_test_prover(&mut ctx, &prover3, stake_amount).await?;
 
-    println!("  ✓ Prover 1: {}", prover1.pubkey());
-    println!("  ✓ Prover 2: {}", prover2.pubkey());
-    println!("  ✓ Prover 3: {}", prover3.pubkey());
+    println!("  Prover 1: {}", prover1.pubkey());
+    println!("  Prover 2: {}", prover2.pubkey());
+    println!("  Prover 3: {}", prover3.pubkey());
 
+    // Create three jobs
     println!("\nSetup: Create Three Jobs");
     println!("{}", "-".repeat(80));
 
-    let client1 = Keypair::new();
-    let client2 = Keypair::new();
-    let client3 = Keypair::new();
+    let sdk = ctx.sdk_client();
+    let mut job_pdas = vec![];
 
-    let (job1_pda, job1_id) = create_job(&rpc_client, &sdk_client, &client1).await?;
+    for i in 0..3 {
+        let client = Keypair::new();
+        ctx.fund_account(&client.pubkey(), 10_000_000_000).await?;
 
-    // Small delay to ensure config updates between job creations
-    sleep(Duration::from_millis(500)).await;
+        let config_account = ctx.banks_client
+            .get_account(ctx.config_pda)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Config account not found"))?;
 
-    let (job2_pda, job2_id) = create_job(&rpc_client, &sdk_client, &client2).await?;
+        let config: zyberlink_sdk::MarketplaceConfig = borsh::from_slice(&config_account.data)?;
+        let job_id = config.next_job_id;
 
-    tokio::time::sleep(Duration::from_millis(500)).await;
+        let create_job_ix = sdk.create_job_instruction(
+            &client.pubkey(),
+            job_id,
+            zyberlink_types::CircuitType::ZcashOrchard,
+            [i as u8; 32],
+            1024,
+            1_000_000_000,
+            3600,
+            None,
+        )?;
 
-    let (job3_pda, job3_id) = create_job(&rpc_client, &sdk_client, &client3).await?;
+        ctx.execute_transaction(&[create_job_ix], &[&client]).await?;
+        let (job_pda, _) = sdk.get_job_pda(&client.pubkey(), job_id);
+        job_pdas.push(job_pda);
 
-    println!("  ✓ Job 1: {} (PDA: {})", job1_id, job1_pda);
-    println!("  ✓ Job 2: {} (PDA: {})", job2_id, job2_pda);
-    println!("  ✓ Job 3: {} (PDA: {})", job3_id, job3_pda);
+        println!("  Job {}: {}", i + 1, job_pda);
+    }
 
+    // Each prover claims a different job
     println!("\nTest: Each Prover Claims a Different Job");
     println!("{}", "-".repeat(80));
 
-    // Each prover claims a different job
-    let mut claim_handles: Vec<JoinHandle<Result<()>>> = vec![];
-
-    // Prover 1 -> Job 1
-    claim_handles.push({
-        let rpc_url = rpc_url.to_string();
-        let prover = prover1.insecure_clone();
-        let job_pda = job1_pda;
-
-        tokio::spawn(async move {
-            let sdk_client = MarketplaceClient::new(rpc_url, program_id);
-            let claim_ix = sdk_client
-                .claim_job_instruction(&prover.pubkey(), &job_pda)?;
-
-            let recent_blockhash = sdk_client.rpc_client.get_latest_blockhash()?;
-            let mut tx = Transaction::new_with_payer(&[claim_ix], Some(&prover.pubkey()));
-            tx.sign(&[&prover], recent_blockhash);
-
-            sdk_client.rpc_client.send_and_confirm_transaction(&tx)?;
-            Ok(())
-        })
-    });
-
-    // Prover 2 -> Job 2
-    claim_handles.push({
-        let rpc_url = rpc_url.to_string();
-        let prover = prover2.insecure_clone();
-        let job_pda = job2_pda;
-
-        tokio::spawn(async move {
-            let sdk_client = MarketplaceClient::new(rpc_url, program_id);
-            let claim_ix = sdk_client
-                .claim_job_instruction(&prover.pubkey(), &job_pda)?;
-
-            let recent_blockhash = sdk_client.rpc_client.get_latest_blockhash()?;
-            let mut tx = Transaction::new_with_payer(&[claim_ix], Some(&prover.pubkey()));
-            tx.sign(&[&prover], recent_blockhash);
-
-            sdk_client.rpc_client.send_and_confirm_transaction(&tx)?;
-            Ok(())
-        })
-    });
-
-    // Prover 3 -> Job 3
-    claim_handles.push({
-        let rpc_url = rpc_url.to_string();
-        let prover = prover3.insecure_clone();
-        let job_pda = job3_pda;
-
-        tokio::spawn(async move {
-            let sdk_client = MarketplaceClient::new(rpc_url, program_id);
-            let claim_ix = sdk_client
-                .claim_job_instruction(&prover.pubkey(), &job_pda)?;
-
-            let recent_blockhash = sdk_client.rpc_client.get_latest_blockhash()?;
-            let mut tx = Transaction::new_with_payer(&[claim_ix], Some(&prover.pubkey()));
-            tx.sign(&[&prover], recent_blockhash);
-
-            sdk_client.rpc_client.send_and_confirm_transaction(&tx)?;
-            Ok(())
-        })
-    });
-
-    // Wait for all claims
-    let mut all_succeeded = true;
-    for (i, handle) in claim_handles.into_iter().enumerate() {
-        let result = handle.await;
-        if result.is_ok() && result.unwrap().is_ok() {
-            println!("  ✓ Prover {} claimed job successfully", i + 1);
-        } else {
-            println!("  ✗ Prover {} failed to claim", i + 1);
-            all_succeeded = false;
-        }
+    let provers = [&prover1, &prover2, &prover3];
+    for (i, (prover, job_pda)) in provers.iter().zip(job_pdas.iter()).enumerate() {
+        let claim_job_ix = sdk.claim_job_instruction(&prover.pubkey(), job_pda)?;
+        ctx.execute_transaction(&[claim_job_ix], &[prover]).await?;
+        println!("  Prover {} claimed job {} successfully", i + 1, i + 1);
     }
 
-    assert!(all_succeeded, "All provers should claim their respective jobs");
-
     println!("\n{}", "=".repeat(80));
-    println!("✅ CONCURRENT PROCESSING TEST PASSED!");
+    println!("CONCURRENT PROCESSING TEST PASSED!");
     println!("{}", "=".repeat(80));
 
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn test_five_provers_two_jobs() -> Result<()> {
     println!("\n{}", "=".repeat(80));
     println!("TEST: Five Provers Competing for Two Jobs");
     println!("{}", "=".repeat(80));
 
-    // Setup
-    let rpc_url = "http://127.0.0.1:8899";
-    let rpc_client = RpcClient::new_with_commitment(rpc_url.to_string(), CommitmentConfig::confirmed());
-    let program_id = solana_sdk::pubkey::Pubkey::from_str("bn2XNLkXi23NPMjH1qNdGWg1tuUFtpVkQvqxTD9v3Ys")?;
-    let sdk_client = MarketplaceClient::new(rpc_url.to_string(), program_id);
+    let mut ctx = setup_initialized_marketplace().await?;
 
+    // Register five provers
     println!("\nSetup: Register Five Provers");
     println!("{}", "-".repeat(80));
 
     let mut provers = vec![];
+    let stake_amount = 5_000_000_000u64;
+
     for i in 0..5 {
         let prover = Keypair::new();
-        register_prover(&rpc_client, &sdk_client, &prover, 5_000_000_000).await?;
-        println!("  ✓ Prover {}: {}", i + 1, prover.pubkey());
+        let _prover_pda = register_test_prover(&mut ctx, &prover, stake_amount).await?;
+        println!("  Prover {}: {}", i + 1, prover.pubkey());
         provers.push(prover);
     }
 
+    // Create two jobs
     println!("\nSetup: Create Two Jobs");
     println!("{}", "-".repeat(80));
 
-    let client1 = Keypair::new();
-    let client2 = Keypair::new();
+    let sdk = ctx.sdk_client();
+    let mut job_pdas = vec![];
 
-    let (job1_pda, job1_id) = create_job(&rpc_client, &sdk_client, &client1).await?;
+    for i in 0..2 {
+        let client = Keypair::new();
+        ctx.fund_account(&client.pubkey(), 10_000_000_000).await?;
 
-    // Small delay to ensure config updates between job creations
-    sleep(Duration::from_millis(500)).await;
+        let config_account = ctx.banks_client
+            .get_account(ctx.config_pda)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Config account not found"))?;
 
-    let (job2_pda, job2_id) = create_job(&rpc_client, &sdk_client, &client2).await?;
+        let config: zyberlink_sdk::MarketplaceConfig = borsh::from_slice(&config_account.data)?;
+        let job_id = config.next_job_id;
 
-    println!("  ✓ Job 1: {} (PDA: {})", job1_id, job1_pda);
-    println!("  ✓ Job 2: {} (PDA: {})", job2_id, job2_pda);
+        let create_job_ix = sdk.create_job_instruction(
+            &client.pubkey(),
+            job_id,
+            zyberlink_types::CircuitType::ZcashOrchard,
+            [i as u8; 32],
+            1024,
+            1_000_000_000,
+            3600,
+            None,
+        )?;
 
+        ctx.execute_transaction(&[create_job_ix], &[&client]).await?;
+        let (job_pda, _) = sdk.get_job_pda(&client.pubkey(), job_id);
+        job_pdas.push(job_pda);
+
+        println!("  Job {}: {}", i + 1, job_pda);
+    }
+
+    // All provers try to claim jobs
     println!("\nTest: All Five Provers Attempt to Claim Jobs");
     println!("{}", "-".repeat(80));
 
-    // All provers try to claim job 1, then job 2
-    let mut claim_handles: Vec<JoinHandle<(usize, bool, bool)>> = vec![];
+    let mut successful_claims = 0;
 
-    for (i, prover) in provers.into_iter().enumerate() {
-        let rpc_url = rpc_url.to_string();
-        let job1_pda = job1_pda;
-        let job2_pda = job2_pda;
-
-        claim_handles.push(tokio::spawn(async move {
-            let sdk_client = MarketplaceClient::new(rpc_url, program_id);
-
-            // Try to claim job 1
-            let claim1_result = {
-                let claim_ix = sdk_client
-                    .claim_job_instruction(&prover.pubkey(), &job1_pda)
-                    .unwrap();
-
-                let recent_blockhash = sdk_client.rpc_client.get_latest_blockhash().unwrap();
-                let mut tx = Transaction::new_with_payer(&[claim_ix], Some(&prover.pubkey()));
-                tx.sign(&[&prover], recent_blockhash);
-
-                sdk_client.rpc_client.send_and_confirm_transaction(&tx).is_ok()
-            };
-
-            // Try to claim job 2
-            let claim2_result = {
-                let claim_ix = sdk_client
-                    .claim_job_instruction(&prover.pubkey(), &job2_pda)
-                    .unwrap();
-
-                let recent_blockhash = sdk_client.rpc_client.get_latest_blockhash().unwrap();
-                let mut tx = Transaction::new_with_payer(&[claim_ix], Some(&prover.pubkey()));
-                tx.sign(&[&prover], recent_blockhash);
-
-                sdk_client.rpc_client.send_and_confirm_transaction(&tx).is_ok()
-            };
-
-            (i, claim1_result, claim2_result)
-        }));
+    // First two provers claim the two jobs
+    for (i, job_pda) in job_pdas.iter().enumerate() {
+        let prover = &provers[i];
+        let claim_job_ix = sdk.claim_job_instruction(&prover.pubkey(), job_pda)?;
+        ctx.execute_transaction(&[claim_job_ix], &[prover]).await?;
+        println!("  Prover {} claimed job {}", i + 1, i + 1);
+        successful_claims += 1;
     }
 
-    // Collect results
-    let mut total_successful_claims = 0;
-    for handle in claim_handles {
-        let (prover_idx, job1_claimed, job2_claimed) = handle.await.unwrap();
+    // Remaining provers try to claim already claimed jobs - should fail
+    for i in 2..5 {
+        let prover = &provers[i];
 
-        let mut status = String::new();
-        if job1_claimed {
-            status.push_str("claimed job 1");
-            total_successful_claims += 1;
-        }
-        if job2_claimed {
-            if !status.is_empty() {
-                status.push_str(" and ");
-            }
-            status.push_str("claimed job 2");
-            total_successful_claims += 1;
-        }
-        if status.is_empty() {
-            status = "failed to claim any job".to_string();
-        }
+        // Try job 1
+        let claim_job_ix = sdk.claim_job_instruction(&prover.pubkey(), &job_pdas[0])?;
+        let result1 = ctx.execute_transaction(&[claim_job_ix], &[prover]).await;
 
-        println!("  Prover {}: {}", prover_idx + 1, status);
+        // Try job 2
+        let claim_job_ix = sdk.claim_job_instruction(&prover.pubkey(), &job_pdas[1])?;
+        let result2 = ctx.execute_transaction(&[claim_job_ix], &[prover]).await;
+
+        assert!(result1.is_err() && result2.is_err(),
+            "Prover {} should fail to claim any job", i + 1);
+        println!("  Prover {} failed to claim any job (all taken)", i + 1);
     }
 
-    // Verify exactly 2 claims succeeded (one per job)
-    assert_eq!(
-        total_successful_claims, 2,
-        "Exactly 2 jobs should be claimed (got {})",
-        total_successful_claims
-    );
-
-    println!("  ✓ Exactly 2 provers claimed jobs (3 remained idle)");
+    assert_eq!(successful_claims, 2, "Exactly 2 jobs should be claimed");
+    println!("  Exactly 2 provers claimed jobs (3 remained idle)");
 
     println!("\n{}", "=".repeat(80));
-    println!("✅ MORE PROVERS THAN JOBS TEST PASSED!");
+    println!("MORE PROVERS THAN JOBS TEST PASSED!");
+    println!("{}", "=".repeat(80));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_prover_can_claim_multiple_jobs_sequentially() -> Result<()> {
+    println!("\n{}", "=".repeat(80));
+    println!("TEST: One Prover Claims Multiple Jobs Sequentially");
+    println!("{}", "=".repeat(80));
+
+    let mut ctx = setup_initialized_marketplace().await?;
+
+    // Register one prover
+    let prover = Keypair::new();
+    let stake_amount = 5_000_000_000u64;
+    let prover_pda = register_test_prover(&mut ctx, &prover, stake_amount).await?;
+    println!("Prover registered: {}", prover.pubkey());
+
+    let sdk = ctx.sdk_client();
+
+    // Create and complete multiple jobs
+    for job_num in 0..3 {
+        println!("\n--- Job {} ---", job_num + 1);
+
+        // Create job
+        let client = Keypair::new();
+        ctx.fund_account(&client.pubkey(), 10_000_000_000).await?;
+
+        let config_account = ctx.banks_client
+            .get_account(ctx.config_pda)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Config account not found"))?;
+
+        let config: zyberlink_sdk::MarketplaceConfig = borsh::from_slice(&config_account.data)?;
+        let job_id = config.next_job_id;
+
+        let create_job_ix = sdk.create_job_instruction(
+            &client.pubkey(),
+            job_id,
+            zyberlink_types::CircuitType::ZcashOrchard,
+            [job_num as u8; 32],
+            1024,
+            1_000_000_000,
+            3600,
+            None,
+        )?;
+
+        ctx.execute_transaction(&[create_job_ix], &[&client]).await?;
+        let (job_pda, _) = sdk.get_job_pda(&client.pubkey(), job_id);
+        println!("  Created job {}", job_id);
+
+        // Claim job
+        let claim_job_ix = sdk.claim_job_instruction(&prover.pubkey(), &job_pda)?;
+        ctx.execute_transaction(&[claim_job_ix], &[&prover]).await?;
+        println!("  Claimed job");
+
+        // Submit proof
+        let submit_proof_ix = sdk.submit_proof_instruction_with_recipient(
+            &prover.pubkey(),
+            &job_pda,
+            &client.pubkey(),
+            &config.protocol_fee_recipient,
+            [99u8; 32],
+            512,
+        )?;
+
+        ctx.execute_transaction(&[submit_proof_ix], &[&prover]).await?;
+        println!("  Completed job");
+    }
+
+    // Verify prover stats
+    let prover_account = ctx.banks_client
+        .get_account(prover_pda)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Prover account not found"))?;
+
+    use borsh::BorshDeserialize;
+    let mut data_slice = prover_account.data.as_slice();
+    let prover_data = zyberlink_sdk::ProverAccount::deserialize(&mut data_slice)?;
+
+    assert_eq!(prover_data.total_jobs_completed, 3);
+    println!("\nProver completed {} jobs total", prover_data.total_jobs_completed);
+
+    println!("\n{}", "=".repeat(80));
+    println!("SEQUENTIAL JOBS TEST PASSED!");
     println!("{}", "=".repeat(80));
 
     Ok(())

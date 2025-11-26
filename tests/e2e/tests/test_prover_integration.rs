@@ -1,399 +1,396 @@
-//! Integration test with real prover node
-//!
-//! This test verifies the complete marketplace workflow with a real prover node:
-//! 1. Client creates job on-chain
-//! 2. Client uploads encrypted witness to storage backend
-//! 3. Prover node detects job
-//! 4. Prover node claims job
-//! 5. Prover node downloads witness
-//! 6. Prover node generates proof
-//! 7. Prover node submits proof on-chain
-//! 8. Prover receives payment
+/// Prover Integration Tests using solana-program-test (in-memory)
+///
+/// Tests the prover workflow:
+/// 1. Prover registration
+/// 2. Job claiming
+/// 3. Proof submission
+/// 4. Payment distribution
+///
+/// Note: For full integration tests with real prover node, see test_prover_integration_external.rs
+
+mod common;
 
 use anyhow::Result;
 use blake2::{Blake2s256, Digest};
-use zyberlink_sdk::MarketplaceClient;
-use zyberlink_types::CircuitType;
-use solana_client::rpc_client::RpcClient;
-use solana_sdk::{
-    commitment_config::CommitmentConfig,
-    signature::{Keypair, Signer},
-    transaction::Transaction,
-};
-use std::process::{Child, Command, Stdio};
-use std::str::FromStr;
-use std::time::Duration;
-use tokio::time::sleep;
+use borsh::BorshDeserialize;
+use solana_sdk::signature::{Keypair, Signer};
+use common::{setup_initialized_marketplace, register_test_prover};
 
-/// Integration test orchestrator
-struct IntegrationOrchestrator {
-    witness_backend: Option<Child>,
-    prover_node: Option<Child>,
-}
+#[tokio::test]
+async fn test_prover_claims_and_completes_job() -> Result<()> {
+    println!("\n=== Testing Prover Claims and Completes Job ===\n");
 
-impl IntegrationOrchestrator {
-    fn new() -> Self {
-        Self {
-            witness_backend: None,
-            prover_node: None,
-        }
-    }
-
-    /// Start witness storage backend server
-    fn start_witness_backend(&mut self) -> Result<()> {
-        println!("  Starting witness storage backend...");
-
-        let backend = Command::new("cargo")
-            .args(&[
-                "run",
-                "--release",
-                "--bin",
-                "witness-storage",
-                "--",
-                "--port",
-                "3031", // Use different port to avoid conflicts
-            ])
-            .current_dir("/home/deploy/experimental/zyberlink")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()?;
-
-        self.witness_backend = Some(backend);
-
-        // Wait for backend to be ready
-        std::thread::sleep(Duration::from_secs(3));
-
-        println!("  ✓ Witness backend started on http://localhost:3031");
-        Ok(())
-    }
-
-    /// Start prover node daemon
-    fn start_prover_node(
-        &mut self,
-        program_id: &str,
-        keypair_path: &str,
-    ) -> Result<()> {
-        println!("  Starting prover node...");
-
-        let prover = Command::new("cargo")
-            .args(&[
-                "run",
-                "--release",
-                "--bin",
-                "zyberlink-prover",
-                "--",
-                "--rpc-url",
-                "http://localhost:8899",
-                "--program-id",
-                program_id,
-                "--keypair",
-                keypair_path,
-                "--poll-interval",
-                "2", // Poll every 2 seconds
-                "--witness-backend-url",
-                "http://localhost:3031",
-            ])
-            .current_dir("/home/deploy/experimental/zyberlink")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .env("RUST_LOG", "info")
-            .spawn()?;
-
-        self.prover_node = Some(prover);
-
-        // Wait for prover to initialize
-        std::thread::sleep(Duration::from_secs(5));
-
-        println!("  ✓ Prover node started");
-        Ok(())
-    }
-
-    /// Stop all running processes
-    fn stop_all(&mut self) {
-        if let Some(mut backend) = self.witness_backend.take() {
-            let _ = backend.kill();
-            let _ = backend.wait();
-        }
-
-        if let Some(mut prover) = self.prover_node.take() {
-            let _ = prover.kill();
-            let _ = prover.wait();
-        }
-    }
-}
-
-impl Drop for IntegrationOrchestrator {
-    fn drop(&mut self) {
-        self.stop_all();
-    }
-}
-
-#[tokio::test(flavor = "multi_thread")]
-#[ignore] // Run with: cargo test --test test_prover_integration -- --ignored --nocapture
-async fn test_complete_prover_integration() -> Result<()> {
-    println!("\n{}", "=".repeat(80));
-    println!("INTEGRATION TEST: Complete Prover Node Workflow");
-    println!("{}", "=".repeat(80));
-
-    // Connect to local validator (must be running)
-    let rpc_url = "http://127.0.0.1:8899";
-    let rpc_client = RpcClient::new_with_commitment(rpc_url.to_string(), CommitmentConfig::confirmed());
-
-    // Check validator is running
-    if rpc_client.get_health().is_err() {
-        println!("⚠ Error: Solana validator not running");
-        println!("⚠ Please start validator with: solana-test-validator");
-        return Ok(());
-    }
-
-    let program_id = solana_sdk::pubkey::Pubkey::from_str("bn2XNLkXi23NPMjH1qNdGWg1tuUFtpVkQvqxTD9v3Ys")?;
-    let sdk_client = MarketplaceClient::new(rpc_url.to_string(), program_id);
-
-    // ========================================================================
-    // Setup: Initialize orchestrator
-    // ========================================================================
-    println!("\nSetup: Starting Background Services");
-    println!("{}", "-".repeat(80));
-
-    let mut orchestrator = IntegrationOrchestrator::new();
-
-    // Start witness backend
-    orchestrator.start_witness_backend()?;
-
-    // ========================================================================
-    // Setup: Register Prover
-    // ========================================================================
-    println!("\nSetup: Register Prover");
-    println!("{}", "-".repeat(80));
-
-    let prover = Keypair::new();
-    let prover_keypair_path = "/tmp/test_prover.json";
-
-    // Save prover keypair to file
-    std::fs::write(
-        prover_keypair_path,
-        serde_json::to_string(&prover.to_bytes().to_vec())?,
-    )?;
-
-    println!("  Prover: {}", prover.pubkey());
-
-    // Fund prover
-    let airdrop_sig = rpc_client.request_airdrop(&prover.pubkey(), 20_000_000_000)?;
-    for _ in 0..30 {
-        if rpc_client.confirm_transaction(&airdrop_sig).unwrap_or(false) {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(500));
-    }
+    let mut ctx = setup_initialized_marketplace().await?;
 
     // Register prover
-    let (prover_pda, _) = sdk_client.get_prover_pda(&prover.pubkey());
-    if rpc_client.get_account(&prover_pda).is_err() {
-        let encryption_key = [99u8; 32]; // In real scenario, this comes from prover's encryption module
-        let register_ix = sdk_client.register_prover_instruction(
-            &prover.pubkey(),
-            5_000_000_000,
-            encryption_key,
-        )?;
+    let prover = Keypair::new();
+    let stake_amount = 5_000_000_000u64;
+    let prover_pda = register_test_prover(&mut ctx, &prover, stake_amount).await?;
+    println!("Prover registered: {}", prover.pubkey());
 
-        let recent_blockhash = rpc_client.get_latest_blockhash()?;
-        let mut tx = Transaction::new_with_payer(&[register_ix], Some(&prover.pubkey()));
-        tx.sign(&[&prover], recent_blockhash);
-
-        rpc_client.send_and_confirm_transaction(&tx)?;
-        println!("  ✓ Prover registered with 5 SOL stake");
-    } else {
-        println!("  ✓ Prover already registered");
-    }
-
-    // Start prover node
-    orchestrator.start_prover_node(&program_id.to_string(), prover_keypair_path)?;
-
-    // ========================================================================
-    // STEP 1: Client Creates Job
-    // ========================================================================
-    println!("\nSTEP 1: Client Creates Job");
-    println!("{}", "-".repeat(80));
-
+    // Create client and fund
     let client = Keypair::new();
-    let airdrop_sig = rpc_client.request_airdrop(&client.pubkey(), 10_000_000_000)?;
-    for _ in 0..30 {
-        if rpc_client.confirm_transaction(&airdrop_sig).unwrap_or(false) {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(500));
-    }
-
-    let client_balance_before = rpc_client.get_balance(&client.pubkey())?;
-    println!("  Client: {}", client.pubkey());
-    println!("  Client balance: {} SOL", client_balance_before as f64 / 1_000_000_000.0);
+    ctx.fund_account(&client.pubkey(), 10_000_000_000).await?;
+    println!("Client funded: {}", client.pubkey());
 
     // Get next job ID
-    let (config_pda, _) = sdk_client.get_config_pda();
-    let config_account = rpc_client.get_account(&config_pda)?;
+    let config_account = ctx.banks_client
+        .get_account(ctx.config_pda)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Config account not found"))?;
 
-    use borsh::BorshDeserialize;
+    let config: zyberlink_sdk::MarketplaceConfig = borsh::from_slice(&config_account.data)?;
+    let job_id = config.next_job_id;
 
-    #[derive(Debug, BorshDeserialize)]
-    #[allow(dead_code)]
-    struct MarketplaceConfigData {
-        authority: solana_sdk::pubkey::Pubkey,
-        fee_basis_points: u16,
-        min_stake_amount: u64,
-        min_reputation_score: u32,
-        default_job_timeout_seconds: i64,
-        protocol_fee_recipient: solana_sdk::pubkey::Pubkey,
-        next_job_id: u64,
-        total_provers: u64,
-        total_jobs_created: u64,
-        total_jobs_completed: u64,
-        is_paused: bool,
-        bump: u8,
-    }
-
-    let config_data = MarketplaceConfigData::try_from_slice(&config_account.data)?;
-    let job_id = config_data.next_job_id;
-
-    // Create witness
+    // Create witness commitment
     let witness_data = vec![42u8; 1024];
     let mut hasher = Blake2s256::new();
     hasher.update(&witness_data);
     let witness_commitment: [u8; 32] = hasher.finalize().into();
 
-    let price_lamports = 2_000_000_000; // 2 SOL
+    let price_lamports = 2_000_000_000u64;
 
-    let create_job_ix = sdk_client.create_job_instruction(
+    // Create job
+    let sdk = ctx.sdk_client();
+    let create_job_ix = sdk.create_job_instruction(
         &client.pubkey(),
         job_id,
-        CircuitType::ZcashOrchard,
+        zyberlink_types::CircuitType::ZcashOrchard,
         witness_commitment,
         witness_data.len() as u32,
         price_lamports,
-        600,
+        3600,
         None,
     )?;
 
-    let recent_blockhash = rpc_client.get_latest_blockhash()?;
-    let mut tx = Transaction::new_with_payer(&[create_job_ix], Some(&client.pubkey()));
-    tx.sign(&[&client], recent_blockhash);
+    ctx.execute_transaction(&[create_job_ix], &[&client]).await?;
+    println!("Job {} created", job_id);
 
-    let sig = rpc_client.send_and_confirm_transaction(&tx)?;
-    let (job_pda, _) = sdk_client.get_job_pda(&client.pubkey(), job_id);
+    let (job_pda, _) = sdk.get_job_pda(&client.pubkey(), job_id);
 
-    println!("  ✓ Job created on-chain");
-    println!("    Job ID: {}", job_id);
-    println!("    Job PDA: {}", job_pda);
-    println!("    Price: {} SOL", price_lamports as f64 / 1_000_000_000.0);
-    println!("    Signature: {}", sig);
+    // Record prover balance before
+    let prover_account_before = ctx.banks_client.get_account(prover.pubkey()).await?.unwrap();
+    let prover_balance_before = prover_account_before.lamports;
 
-    // ========================================================================
-    // STEP 2: Upload Encrypted Witness to Backend
-    // ========================================================================
-    println!("\nSTEP 2: Upload Encrypted Witness");
-    println!("{}", "-".repeat(80));
+    // Prover claims job
+    let claim_job_ix = sdk.claim_job_instruction(&prover.pubkey(), &job_pda)?;
+    ctx.execute_transaction(&[claim_job_ix], &[&prover]).await?;
+    println!("Prover claimed job");
 
-    // In real scenario, witness would be encrypted with prover's public key
-    // For this test, we'll upload the raw data
-    let backend_url = "http://localhost:3031";
+    // Verify job is claimed
+    let job_account = ctx.banks_client
+        .get_account(job_pda)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Job account not found"))?;
 
-    let client_http = reqwest::Client::new();
-    let response = client_http
-        .post(format!("{}/upload", backend_url))
-        .json(&serde_json::json!({
-            "commitment": hex::encode(witness_commitment),
-            "data": hex::encode(&witness_data),
-        }))
-        .send()
-        .await?;
+    let mut job_slice = job_account.data.as_slice();
+    let job = zyberlink_sdk::JobAccount::deserialize(&mut job_slice)?;
+    assert_eq!(job.status, zyberlink_types::JobStatus::Claimed);
+    assert_eq!(job.prover, Some(prover.pubkey()));
+    println!("Job status verified: Claimed");
 
-    if response.status().is_success() {
-        println!("  ✓ Witness uploaded to backend");
-        println!("    Commitment: {}", hex::encode(witness_commitment));
-    } else {
-        println!("  ⚠ Failed to upload witness: {}", response.status());
-        orchestrator.stop_all();
-        return Ok(());
-    }
+    // Prover submits proof
+    let proof_data = vec![99u8; 512];
+    let mut hasher = Blake2s256::new();
+    hasher.update(&proof_data);
+    let proof_commitment: [u8; 32] = hasher.finalize().into();
 
-    // ========================================================================
-    // STEP 3: Wait for Prover to Process Job
-    // ========================================================================
-    println!("\nSTEP 3: Waiting for Prover Node to Process Job");
-    println!("{}", "-".repeat(80));
-    println!("  Prover node will:");
-    println!("    1. Detect the pending job");
-    println!("    2. Claim the job");
-    println!("    3. Download encrypted witness");
-    println!("    4. Generate Halo2 proof (this takes ~10-30 seconds)");
-    println!("    5. Submit proof on-chain");
-    println!();
-    println!("  Waiting... (max 60 seconds)");
+    // Get protocol fee recipient from config
+    let config_account = ctx.banks_client
+        .get_account(ctx.config_pda)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Config account not found"))?;
 
-    // Poll job status
-    let mut job_completed = false;
-    for i in 0..30 {
-        sleep(Duration::from_secs(2)).await;
+    let config: zyberlink_sdk::MarketplaceConfig = borsh::from_slice(&config_account.data)?;
 
-        if rpc_client.get_account(&job_pda).is_ok() {
-            // Check if job has proof_commitment (means it's completed)
-            // We can't easily deserialize because of CircuitType enum, so check escrow instead
-            let (escrow_pda, _) = sdk_client.get_escrow_pda(&job_pda);
+    let submit_proof_ix = sdk.submit_proof_instruction_with_recipient(
+        &prover.pubkey(),
+        &job_pda,
+        &client.pubkey(),
+        &config.protocol_fee_recipient,
+        proof_commitment,
+        proof_data.len() as u32,
+    )?;
 
-            if rpc_client.get_account(&escrow_pda).is_err() {
-                // Escrow closed = job completed
-                println!("  ✓ Job completed! (after {} seconds)", (i + 1) * 2);
-                job_completed = true;
-                break;
-            }
+    ctx.execute_transaction(&[submit_proof_ix], &[&prover]).await?;
+    println!("Proof submitted");
 
-            if i % 5 == 0 {
-                println!("    Still processing... ({} seconds elapsed)", (i + 1) * 2);
-            }
-        }
-    }
+    // Verify job completed
+    let job_account = ctx.banks_client
+        .get_account(job_pda)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Job account not found"))?;
 
-    if !job_completed {
-        println!("  ⚠ Job not completed within timeout");
-        println!("  ⚠ Check prover logs for errors");
-        orchestrator.stop_all();
-        return Ok(());
-    }
+    let mut job_slice = job_account.data.as_slice();
+    let job = zyberlink_sdk::JobAccount::deserialize(&mut job_slice)?;
+    assert_eq!(job.status, zyberlink_types::JobStatus::Completed);
+    assert!(job.proof_hash.is_some());
+    println!("Job status verified: Completed");
 
-    // ========================================================================
-    // Verification
-    // ========================================================================
-    println!("\nVerification");
-    println!("{}", "-".repeat(80));
+    // Verify prover received payment (minus protocol fee)
+    let prover_account_after = ctx.banks_client.get_account(prover.pubkey()).await?.unwrap();
+    let prover_balance_after = prover_account_after.lamports;
 
-    // Check escrow is closed
-    let (escrow_pda, _) = sdk_client.get_escrow_pda(&job_pda);
-    if rpc_client.get_account(&escrow_pda).is_err() {
-        println!("  ✓ Escrow account closed (funds distributed)");
-    }
+    // Prover should have received most of the payment (minus protocol fee)
+    // Protocol fee is 2.5% (250 basis points), so prover gets 97.5%
+    let expected_payment = (price_lamports * 9750) / 10000;
+    let balance_increase = prover_balance_after.saturating_sub(prover_balance_before);
 
-    // Check prover balance increased
-    let prover_balance_after = rpc_client.get_balance(&prover.pubkey())?;
-    println!("  ✓ Prover balance after: {} SOL", prover_balance_after as f64 / 1_000_000_000.0);
+    println!("Prover balance before: {} SOL", prover_balance_before as f64 / 1e9);
+    println!("Prover balance after: {} SOL", prover_balance_after as f64 / 1e9);
+    println!("Expected payment (97.5%): {} SOL", expected_payment as f64 / 1e9);
 
-    // Stop background services
-    println!("\nCleanup");
-    println!("{}", "-".repeat(80));
-    orchestrator.stop_all();
-    println!("  ✓ Background services stopped");
+    // Account for transaction fees (prover paid for claim and submit transactions)
+    assert!(balance_increase > expected_payment - 100_000_000, "Prover should have received payment");
 
-    // Cleanup temp files
-    let _ = std::fs::remove_file(prover_keypair_path);
+    // Verify prover stats updated
+    let prover_account = ctx.banks_client
+        .get_account(prover_pda)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Prover account not found"))?;
 
-    println!("\n{}", "=".repeat(80));
-    println!("✅ COMPLETE PROVER INTEGRATION TEST PASSED!");
-    println!("{}", "=".repeat(80));
-    println!("\nSummary:");
-    println!("  - Job created by client");
-    println!("  - Prover detected and claimed job");
-    println!("  - Prover generated real Halo2 proof");
-    println!("  - Proof submitted on-chain");
-    println!("  - Payment distributed automatically");
-    println!();
+    let mut data_slice = prover_account.data.as_slice();
+    let prover_data = zyberlink_sdk::ProverAccount::deserialize(&mut data_slice)?;
+    assert_eq!(prover_data.total_jobs_completed, 1);
+    println!("Prover completed jobs: {}", prover_data.total_jobs_completed);
 
+    println!("\nProver claims and completes job test passed!");
     Ok(())
 }
+
+#[tokio::test]
+async fn test_prover_cannot_claim_already_claimed_job() -> Result<()> {
+    println!("\n=== Testing Prover Cannot Claim Already Claimed Job ===\n");
+
+    let mut ctx = setup_initialized_marketplace().await?;
+
+    // Register two provers
+    let prover1 = Keypair::new();
+    let prover2 = Keypair::new();
+    let stake_amount = 5_000_000_000u64;
+
+    let _prover1_pda = register_test_prover(&mut ctx, &prover1, stake_amount).await?;
+    let _prover2_pda = register_test_prover(&mut ctx, &prover2, stake_amount).await?;
+    println!("Two provers registered");
+
+    // Create job
+    let client = Keypair::new();
+    ctx.fund_account(&client.pubkey(), 10_000_000_000).await?;
+
+    let config_account = ctx.banks_client
+        .get_account(ctx.config_pda)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Config account not found"))?;
+
+    let config: zyberlink_sdk::MarketplaceConfig = borsh::from_slice(&config_account.data)?;
+    let job_id = config.next_job_id;
+
+    let witness_commitment = [42u8; 32];
+    let price_lamports = 1_000_000_000u64;
+
+    let sdk = ctx.sdk_client();
+    let create_job_ix = sdk.create_job_instruction(
+        &client.pubkey(),
+        job_id,
+        zyberlink_types::CircuitType::ZcashOrchard,
+        witness_commitment,
+        1024,
+        price_lamports,
+        3600,
+        None,
+    )?;
+
+    ctx.execute_transaction(&[create_job_ix], &[&client]).await?;
+    println!("Job created");
+
+    let (job_pda, _) = sdk.get_job_pda(&client.pubkey(), job_id);
+
+    // Prover 1 claims job
+    let claim_job_ix = sdk.claim_job_instruction(&prover1.pubkey(), &job_pda)?;
+    ctx.execute_transaction(&[claim_job_ix], &[&prover1]).await?;
+    println!("Prover 1 claimed job");
+
+    // Prover 2 tries to claim same job - should fail
+    let claim_job_ix = sdk.claim_job_instruction(&prover2.pubkey(), &job_pda)?;
+    let result = ctx.execute_transaction(&[claim_job_ix], &[&prover2]).await;
+
+    assert!(result.is_err(), "Prover 2 should not be able to claim already claimed job");
+    println!("Prover 2 correctly rejected from claiming already claimed job");
+
+    println!("\nProver cannot claim already claimed job test passed!");
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_only_assigned_prover_can_submit_proof() -> Result<()> {
+    println!("\n=== Testing Only Assigned Prover Can Submit Proof ===\n");
+
+    let mut ctx = setup_initialized_marketplace().await?;
+
+    // Register two provers
+    let prover1 = Keypair::new();
+    let prover2 = Keypair::new();
+    let stake_amount = 5_000_000_000u64;
+
+    let _prover1_pda = register_test_prover(&mut ctx, &prover1, stake_amount).await?;
+    let _prover2_pda = register_test_prover(&mut ctx, &prover2, stake_amount).await?;
+    println!("Two provers registered");
+
+    // Create job
+    let client = Keypair::new();
+    ctx.fund_account(&client.pubkey(), 10_000_000_000).await?;
+
+    let config_account = ctx.banks_client
+        .get_account(ctx.config_pda)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Config account not found"))?;
+
+    let config: zyberlink_sdk::MarketplaceConfig = borsh::from_slice(&config_account.data)?;
+    let job_id = config.next_job_id;
+
+    let witness_commitment = [42u8; 32];
+    let price_lamports = 1_000_000_000u64;
+
+    let sdk = ctx.sdk_client();
+    let create_job_ix = sdk.create_job_instruction(
+        &client.pubkey(),
+        job_id,
+        zyberlink_types::CircuitType::ZcashOrchard,
+        witness_commitment,
+        1024,
+        price_lamports,
+        3600,
+        None,
+    )?;
+
+    ctx.execute_transaction(&[create_job_ix], &[&client]).await?;
+    println!("Job created");
+
+    let (job_pda, _) = sdk.get_job_pda(&client.pubkey(), job_id);
+
+    // Prover 1 claims job
+    let claim_job_ix = sdk.claim_job_instruction(&prover1.pubkey(), &job_pda)?;
+    ctx.execute_transaction(&[claim_job_ix], &[&prover1]).await?;
+    println!("Prover 1 claimed job");
+
+    // Prover 2 tries to submit proof - should fail
+    let proof_commitment = [99u8; 32];
+
+    let submit_proof_ix = sdk.submit_proof_instruction_with_recipient(
+        &prover2.pubkey(),  // Wrong prover!
+        &job_pda,
+        &client.pubkey(),
+        &config.protocol_fee_recipient,
+        proof_commitment,
+        512,
+    )?;
+
+    let result = ctx.execute_transaction(&[submit_proof_ix], &[&prover2]).await;
+    assert!(result.is_err(), "Prover 2 should not be able to submit proof");
+    println!("Prover 2 correctly rejected from submitting proof");
+
+    // Prover 1 can submit proof
+    let submit_proof_ix = sdk.submit_proof_instruction_with_recipient(
+        &prover1.pubkey(),
+        &job_pda,
+        &client.pubkey(),
+        &config.protocol_fee_recipient,
+        proof_commitment,
+        512,
+    )?;
+
+    ctx.execute_transaction(&[submit_proof_ix], &[&prover1]).await?;
+    println!("Prover 1 successfully submitted proof");
+
+    println!("\nOnly assigned prover can submit proof test passed!");
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_prover_reputation_updates() -> Result<()> {
+    println!("\n=== Testing Prover Reputation Updates ===\n");
+
+    let mut ctx = setup_initialized_marketplace().await?;
+
+    // Register prover
+    let prover = Keypair::new();
+    let stake_amount = 5_000_000_000u64;
+    let prover_pda = register_test_prover(&mut ctx, &prover, stake_amount).await?;
+
+    // Check initial reputation
+    let prover_account = ctx.banks_client
+        .get_account(prover_pda)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Prover account not found"))?;
+
+    let mut data_slice = prover_account.data.as_slice();
+    let prover_data = zyberlink_sdk::ProverAccount::deserialize(&mut data_slice)?;
+    let initial_reputation = prover_data.reputation_score;
+    println!("Initial reputation: {}", initial_reputation);
+
+    // Complete a job
+    let client = Keypair::new();
+    ctx.fund_account(&client.pubkey(), 10_000_000_000).await?;
+
+    let config_account = ctx.banks_client
+        .get_account(ctx.config_pda)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Config account not found"))?;
+
+    let config: zyberlink_sdk::MarketplaceConfig = borsh::from_slice(&config_account.data)?;
+    let job_id = config.next_job_id;
+
+    let sdk = ctx.sdk_client();
+    let create_job_ix = sdk.create_job_instruction(
+        &client.pubkey(),
+        job_id,
+        zyberlink_types::CircuitType::ZcashOrchard,
+        [42u8; 32],
+        1024,
+        1_000_000_000,
+        3600,
+        None,
+    )?;
+
+    ctx.execute_transaction(&[create_job_ix], &[&client]).await?;
+
+    let (job_pda, _) = sdk.get_job_pda(&client.pubkey(), job_id);
+
+    // Claim and complete job
+    let claim_job_ix = sdk.claim_job_instruction(&prover.pubkey(), &job_pda)?;
+    ctx.execute_transaction(&[claim_job_ix], &[&prover]).await?;
+
+    let submit_proof_ix = sdk.submit_proof_instruction_with_recipient(
+        &prover.pubkey(),
+        &job_pda,
+        &client.pubkey(),
+        &config.protocol_fee_recipient,
+        [99u8; 32],
+        512,
+    )?;
+
+    ctx.execute_transaction(&[submit_proof_ix], &[&prover]).await?;
+    println!("Job completed");
+
+    // Check updated reputation
+    let prover_account = ctx.banks_client
+        .get_account(prover_pda)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Prover account not found"))?;
+
+    let mut data_slice = prover_account.data.as_slice();
+    let prover_data = zyberlink_sdk::ProverAccount::deserialize(&mut data_slice)?;
+    let final_reputation = prover_data.reputation_score;
+    println!("Final reputation: {}", final_reputation);
+
+    // Reputation should increase after completing a job
+    assert!(final_reputation >= initial_reputation, "Reputation should not decrease after completing job");
+    assert_eq!(prover_data.total_jobs_completed, 1);
+
+    println!("\nProver reputation updates test passed!");
+    Ok(())
+}
+
+// Note: test_inactive_prover_cannot_claim was removed because there's no
+// deactivate_prover instruction. Provers are only deactivated when slashed
+// below minimum stake. This behavior is tested in test_slash_prover.rs
