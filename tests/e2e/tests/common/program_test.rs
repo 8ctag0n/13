@@ -181,12 +181,13 @@ pub async fn register_test_prover(
 /// Create FHE job in test environment
 ///
 /// Automatically funds creator and creates job
+/// Returns (job_pda, job_id)
 pub async fn create_test_fhe_job(
     ctx: &mut TestContext,
     creator: &Keypair,
     required_provers: u8,
     consensus_threshold: u8,
-) -> Result<Pubkey> {
+) -> Result<(Pubkey, u64)> {
     use blake2::{Blake2s256, Digest as Blake2Digest};
     use zyberlink_types::FheOperation;
 
@@ -233,14 +234,14 @@ pub async fn create_test_fhe_job(
 
     ctx.execute_transaction(&[create_job_ix], &[creator]).await?;
 
-    // Return job PDA
+    // Return job PDA and job ID
     let job_id_bytes = job_id.to_le_bytes();
     let (job_pda, _) = Pubkey::find_program_address(
         &[b"job", creator.pubkey().as_ref(), &job_id_bytes],
         &ctx.program_id,
     );
 
-    Ok(job_pda)
+    Ok((job_pda, job_id))
 }
 
 #[cfg(test)]
@@ -283,7 +284,7 @@ mod tests {
         let mut ctx = setup_initialized_marketplace().await.unwrap();
         let creator = Keypair::new();
 
-        let job_pda = create_test_fhe_job(
+        let (job_pda, _job_id) = create_test_fhe_job(
             &mut ctx,
             &creator,
             3,  // required_provers
