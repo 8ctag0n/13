@@ -345,30 +345,49 @@ impl MarketplaceClient {
     }
 
     /// Build SlashProver instruction
+    ///
+    /// Accounts expected by processor (in order):
+    /// 0. [signer] authority - marketplace authority
+    /// 1. [writable] prover - prover account PDA
+    /// 2. [] job - job account (evidence of misbehavior)
+    /// 3. [writable] protocol_fee_recipient - receives slashed funds
+    /// 4. [] config - marketplace config PDA
+    ///
+    /// NOTE: Uses authority as protocol_fee_recipient by default.
+    /// Use slash_prover_instruction_with_recipient if you need a different recipient.
     pub fn slash_prover_instruction(
         &self,
         authority: &Pubkey,
         job_pda: &Pubkey,
         prover_authority: &Pubkey,
     ) -> Result<Instruction> {
+        self.slash_prover_instruction_with_recipient(authority, job_pda, prover_authority, authority)
+    }
+
+    /// Build SlashProver instruction with explicit protocol fee recipient
+    pub fn slash_prover_instruction_with_recipient(
+        &self,
+        authority: &Pubkey,
+        job_pda: &Pubkey,
+        prover_authority: &Pubkey,
+        protocol_fee_recipient: &Pubkey,
+    ) -> Result<Instruction> {
         let (config_pda, _) = Pubkey::find_program_address(&[b"config"], &self.program_id);
         let (prover_pda, _) =
             Pubkey::find_program_address(&[b"prover", prover_authority.as_ref()], &self.program_id);
-        let (escrow_pda, _) =
-            Pubkey::find_program_address(&[b"escrow", job_pda.as_ref()], &self.program_id);
 
         let instruction_data = MarketplaceInstruction::SlashProver {
-            slash_amount: 0, // TODO: Make this a parameter
+            slash_amount: 500_000_000, // 0.5 SOL default slash
         };
 
         Ok(Instruction {
             program_id: self.program_id,
             accounts: vec![
-                AccountMeta::new(*authority, true),
-                AccountMeta::new(*job_pda, false),
-                AccountMeta::new(prover_pda, false),
-                AccountMeta::new(escrow_pda, false),
-                AccountMeta::new_readonly(config_pda, false),
+                AccountMeta::new(*authority, true),          // 0. authority (signer)
+                AccountMeta::new(prover_pda, false),         // 1. prover
+                AccountMeta::new_readonly(*job_pda, false),  // 2. job (evidence)
+                AccountMeta::new(*protocol_fee_recipient, false), // 3. protocol_fee_recipient
+                AccountMeta::new_readonly(config_pda, false), // 4. config
             ],
             data: instruction_data.pack()?,
         })

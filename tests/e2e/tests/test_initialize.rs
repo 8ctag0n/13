@@ -1,90 +1,130 @@
-use anyhow::Result;
-use solana_sdk::{
-    signature::{Keypair, Signer},
-    transaction::Transaction,
-    commitment_config::CommitmentConfig,
-};
-use solana_client::rpc_client::RpcClient;
-use std::str::FromStr;
+/// Test Initialize Marketplace using solana-program-test (in-memory)
+///
+/// This test verifies the Initialize instruction creates a valid config PDA
+/// with the correct parameters.
 
-#[tokio::test(flavor = "multi_thread")]
+mod common;
+
+use anyhow::Result;
+use solana_sdk::signature::{Keypair, Signer};
+use borsh::BorshDeserialize;
+use common::{setup_test_environment, TestContext};
+
+#[tokio::test]
 async fn test_initialize_marketplace() -> Result<()> {
     println!("\n=== Testing Initialize Marketplace ===\n");
 
-    let rpc_url = "http://127.0.0.1:8899";
-    let program_id = solana_sdk::pubkey::Pubkey::from_str("bn2XNLkXi23NPMjH1qNdGWg1tuUFtpVkQvqxTD9v3Ys")?;
+    let mut ctx = setup_test_environment().await?;
 
-    // Create RPC client
-    let rpc_client = RpcClient::new_with_commitment(
-        rpc_url.to_string(),
-        CommitmentConfig::confirmed(),
-    );
-
-    // Generate authority keypair
-    let authority = Keypair::new();
-    println!("Authority: {}", authority.pubkey());
-
-    // Airdrop SOL to authority
-    println!("Requesting airdrop...");
-    let airdrop_sig = rpc_client.request_airdrop(&authority.pubkey(), 10_000_000_000)?;
-
-    // Wait for airdrop to be finalized
-    println!("Waiting for airdrop confirmation...");
-    for _ in 0..30 {
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-        let balance = rpc_client.get_balance(&authority.pubkey())?;
-        if balance >= 10_000_000_000 {
-            println!("Airdrop confirmed. Balance: {} SOL", balance as f64 / 1_000_000_000.0);
-            break;
-        }
-    }
-
-    // Double check balance
-    let balance = rpc_client.get_balance(&authority.pubkey())?;
-    if balance == 0 {
-        anyhow::bail!("Airdrop failed - balance is still 0");
-    }
+    // Fund authority
+    println!("Funding authority...");
+    ctx.fund_account(&ctx.authority.pubkey(), 10_000_000_000).await?;
 
     // Create SDK client
-    let sdk_client = zyberlink_sdk::MarketplaceClient::new(
-        rpc_url.to_string(),
-        program_id,
-    );
+    let sdk = ctx.sdk_client();
+    let authority_pubkey = ctx.authority.pubkey();
 
     // Build Initialize instruction
     println!("Creating Initialize instruction...");
-    let initialize_ix = sdk_client.initialize_instruction(
-        &authority.pubkey(),
-        1000,      // 10% platform fee
-        1_000_000_000, // 1 SOL minimum stake
-        500,       // 500/1000 minimum reputation
-        600,       // 10 minutes default timeout
+    let initialize_ix = sdk.initialize_instruction(
+        &authority_pubkey,
+        1000,           // 10% platform fee
+        1_000_000_000,  // 1 SOL minimum stake
+        500,            // 500/1000 minimum reputation
+        600,            // 10 minutes default timeout
     )?;
 
-    // Get recent blockhash
-    let recent_blockhash = rpc_client.get_latest_blockhash()?;
-
-    // Create and sign transaction
-    let mut transaction = Transaction::new_with_payer(
-        &[initialize_ix],
-        Some(&authority.pubkey()),
-    );
-    transaction.sign(&[&authority], recent_blockhash);
-
-    // Send transaction
+    // Execute transaction
     println!("Sending Initialize transaction...");
-    let signature = rpc_client.send_and_confirm_transaction(&transaction)?;
+    let authority_clone = Keypair::from_bytes(&ctx.authority.to_bytes())?;
+    ctx.execute_transaction(&[initialize_ix], &[&authority_clone]).await?;
 
-    println!("\n✅ Initialize succeeded!");
-    println!("   Transaction: {}", signature);
+    println!("\nInitialize succeeded!");
 
     // Verify config was created
-    let (config_pda, _) = sdk_client.get_config_pda();
-    let config_account = rpc_client.get_account(&config_pda)?;
+    let (config_pda, _) = sdk.get_config_pda();
+    let config_account = ctx.banks_client
+        .get_account(config_pda)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Config account not found"))?;
+
     println!("   Config PDA: {}", config_pda);
     println!("   Config data length: {} bytes", config_account.data.len());
 
-    assert!(config_account.data.len() > 0, "Config account should have data");
+    // Deserialize and verify config
+    let config: zyberlink_sdk::MarketplaceConfig =
+        borsh::from_slice(&config_account.data)?;
+
+    println!("   Platform fee: {}%", config.fee_basis_points as f64 / 100.0);
+    println!("   Min stake: {} SOL", config.min_stake_amount as f64 / 1_000_000_000.0);
+    println!("   Min reputation: {}", config.min_reputation_score);
+    println!("   Default timeout: {} seconds", config.default_job_timeout_seconds);
+    println!("   Authority: {}", config.authority);
+
+    assert_eq!(config.fee_basis_points, 1000);
+    assert_eq!(config.min_stake_amount, 1_000_000_000);
+    assert_eq!(config.min_reputation_score, 500);
+    assert_eq!(config.default_job_timeout_seconds, 600);
+    assert_eq!(config.authority, authority_pubkey);
+    assert_eq!(config.next_job_id, 0);
+
+    println!("\nAll assertions passed!");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_initialize_idempotent() -> Result<()> {
+    println!("\n=== Testing Initialize is Idempotent ===\n");
+
+    let mut ctx = setup_test_environment().await?;
+
+    // Fund authority
+    ctx.fund_account(&ctx.authority.pubkey(), 10_000_000_000).await?;
+
+    let sdk = ctx.sdk_client();
+    let authority_pubkey = ctx.authority.pubkey();
+    let authority_clone = Keypair::from_bytes(&ctx.authority.to_bytes())?;
+
+    // First initialization
+    let initialize_ix = sdk.initialize_instruction(
+        &authority_pubkey,
+        500,
+        2_000_000_000,
+        100,
+        300,
+    )?;
+
+    ctx.execute_transaction(&[initialize_ix], &[&authority_clone]).await?;
+    println!("First initialization succeeded");
+
+    // Try to initialize again - should fail
+    let authority_clone2 = Keypair::from_bytes(&ctx.authority.to_bytes())?;
+    let initialize_ix2 = sdk.initialize_instruction(
+        &authority_pubkey,
+        1000,
+        3_000_000_000,
+        200,
+        600,
+    )?;
+
+    let result = ctx.execute_transaction(&[initialize_ix2], &[&authority_clone2]).await;
+
+    assert!(result.is_err(), "Second initialization should fail");
+    println!("Second initialization correctly rejected");
+
+    // Verify original config unchanged
+    let (config_pda, _) = sdk.get_config_pda();
+    let config_account = ctx.banks_client
+        .get_account(config_pda)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Config account not found"))?;
+
+    let config: zyberlink_sdk::MarketplaceConfig =
+        borsh::from_slice(&config_account.data)?;
+
+    assert_eq!(config.fee_basis_points, 500, "Config should be unchanged");
+    println!("Config verified unchanged");
 
     Ok(())
 }
