@@ -1,163 +1,65 @@
+/// Test CreateJob instruction using solana-program-test (in-memory)
+///
+/// Tests job creation functionality including:
+/// - Basic ZK job creation
+/// - FHE job creation with consensus config
+/// - Escrow account verification
+/// - Job parameter validation
+
+mod common;
+
 use anyhow::Result;
-use solana_sdk::{
-    signature::{Keypair, Signer},
-    transaction::Transaction,
-    commitment_config::CommitmentConfig,
-};
-use solana_client::rpc_client::RpcClient;
-use std::str::FromStr;
-use zyberlink_types::CircuitType;
+use blake2::{Blake2s256, Digest};
+use zyberlink_types::{CircuitType, FheConsensusConfig, FheOperation};
+use solana_sdk::signature::{Keypair, Signer};
+use borsh::BorshDeserialize;
+use common::setup_initialized_marketplace;
 
-#[tokio::test(flavor = "multi_thread")]
-async fn test_create_job() -> Result<()> {
-    println!("\n=== Testing Create Job ===\n");
+// Circuit type constants (matches JobAccount in program)
+const CIRCUIT_ZCASH_ORCHARD: u8 = 0;
+const CIRCUIT_FHE_ADD: u8 = 4;
 
-    let rpc_url = "http://127.0.0.1:8899";
-    let program_id = solana_sdk::pubkey::Pubkey::from_str("bn2XNLkXi23NPMjH1qNdGWg1tuUFtpVkQvqxTD9v3Ys")?;
+#[tokio::test]
+async fn test_create_zk_job() -> Result<()> {
+    println!("\n=== Testing Create ZK Job ===\n");
 
-    // Create RPC client
-    let rpc_client = RpcClient::new_with_commitment(
-        rpc_url.to_string(),
-        CommitmentConfig::confirmed(),
-    );
+    let mut ctx = setup_initialized_marketplace().await?;
 
-    // === STEP 1: Initialize Marketplace (if needed) ===
-    println!("Step 1: Checking marketplace state...");
-
-    let authority = Keypair::new();
-    println!("Authority: {}", authority.pubkey());
-
-    // Airdrop SOL to authority
-    println!("Requesting airdrop for authority...");
-    let _airdrop_sig = rpc_client.request_airdrop(&authority.pubkey(), 10_000_000_000)?;
-
-    // Wait for airdrop to be finalized
-    println!("Waiting for airdrop confirmation...");
-    for _ in 0..30 {
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-        let balance = rpc_client.get_balance(&authority.pubkey())?;
-        if balance >= 10_000_000_000 {
-            println!("Airdrop confirmed. Balance: {} SOL", balance as f64 / 1_000_000_000.0);
-            break;
-        }
-    }
-
-    // Double check balance
-    let balance = rpc_client.get_balance(&authority.pubkey())?;
-    if balance == 0 {
-        anyhow::bail!("Airdrop failed - balance is still 0");
-    }
-
-    // Create SDK client
-    let sdk_client = zyberlink_sdk::MarketplaceClient::new(
-        rpc_url.to_string(),
-        program_id,
-    );
-
-    // Check if marketplace is already initialized
-    let (config_pda, _) = sdk_client.get_config_pda();
-    let is_initialized = rpc_client.get_account(&config_pda).is_ok();
-
-    if is_initialized {
-        println!("Marketplace already initialized, skipping initialization");
-    } else {
-        // Build Initialize instruction
-        println!("Creating Initialize instruction...");
-        let initialize_ix = sdk_client.initialize_instruction(
-            &authority.pubkey(),
-            1000,              // 10% platform fee
-            1_000_000_000,     // 1 SOL minimum stake
-            500,               // 500/1000 minimum reputation
-            600,               // 10 minutes default timeout
-        )?;
-
-        // Get recent blockhash
-        let recent_blockhash = rpc_client.get_latest_blockhash()?;
-
-        // Create and sign transaction
-        let mut transaction = Transaction::new_with_payer(
-            &[initialize_ix],
-            Some(&authority.pubkey()),
-        );
-        transaction.sign(&[&authority], recent_blockhash);
-
-        // Send transaction
-        println!("Sending Initialize transaction...");
-        let signature = rpc_client.send_and_confirm_transaction(&transaction)?;
-        println!("Initialize succeeded: {}", signature);
-    }
-
-    // === STEP 2: Create Job ===
-    println!("\nStep 2: Creating job...");
-
-    // Generate job creator keypair
     let job_creator = Keypair::new();
+    ctx.fund_account(&job_creator.pubkey(), 10_000_000_000).await?;
     println!("Job Creator: {}", job_creator.pubkey());
 
-    // Airdrop SOL to job creator for job payment + transaction fees
-    println!("Requesting airdrop for job creator...");
-    let _airdrop_sig = rpc_client.request_airdrop(&job_creator.pubkey(), 20_000_000_000)?;
+    // Get next job ID from config
+    let config_account = ctx.banks_client
+        .get_account(ctx.config_pda)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Config account not found"))?;
 
-    // Wait for job creator airdrop
-    println!("Waiting for job creator airdrop confirmation...");
-    for _ in 0..30 {
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-        let balance = rpc_client.get_balance(&job_creator.pubkey())?;
-        if balance >= 20_000_000_000 {
-            println!("Job creator airdrop confirmed. Balance: {} SOL", balance as f64 / 1_000_000_000.0);
-            break;
-        }
-    }
+    let config: zyberlink_sdk::MarketplaceConfig =
+        borsh::from_slice(&config_account.data)?;
+    let job_id = config.next_job_id;
+    println!("Job ID: {}", job_id);
 
-    // Double check job creator balance
-    let creator_balance = rpc_client.get_balance(&job_creator.pubkey())?;
-    if creator_balance == 0 {
-        anyhow::bail!("Job creator airdrop failed - balance is still 0");
-    }
+    // Create witness commitment
+    let witness_data = vec![42u8; 1024];
+    let mut hasher = Blake2s256::new();
+    hasher.update(&witness_data);
+    let witness_commitment: [u8; 32] = hasher.finalize().into();
 
     // Job parameters
-    // Read the config to get the current next_job_id
-    let (config_pda, _) = sdk_client.get_config_pda();
-    let config_account = rpc_client.get_account(&config_pda)?;
-
-    // Deserialize config to get next_job_id
-    use borsh::BorshDeserialize;
-
-    #[derive(Debug, BorshDeserialize)]
-    #[allow(dead_code)]
-    struct MarketplaceConfig {
-        authority: solana_sdk::pubkey::Pubkey,
-        fee_basis_points: u16,
-        min_stake_amount: u64,
-        min_reputation_score: u32,
-        default_job_timeout_seconds: i64,
-        protocol_fee_recipient: solana_sdk::pubkey::Pubkey,
-        next_job_id: u64,
-        total_provers: u64,
-        total_jobs_created: u64,
-        total_jobs_completed: u64,
-        is_paused: bool,
-        bump: u8,
-    }
-
-    let config_data = MarketplaceConfig::try_from_slice(&config_account.data)?;
-    let job_id = config_data.next_job_id;
-
-    println!("   Using job ID: {} (from config.next_job_id)", job_id);
     let circuit_type = CircuitType::ZcashOrchard;
-    let witness_commitment = [123u8; 32]; // Mock witness commitment
-    let witness_size = 2048;
-    let price_lamports = 2_000_000_000; // 2 SOL
-    let timeout_seconds = 600; // 10 minutes
+    let witness_size = 2048u32;
+    let price_lamports = 2_000_000_000u64; // 2 SOL
+    let timeout_seconds = 600i64;
 
-    // Build CreateJob instruction
-    println!("Creating CreateJob instruction...");
-    println!("   Job ID: {}", job_id);
+    println!("Creating job:");
     println!("   Circuit Type: {:?}", circuit_type);
-    println!("   Price: {} SOL", price_lamports as f64 / 1_000_000_000.0);
+    println!("   Price: {} SOL", price_lamports as f64 / 1e9);
     println!("   Timeout: {} seconds", timeout_seconds);
 
-    let create_job_ix = sdk_client.create_job_instruction(
+    // Create job instruction
+    let sdk = ctx.sdk_client();
+    let create_job_ix = sdk.create_job_instruction(
         &job_creator.pubkey(),
         job_id,
         circuit_type,
@@ -165,59 +67,250 @@ async fn test_create_job() -> Result<()> {
         witness_size,
         price_lamports,
         timeout_seconds,
-        None,
+        None, // No FHE config for ZK job
     )?;
 
-    // Get recent blockhash
-    let recent_blockhash = rpc_client.get_latest_blockhash()?;
+    ctx.execute_transaction(&[create_job_ix], &[&job_creator]).await?;
+    println!("Job created successfully!");
 
-    // Create and sign transaction
-    let mut transaction = Transaction::new_with_payer(
-        &[create_job_ix],
-        Some(&job_creator.pubkey()),
-    );
-    transaction.sign(&[&job_creator], recent_blockhash);
-
-    // Send transaction
-    println!("Sending CreateJob transaction...");
-    let signature = rpc_client.send_and_confirm_transaction(&transaction)?;
-
-    println!("\n✅ CreateJob succeeded!");
-    println!("   Transaction: {}", signature);
-
-    // === STEP 3: Verify Job Account ===
-    println!("\nStep 3: Verifying job account...");
-
-    let (job_pda, _) = sdk_client.get_job_pda(&job_creator.pubkey(), job_id);
-    let job_account = rpc_client.get_account(&job_pda)?;
+    // Verify job account
+    let (job_pda, _) = sdk.get_job_pda(&job_creator.pubkey(), job_id);
+    let job_account = ctx.banks_client
+        .get_account(job_pda)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Job account not found"))?;
 
     println!("   Job PDA: {}", job_pda);
     println!("   Job data length: {} bytes", job_account.data.len());
 
-    assert!(job_account.data.len() > 0, "Job account should have data");
+    // Deserialize job
+    let mut data_slice = job_account.data.as_slice();
+    let job = zyberlink_sdk::JobAccount::deserialize(&mut data_slice)?;
 
-    // Verify the job account has reasonable size
-    // JobAccount::LEN is a conservative estimate, actual size depends on CircuitType variant
-    assert!(job_account.data.len() >= 200, "Job account should have at least 200 bytes");
-    assert!(job_account.data.len() <= 400, "Job account should not exceed 400 bytes");
+    assert_eq!(job.id, job_id, "Job ID should match");
+    assert_eq!(job.creator, job_creator.pubkey(), "Creator should match");
+    assert_eq!(job.circuit_type, CIRCUIT_ZCASH_ORCHARD, "Circuit type should match");
+    assert_eq!(job.price_lamports, price_lamports, "Price should match");
+    assert_eq!(job.status, zyberlink_types::JobStatus::Pending, "Status should be Pending");
+    assert!(job.prover.is_none(), "Prover should be None for new job");
 
-    println!("   Job account data verified: {} bytes", job_account.data.len());
+    println!("   Status: {:?}", job.status);
+    println!("   Circuit Type: {}", job.circuit_type);
 
-    // Verify escrow account was created
-    let (escrow_pda, _) = sdk_client.get_escrow_pda(&job_pda);
-    println!("\n   Escrow PDA: {}", escrow_pda);
+    // Verify escrow account
+    let (escrow_pda, _) = sdk.get_escrow_pda(&job_pda);
+    let escrow_account = ctx.banks_client
+        .get_account(escrow_pda)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Escrow account not found"))?;
 
-    let escrow_account = rpc_client.get_account(&escrow_pda)?;
-    let escrow_balance = escrow_account.lamports;
+    println!("   Escrow PDA: {}", escrow_pda);
+    println!("   Escrow Balance: {} SOL", escrow_account.lamports as f64 / 1e9);
 
-    println!("   Escrow Balance: {} lamports ({} SOL)", escrow_balance, escrow_balance as f64 / 1_000_000_000.0);
+    assert!(escrow_account.lamports >= price_lamports, "Escrow should hold at least job price");
 
-    // Escrow should hold the job price + rent
-    // Rent is typically ~890880 lamports for rent-exempt account
-    assert!(escrow_balance >= price_lamports, "Escrow should hold at least job price");
-    assert!(escrow_balance < price_lamports + 10_000_000, "Escrow should not have excessive balance");
+    println!("\nCreate ZK job test passed!");
+    Ok(())
+}
 
-    println!("\n✅ All job account verifications passed!");
+#[tokio::test]
+async fn test_create_fhe_job() -> Result<()> {
+    println!("\n=== Testing Create FHE Job ===\n");
 
+    let mut ctx = setup_initialized_marketplace().await?;
+
+    let job_creator = Keypair::new();
+    ctx.fund_account(&job_creator.pubkey(), 20_000_000_000).await?;
+    println!("Job Creator: {}", job_creator.pubkey());
+
+    // Get next job ID
+    let config_account = ctx.banks_client
+        .get_account(ctx.config_pda)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Config account not found"))?;
+
+    let config: zyberlink_sdk::MarketplaceConfig =
+        borsh::from_slice(&config_account.data)?;
+    let job_id = config.next_job_id;
+
+    // Create witness commitment
+    let witness_data = vec![42u8; 1024];
+    let mut hasher = Blake2s256::new();
+    hasher.update(&witness_data);
+    let witness_commitment: [u8; 32] = hasher.finalize().into();
+
+    // FHE job parameters
+    let circuit_type = CircuitType::FheComputation(FheOperation::Add(10)); // FHE Add operation
+    let witness_size = 4096u32;
+    let price_lamports = 5_000_000_000u64; // 5 SOL (FHE jobs cost more)
+    let timeout_seconds = 1200i64; // 20 minutes
+
+    // FHE consensus config
+    let fhe_config = FheConsensusConfig {
+        required_provers: 3,
+        consensus_threshold: 2, // 2 of 3 must agree
+        submission_timeout_secs: 600,
+        operation: FheOperation::Add(10),
+    };
+
+    println!("Creating FHE job:");
+    println!("   Circuit Type: {:?}", circuit_type);
+    println!("   Price: {} SOL", price_lamports as f64 / 1e9);
+    println!("   Required Provers: {}", fhe_config.required_provers);
+    println!("   Consensus Threshold: {}", fhe_config.consensus_threshold);
+
+    // Create job instruction
+    let sdk = ctx.sdk_client();
+    let create_job_ix = sdk.create_job_instruction(
+        &job_creator.pubkey(),
+        job_id,
+        circuit_type,
+        witness_commitment,
+        witness_size,
+        price_lamports,
+        timeout_seconds,
+        Some(fhe_config),
+    )?;
+
+    ctx.execute_transaction(&[create_job_ix], &[&job_creator]).await?;
+    println!("FHE job created successfully!");
+
+    // Verify job account
+    let (job_pda, _) = sdk.get_job_pda(&job_creator.pubkey(), job_id);
+    let job_account = ctx.banks_client
+        .get_account(job_pda)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Job account not found"))?;
+
+    let mut data_slice = job_account.data.as_slice();
+    let job = zyberlink_sdk::JobAccount::deserialize(&mut data_slice)?;
+
+    assert_eq!(job.circuit_type, CIRCUIT_FHE_ADD, "Should be FHE circuit type");
+    assert!(job.fhe_consensus_bump.is_some(), "FHE job should have consensus bump");
+
+    // Verify FHE consensus account was created
+    let (fhe_consensus_pda, _) = sdk.get_fhe_consensus_pda(job_id);
+    let fhe_consensus_account = ctx.banks_client
+        .get_account(fhe_consensus_pda)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("FHE consensus account not found"))?;
+
+    println!("   FHE Consensus PDA: {}", fhe_consensus_pda);
+    println!("   FHE Consensus data length: {} bytes", fhe_consensus_account.data.len());
+
+    // Deserialize FHE consensus data
+    let mut consensus_slice = fhe_consensus_account.data.as_slice();
+    let consensus = zyberlink_sdk::FheConsensusData::deserialize(&mut consensus_slice)?;
+
+    assert_eq!(consensus.required_provers, 3, "Required provers should match");
+    assert_eq!(consensus.consensus_threshold, 2, "Threshold should match");
+    assert_eq!(consensus.results_count, 0, "No results submitted yet");
+
+    println!("\nCreate FHE job test passed!");
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_create_job_insufficient_funds() -> Result<()> {
+    println!("\n=== Testing Create Job - Insufficient Funds ===\n");
+
+    let mut ctx = setup_initialized_marketplace().await?;
+
+    let job_creator = Keypair::new();
+    // Only fund with 1 SOL (job costs 2 SOL)
+    ctx.fund_account(&job_creator.pubkey(), 1_000_000_000).await?;
+
+    // Get next job ID
+    let config_account = ctx.banks_client
+        .get_account(ctx.config_pda)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Config account not found"))?;
+
+    let config: zyberlink_sdk::MarketplaceConfig =
+        borsh::from_slice(&config_account.data)?;
+    let job_id = config.next_job_id;
+
+    let witness_commitment = [42u8; 32];
+    let price_lamports = 2_000_000_000u64; // 2 SOL (more than creator has)
+
+    let sdk = ctx.sdk_client();
+    let create_job_ix = sdk.create_job_instruction(
+        &job_creator.pubkey(),
+        job_id,
+        CircuitType::ZcashOrchard,
+        witness_commitment,
+        2048,
+        price_lamports,
+        600,
+        None,
+    )?;
+
+    let result = ctx.execute_transaction(&[create_job_ix], &[&job_creator]).await;
+
+    assert!(result.is_err(), "Should fail with insufficient funds");
+    println!("Job creation correctly rejected for insufficient funds");
+
+    println!("\nInsufficient funds test passed!");
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_create_multiple_jobs() -> Result<()> {
+    println!("\n=== Testing Create Multiple Jobs ===\n");
+
+    let mut ctx = setup_initialized_marketplace().await?;
+
+    let job_creator = Keypair::new();
+    ctx.fund_account(&job_creator.pubkey(), 50_000_000_000).await?;
+
+    let sdk = ctx.sdk_client();
+
+    // Create 3 jobs
+    for i in 0..3 {
+        let config_account = ctx.banks_client
+            .get_account(ctx.config_pda)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Config account not found"))?;
+
+        let config: zyberlink_sdk::MarketplaceConfig =
+            borsh::from_slice(&config_account.data)?;
+        let job_id = config.next_job_id;
+
+        let witness_commitment = [i as u8; 32];
+        let price_lamports = 1_000_000_000u64; // 1 SOL each
+
+        let create_job_ix = sdk.create_job_instruction(
+            &job_creator.pubkey(),
+            job_id,
+            CircuitType::ZcashOrchard,
+            witness_commitment,
+            2048,
+            price_lamports,
+            600,
+            None,
+        )?;
+
+        ctx.execute_transaction(&[create_job_ix], &[&job_creator]).await?;
+        println!("Created job {} with ID {}", i + 1, job_id);
+
+        // Verify job exists
+        let (job_pda, _) = sdk.get_job_pda(&job_creator.pubkey(), job_id);
+        let job_account = ctx.banks_client.get_account(job_pda).await?;
+        assert!(job_account.is_some(), "Job {} should exist", job_id);
+    }
+
+    // Verify config updated
+    let config_account = ctx.banks_client
+        .get_account(ctx.config_pda)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Config account not found"))?;
+
+    let config: zyberlink_sdk::MarketplaceConfig =
+        borsh::from_slice(&config_account.data)?;
+
+    assert_eq!(config.total_jobs_created, 3, "Should have created 3 jobs");
+    println!("Total jobs created: {}", config.total_jobs_created);
+
+    println!("\nMultiple jobs test passed!");
     Ok(())
 }
