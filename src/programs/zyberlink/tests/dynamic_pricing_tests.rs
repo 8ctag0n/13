@@ -55,6 +55,12 @@ async fn test_tier1_add_sufficient_price() {
         fhe_config: Some(fhe_config),
     };
 
+    // FHE jobs need the fhe_consensus_pda account
+    let (fhe_consensus_pda, _) = Pubkey::find_program_address(
+        &[b"fhe_consensus", &job_id_bytes],
+        &program_id,
+    );
+
     let create_job_ix = solana_program::instruction::Instruction {
         program_id,
         accounts: vec![
@@ -66,6 +72,8 @@ async fn test_tier1_add_sufficient_price() {
                 solana_program::system_program::id(),
                 false,
             ),
+            // FHE consensus account
+            solana_program::instruction::AccountMeta::new(fhe_consensus_pda, false),
         ],
         data: create_job_instruction.pack().unwrap(),
     };
@@ -141,6 +149,12 @@ async fn test_tier1_add_insufficient_price() {
         fhe_config: Some(fhe_config),
     };
 
+    // FHE jobs need the fhe_consensus_pda account
+    let (fhe_consensus_pda, _) = Pubkey::find_program_address(
+        &[b"fhe_consensus", &job_id_bytes],
+        &program_id,
+    );
+
     let create_job_ix = solana_program::instruction::Instruction {
         program_id,
         accounts: vec![
@@ -152,6 +166,8 @@ async fn test_tier1_add_insufficient_price() {
                 solana_program::system_program::id(),
                 false,
             ),
+            // FHE consensus account
+            solana_program::instruction::AccountMeta::new(fhe_consensus_pda, false),
         ],
         data: create_job_instruction.pack().unwrap(),
     };
@@ -221,6 +237,12 @@ async fn test_tier3_threshold_higher_price() {
         fhe_config: Some(fhe_config),
     };
 
+    // FHE jobs need the fhe_consensus_pda account
+    let (fhe_consensus_pda, _) = Pubkey::find_program_address(
+        &[b"fhe_consensus", &job_id_bytes],
+        &program_id,
+    );
+
     let create_job_ix = solana_program::instruction::Instruction {
         program_id,
         accounts: vec![
@@ -232,6 +254,8 @@ async fn test_tier3_threshold_higher_price() {
                 solana_program::system_program::id(),
                 false,
             ),
+            // FHE consensus account
+            solana_program::instruction::AccountMeta::new(fhe_consensus_pda, false),
         ],
         data: create_job_instruction.pack().unwrap(),
     };
@@ -305,6 +329,12 @@ async fn test_pricing_scales_with_provers() {
         fhe_config: Some(fhe_config),
     };
 
+    // FHE jobs need the fhe_consensus_pda account
+    let (fhe_consensus_pda, _) = Pubkey::find_program_address(
+        &[b"fhe_consensus", &job_id_bytes],
+        &program_id,
+    );
+
     let create_job_ix = solana_program::instruction::Instruction {
         program_id,
         accounts: vec![
@@ -316,6 +346,8 @@ async fn test_pricing_scales_with_provers() {
                 solana_program::system_program::id(),
                 false,
             ),
+            // FHE consensus account
+            solana_program::instruction::AccountMeta::new(fhe_consensus_pda, false),
         ],
         data: create_job_instruction.pack().unwrap(),
     };

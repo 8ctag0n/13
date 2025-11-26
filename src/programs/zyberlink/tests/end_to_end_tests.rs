@@ -146,7 +146,7 @@ async fn test_full_job_lifecycle() {
     };
     assert_eq!(job.status, JobStatus::Claimed);
     assert_eq!(job.prover, Some(prover_keypair.pubkey()));
-    assert!(job.claimed_at.is_some());
+    // claimed_at no longer exists in JobAccount (structure optimized)
 
     // Step 5: Prover submits proof
     // Get initial balances
@@ -207,9 +207,8 @@ async fn test_full_job_lifecycle() {
         JobAccount::deserialize(&mut data_slice).unwrap()
     };
     assert_eq!(job.status, JobStatus::Completed);
-    assert_eq!(job.proof_commitment, Some([2u8; 32]));
-    assert_eq!(job.proof_size, Some(1536));
-    assert!(job.completed_at.is_some());
+    // proof_hash stores the proof commitment in the new structure
+    assert_eq!(job.proof_hash, Some([2u8; 32]));
 
     // Verify payments were processed correctly
     // Prover should receive 90% of price (after 10% protocol fee)

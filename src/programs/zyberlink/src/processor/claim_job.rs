@@ -1,5 +1,4 @@
 use borsh::BorshDeserialize;
-use zyberlink_types::CircuitType;
 use solana_program::{
     account_info::{next_account_info, AccountInfo},
     entrypoint::ProgramResult,
@@ -8,13 +7,17 @@ use solana_program::{
     pubkey::Pubkey,
     sysvar::{clock::Clock, Sysvar},
 };
+use zyberlink_types::JobStatus;
 
 use crate::{
     error::ZyberLinkProgramError,
-    state::{JobAccount, MarketplaceConfig, ProverAccount},
+    state::{FheConsensusData, JobAccount, MarketplaceConfig, ProverAccount},
 };
 
 /// Process ClaimJob instruction
+///
+/// For ZK jobs: single prover claims
+/// For FHE jobs: multiple provers claim, requires FheConsensusData account
 pub fn process_claim_job(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResult {
     let account_info_iter = &mut accounts.iter();
 
@@ -22,6 +25,9 @@ pub fn process_claim_job(program_id: &Pubkey, accounts: &[AccountInfo]) -> Progr
     let prover_info = next_account_info(account_info_iter)?;
     let job_info = next_account_info(account_info_iter)?;
     let config_info = next_account_info(account_info_iter)?;
+
+    // For FHE jobs, we need the FheConsensusData account
+    let fhe_consensus_info = account_info_iter.next();
 
     // Verify prover authority is signer
     if !prover_authority_info.is_signer {
@@ -31,18 +37,13 @@ pub fn process_claim_job(program_id: &Pubkey, accounts: &[AccountInfo]) -> Progr
 
     // Verify config PDA
     let (config_pda, _) = Pubkey::find_program_address(&[b"config"], program_id);
-    msg!("DEBUG: Config PDA expected: {}", config_pda);
-    msg!("DEBUG: Config account received: {}", config_info.key);
-    msg!("DEBUG: Config account data len: {}", config_info.data.borrow().len());
     if config_info.key != &config_pda {
         msg!("Invalid config account");
         return Err(ZyberLinkProgramError::InvalidAccount.into());
     }
 
     // Load marketplace config
-    msg!("DEBUG: Attempting to deserialize MarketplaceConfig");
     let config: MarketplaceConfig = borsh::from_slice(&config_info.data.borrow())?;
-    msg!("DEBUG: MarketplaceConfig deserialized successfully");
 
     // Check marketplace is not paused
     if config.is_paused {
@@ -91,7 +92,7 @@ pub fn process_claim_job(program_id: &Pubkey, accounts: &[AccountInfo]) -> Progr
     };
 
     // Verify job is in Pending status
-    if job.status != zyberlink_types::JobStatus::Pending {
+    if job.status != JobStatus::Pending {
         msg!("Job is not in Pending status");
         return Err(ZyberLinkProgramError::JobNotPending.into());
     }
@@ -101,49 +102,67 @@ pub fn process_claim_job(program_id: &Pubkey, accounts: &[AccountInfo]) -> Progr
     let current_time = clock.unix_timestamp;
 
     // Handle FHE multi-prover claiming vs ZK single-prover claiming
-    match &job.circuit_type {
-        CircuitType::FheComputation(_) => {
-            // FHE job: multi-prover support
-            let config = job
-                .fhe_config
-                .as_ref()
-                .ok_or(ZyberLinkProgramError::MissingFheConfig)?;
+    if job.is_fhe() {
+        // FHE job: multi-prover support via FheConsensusData
+        let fhe_info = fhe_consensus_info
+            .ok_or(ZyberLinkProgramError::MissingFheConsensusAccount)?;
 
-            // Check if job is already fully claimed
-            if job.claimed_provers.len() >= config.required_provers as usize {
-                msg!("FHE job already fully claimed");
-                return Err(ZyberLinkProgramError::FheJobFullyClaimed.into());
+        // Verify FHE consensus PDA
+        let job_id_bytes = job.id.to_le_bytes();
+        let (fhe_pda, _) = Pubkey::find_program_address(
+            &[b"fhe_consensus", &job_id_bytes],
+            program_id,
+        );
+
+        if fhe_info.key != &fhe_pda {
+            msg!("Invalid FHE consensus account");
+            return Err(ZyberLinkProgramError::InvalidAccount.into());
+        }
+
+        // Load FHE consensus data (use deserialize to handle variable-size Option)
+        let mut fhe_data: FheConsensusData = {
+            let mut data_slice = &fhe_info.data.borrow()[..];
+            FheConsensusData::deserialize(&mut data_slice)?
+        };
+
+        // Check if job is already fully claimed
+        if fhe_data.is_fully_claimed() {
+            msg!("FHE job already fully claimed");
+            return Err(ZyberLinkProgramError::FheJobFullyClaimed.into());
+        }
+
+        // Add prover to FHE consensus
+        match fhe_data.add_prover(*prover_authority_info.key) {
+            Ok(idx) => {
+                msg!("Prover added to FHE job at slot {}", idx);
             }
-
-            // Check if this prover already claimed
-            if job.claimed_provers.contains(prover_authority_info.key) {
-                msg!("Prover already claimed this FHE job");
+            Err(e) => {
+                msg!("Failed to add prover: {}", e);
                 return Err(ZyberLinkProgramError::ProverAlreadyClaimed.into());
             }
-
-            // Add prover to claimed list
-            job.claimed_provers.push(*prover_authority_info.key);
-
-            // If this was the last required prover, mark as Claimed
-            if job.claimed_provers.len() == config.required_provers as usize {
-                job.status = zyberlink_types::JobStatus::Claimed;
-                job.claimed_at = Some(current_time);
-                msg!(
-                    "FHE job fully claimed by {} provers",
-                    config.required_provers
-                );
-            } else {
-                msg!(
-                    "FHE job partially claimed: {}/{}",
-                    job.claimed_provers.len(),
-                    config.required_provers
-                );
-            }
         }
-        _ => {
-            // ZK job: single prover (existing logic)
-            job.claim(*prover_authority_info.key, current_time);
+
+        // If fully claimed, update job status
+        if fhe_data.is_fully_claimed() {
+            job.status = JobStatus::Claimed;
+            msg!(
+                "FHE job fully claimed by {} provers",
+                fhe_data.required_provers
+            );
+        } else {
+            msg!(
+                "FHE job partially claimed: {}/{}",
+                fhe_data.claimed_count,
+                fhe_data.required_provers
+            );
         }
+
+        // Save FHE consensus data
+        let mut fhe_account_data = fhe_info.try_borrow_mut_data()?;
+        borsh::to_writer(&mut fhe_account_data[..], &fhe_data)?;
+    } else {
+        // ZK job: single prover claiming
+        job.claim(*prover_authority_info.key, current_time);
     }
 
     // Serialize updated job back to account

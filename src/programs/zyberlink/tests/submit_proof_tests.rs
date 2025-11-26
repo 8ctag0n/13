@@ -208,9 +208,8 @@ async fn test_submit_proof() {
     };
 
     assert_eq!(job.status, JobStatus::Completed);
-    assert_eq!(job.proof_commitment, Some([2u8; 32]));
-    assert_eq!(job.proof_size, Some(1536));
-    assert!(job.completed_at.is_some());
+    // proof_hash stores the proof commitment in the new structure
+    assert_eq!(job.proof_hash, Some([2u8; 32]));
 
     // Verify prover got paid (should receive 90% of price)
     let expected_prover_payout = 900_000u64; // 90% of 1_000_000

@@ -133,7 +133,7 @@ async fn test_claim_job() {
 
     assert_eq!(job.status, JobStatus::Claimed);
     assert_eq!(job.prover, Some(prover_keypair.pubkey()));
-    assert!(job.claimed_at.is_some());
+    // claimed_at no longer exists in JobAccount (structure optimized)
 }
 
 #[tokio::test]

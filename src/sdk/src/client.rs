@@ -107,6 +107,8 @@ impl MarketplaceClient {
     }
 
     /// Build CreateJob instruction
+    ///
+    /// For FHE jobs (when fhe_config is Some), this also includes the fhe_consensus_pda account.
     pub fn create_job_instruction(
         &self,
         job_creator: &Pubkey,
@@ -127,6 +129,8 @@ impl MarketplaceClient {
         let (escrow_pda, _) =
             Pubkey::find_program_address(&[b"escrow", job_pda.as_ref()], &self.program_id);
 
+        let is_fhe_job = fhe_config.is_some();
+
         let instruction_data = MarketplaceInstruction::CreateJob {
             circuit_type,
             witness_commitment,
@@ -136,15 +140,23 @@ impl MarketplaceClient {
             fhe_config,
         };
 
+        let mut accounts = vec![
+            AccountMeta::new(*job_creator, true),
+            AccountMeta::new(job_pda, false),
+            AccountMeta::new(config_pda, false),
+            AccountMeta::new(escrow_pda, false),
+            AccountMeta::new_readonly(solana_sdk::system_program::id(), false),
+        ];
+
+        // FHE jobs require the fhe_consensus_pda account
+        if is_fhe_job {
+            let (fhe_consensus_pda, _) = self.get_fhe_consensus_pda(job_id);
+            accounts.push(AccountMeta::new(fhe_consensus_pda, false));
+        }
+
         Ok(Instruction {
             program_id: self.program_id,
-            accounts: vec![
-                AccountMeta::new(*job_creator, true),
-                AccountMeta::new(job_pda, false),
-                AccountMeta::new(config_pda, false),
-                AccountMeta::new(escrow_pda, false),
-                AccountMeta::new_readonly(solana_sdk::system_program::id(), false),
-            ],
+            accounts,
             data: instruction_data.pack()?,
         })
     }
@@ -187,7 +199,9 @@ impl MarketplaceClient {
         )
     }
 
-    /// Build ClaimJob instruction
+    /// Build ClaimJob instruction for ZK jobs
+    ///
+    /// For FHE jobs, use `claim_fhe_job_instruction` instead.
     pub fn claim_job_instruction(
         &self,
         prover_authority: &Pubkey,
@@ -206,6 +220,35 @@ impl MarketplaceClient {
                 AccountMeta::new(prover_pda, false),
                 AccountMeta::new(*job_pda, false),
                 AccountMeta::new_readonly(config_pda, false),
+            ],
+            data: instruction_data.pack()?,
+        })
+    }
+
+    /// Build ClaimJob instruction for FHE jobs
+    ///
+    /// FHE jobs require the fhe_consensus_pda account to track multi-prover claims.
+    pub fn claim_fhe_job_instruction(
+        &self,
+        prover_authority: &Pubkey,
+        job_pda: &Pubkey,
+        job_id: u64,
+    ) -> Result<Instruction> {
+        let (config_pda, _) = Pubkey::find_program_address(&[b"config"], &self.program_id);
+        let (prover_pda, _) =
+            Pubkey::find_program_address(&[b"prover", prover_authority.as_ref()], &self.program_id);
+        let (fhe_consensus_pda, _) = self.get_fhe_consensus_pda(job_id);
+
+        let instruction_data = MarketplaceInstruction::ClaimJob;
+
+        Ok(Instruction {
+            program_id: self.program_id,
+            accounts: vec![
+                AccountMeta::new(*prover_authority, true),
+                AccountMeta::new(prover_pda, false),
+                AccountMeta::new(*job_pda, false),
+                AccountMeta::new_readonly(config_pda, false),
+                AccountMeta::new(fhe_consensus_pda, false),
             ],
             data: instruction_data.pack()?,
         })
@@ -335,20 +378,24 @@ impl MarketplaceClient {
     ///
     /// Accounts:
     /// 0. [writable, signer] Prover authority
-    /// 1. [writable] Job account (PDA)
+    /// 1. [] Job account (PDA) - read-only to verify job validity
+    /// 2. [writable] FHE consensus account (PDA) - stores multi-prover results
     pub fn submit_fhe_result_instruction(
         &self,
         prover_authority: &Pubkey,
         job_pda: &Pubkey,
+        job_id: u64,
         result_hash: [u8; 32],
     ) -> Result<Instruction> {
+        let (fhe_consensus_pda, _) = self.get_fhe_consensus_pda(job_id);
         let instruction_data = MarketplaceInstruction::SubmitFheResult { result_hash };
 
         Ok(Instruction {
             program_id: self.program_id,
             accounts: vec![
                 AccountMeta::new(*prover_authority, true),
-                AccountMeta::new(*job_pda, false),
+                AccountMeta::new_readonly(*job_pda, false),
+                AccountMeta::new(fhe_consensus_pda, false),
             ],
             data: instruction_data.pack()?,
         })
@@ -359,17 +406,19 @@ impl MarketplaceClient {
     /// Accounts:
     /// 0. [signer] Finalizer (can be anyone)
     /// 1. [writable] Job account (PDA)
-    /// 2. [writable] Escrow account (PDA)
-    /// 3. [writable] Job creator account
-    /// 4. [writable] Protocol fee recipient
-    /// 5. [] MarketplaceConfig account
-    /// 6. [] System program
-    /// 7. [] Clock sysvar
-    /// 8..N. [writable] Prover accounts (matching provers)
+    /// 2. [writable] FHE consensus account (PDA)
+    /// 3. [writable] Escrow account (PDA)
+    /// 4. [writable] Job creator account
+    /// 5. [writable] Protocol fee recipient
+    /// 6. [] MarketplaceConfig account
+    /// 7. [] System program
+    /// 8. [] Clock sysvar
+    /// 9..N. [writable] Prover accounts (pairs of [authority, pda])
     pub fn finalize_fhe_job_instruction(
         &self,
         finalizer: &Pubkey,
         job_pda: &Pubkey,
+        job_id: u64,
         job_creator: &Pubkey,
         prover_accounts: &[Pubkey],
     ) -> Result<Instruction> {
@@ -386,6 +435,7 @@ impl MarketplaceClient {
         self.finalize_fhe_job_instruction_with_recipient(
             finalizer,
             job_pda,
+            job_id,
             job_creator,
             &protocol_fee_recipient,
             prover_accounts,
@@ -398,11 +448,13 @@ impl MarketplaceClient {
         &self,
         finalizer: &Pubkey,
         job_pda: &Pubkey,
+        job_id: u64,
         job_creator: &Pubkey,
         protocol_fee_recipient: &Pubkey,
         prover_accounts: &[Pubkey],
     ) -> Result<Instruction> {
         let (config_pda, _) = Pubkey::find_program_address(&[b"config"], &self.program_id);
+        let (fhe_consensus_pda, _) = self.get_fhe_consensus_pda(job_id);
         let (escrow_pda, _) =
             Pubkey::find_program_address(&[b"escrow", job_pda.as_ref()], &self.program_id);
 
@@ -411,6 +463,7 @@ impl MarketplaceClient {
         let mut accounts = vec![
             AccountMeta::new(*finalizer, true),
             AccountMeta::new(*job_pda, false),
+            AccountMeta::new(fhe_consensus_pda, false),
             AccountMeta::new(escrow_pda, false),
             AccountMeta::new(*job_creator, false),
             AccountMeta::new(*protocol_fee_recipient, false),
@@ -466,9 +519,10 @@ impl MarketplaceClient {
         &self,
         prover: &Keypair,
         job_pda: &Pubkey,
+        job_id: u64,
         result_hash: [u8; 32],
     ) -> Result<Signature> {
-        let ix = self.submit_fhe_result_instruction(&prover.pubkey(), job_pda, result_hash)?;
+        let ix = self.submit_fhe_result_instruction(&prover.pubkey(), job_pda, job_id, result_hash)?;
 
         self.send_and_confirm_transaction(&[ix], &[prover])
     }
@@ -478,12 +532,14 @@ impl MarketplaceClient {
         &self,
         finalizer: &Keypair,
         job_pda: &Pubkey,
+        job_id: u64,
         job_creator: &Pubkey,
         matching_prover_pubkeys: &[Pubkey],
     ) -> Result<Signature> {
         let ix = self.finalize_fhe_job_instruction(
             &finalizer.pubkey(),
             job_pda,
+            job_id,
             job_creator,
             matching_prover_pubkeys,
         )?;
@@ -496,6 +552,7 @@ impl MarketplaceClient {
         &self,
         finalizer: &Keypair,
         job_pda: &Pubkey,
+        job_id: u64,
         job_creator: &Pubkey,
         protocol_fee_recipient: &Pubkey,
         matching_prover_pubkeys: &[Pubkey],
@@ -503,6 +560,7 @@ impl MarketplaceClient {
         let ix = self.finalize_fhe_job_instruction_with_recipient(
             &finalizer.pubkey(),
             job_pda,
+            job_id,
             job_creator,
             protocol_fee_recipient,
             matching_prover_pubkeys,
@@ -537,6 +595,12 @@ impl MarketplaceClient {
     /// Get escrow PDA for a job
     pub fn get_escrow_pda(&self, job_pda: &Pubkey) -> (Pubkey, u8) {
         Pubkey::find_program_address(&[b"escrow", job_pda.as_ref()], &self.program_id)
+    }
+
+    /// Get FHE consensus PDA for a job
+    pub fn get_fhe_consensus_pda(&self, job_id: u64) -> (Pubkey, u8) {
+        let job_id_bytes = job_id.to_le_bytes();
+        Pubkey::find_program_address(&[b"fhe_consensus", &job_id_bytes], &self.program_id)
     }
 }
 

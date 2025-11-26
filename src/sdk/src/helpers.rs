@@ -12,8 +12,9 @@ pub use zyberlink_types::{CircuitType, FheConsensusConfig, FheJobResult, JobStat
 
 // Account size constants (must match on-chain program)
 // These are used for RPC filtering to only fetch accounts of the correct type
-const JOB_ACCOUNT_SIZE: usize = 879; // JobAccount::LEN from programs/zyberlink/src/state/job.rs
+const JOB_ACCOUNT_SIZE: usize = 203; // JobAccount::LEN from programs/zyberlink/src/state/job.rs (max with all Options populated)
 const PROVER_ACCOUNT_SIZE: usize = 114; // ProverAccount::LEN from programs/zyberlink/src/state/prover.rs
+const FHE_CONSENSUS_DATA_SIZE: usize = 384; // FheConsensusData::LEN from programs/zyberlink/src/state/job.rs
 
 /// Marketplace configuration account
 /// IMPORTANT: Field order must match programs/zyberlink/src/state/config.rs
@@ -52,29 +53,42 @@ pub struct ProverAccount {
 
 /// Job account
 /// IMPORTANT: Field order must match programs/zyberlink/src/state/job.rs
+/// NOTE: FHE-specific fields (claimed_provers, fhe_results) are now in FheConsensusData account
 #[derive(Debug, Clone, BorshDeserialize)]
 pub struct JobAccount {
     pub id: u64,
     pub creator: Pubkey,
-    pub prover: Option<Pubkey>,
+    pub prover: Option<Pubkey>,           // For ZK jobs: the single prover
     pub status: JobStatus,
     pub circuit_type: CircuitType,
     pub witness_commitment: [u8; 32],
     pub witness_size: u32,
-    pub proof_commitment: Option<[u8; 32]>,
-    pub proof_size: Option<u32>,
     pub price_lamports: u64,
     pub escrow_account: Pubkey,
     pub created_at: i64,
     pub claimed_at: Option<i64>,
-    pub completed_at: Option<i64>,
     pub timeout_at: i64,
     pub bump: u8,
-    // ========== FHE-SPECIFIC FIELDS ==========
-    pub fhe_config: Option<FheConsensusConfig>,
-    pub claimed_provers: Vec<Pubkey>,
-    pub fhe_results: Vec<FheJobResult>,
-    pub fhe_consensus_hash: Option<[u8; 32]>,
+    pub proof_hash: Option<[u8; 32]>,     // Final proof/consensus hash
+    pub fhe_consensus_bump: Option<u8>,   // Bump for FheConsensusData PDA (only for FHE jobs)
+}
+
+/// FHE Consensus Data account (separate from JobAccount)
+/// IMPORTANT: Field order must match programs/zyberlink/src/state/job.rs
+/// This account stores multi-prover FHE consensus information
+#[derive(Debug, Clone, BorshDeserialize)]
+pub struct FheConsensusData {
+    pub job_id: u64,
+    pub required_provers: u8,
+    pub consensus_threshold: u8,
+    pub submission_timeout: i64,
+    pub claimed_count: u8,
+    pub results_count: u8,
+    pub claimed_provers: [Pubkey; 5],     // MAX_FHE_PROVERS = 5
+    pub result_submitted: [bool; 5],
+    pub result_hashes: [[u8; 32]; 5],
+    pub consensus_hash: Option<[u8; 32]>,
+    pub bump: u8,
 }
 
 // ============================================================================
@@ -100,6 +114,13 @@ pub fn fetch_job(rpc_client: &RpcClient, job_pda: &Pubkey) -> Result<JobAccount>
     let account = rpc_client.get_account(job_pda)?;
     let job = JobAccount::deserialize(&mut &account.data[..])?;
     Ok(job)
+}
+
+/// Fetch and deserialize FHE consensus data account
+pub fn fetch_fhe_consensus(rpc_client: &RpcClient, fhe_consensus_pda: &Pubkey) -> Result<FheConsensusData> {
+    let account = rpc_client.get_account(fhe_consensus_pda)?;
+    let fhe_data = FheConsensusData::deserialize(&mut &account.data[..])?;
+    Ok(fhe_data)
 }
 
 // ============================================================================
@@ -421,19 +442,14 @@ mod tests {
             circuit_type: CircuitType::ZcashOrchard,
             witness_commitment: [0u8; 32],
             witness_size: 1024,
-            proof_commitment: None,
-            proof_size: None,
             price_lamports: 1_000_000,
             escrow_account: Pubkey::default(),
             created_at: 1000,
             claimed_at: Some(1000),
-            completed_at: None,
             timeout_at: 1600, // Timeout at timestamp 1600 (600 seconds after claim at 1000)
             bump: 0,
-            fhe_config: None,
-            claimed_provers: Vec::new(),
-            fhe_results: Vec::new(),
-            fhe_consensus_hash: None,
+            proof_hash: None,
+            fhe_consensus_bump: None,
         };
 
         // 300 seconds elapsed, 300 remaining

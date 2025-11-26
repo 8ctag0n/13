@@ -1,4 +1,5 @@
 use borsh::BorshDeserialize;
+use zyberlink_types::JobStatus;
 use solana_program::{
     account_info::{next_account_info, AccountInfo},
     entrypoint::ProgramResult,
@@ -13,13 +14,13 @@ use crate::{
     state::{JobAccount, MarketplaceConfig, ProverAccount},
 };
 
-/// Process SubmitProof instruction
+/// Process SubmitProof instruction (for ZK jobs only)
 #[allow(clippy::too_many_arguments)]
 pub fn process_submit_proof(
     program_id: &Pubkey,
     accounts: &[AccountInfo],
     proof_commitment: [u8; 32],
-    proof_size: u32,
+    _proof_size: u32,
 ) -> ProgramResult {
     let account_info_iter = &mut accounts.iter();
 
@@ -66,8 +67,14 @@ pub fn process_submit_proof(
         JobAccount::deserialize(&mut data_slice)?
     };
 
+    // Verify this is a ZK job (FHE jobs use finalize_fhe_job instead)
+    if job.is_fhe() {
+        msg!("Use finalize_fhe_job for FHE jobs");
+        return Err(ZyberLinkProgramError::NotFheJob.into());
+    }
+
     // Verify job is in Claimed status
-    if job.status != zyberlink_types::JobStatus::Claimed {
+    if job.status != JobStatus::Claimed {
         msg!("Job is not in Claimed status");
         return Err(ZyberLinkProgramError::JobNotClaimed.into());
     }
@@ -140,8 +147,8 @@ pub fn process_submit_proof(
         .checked_add(prover_payout)
         .ok_or(ZyberLinkProgramError::Overflow)?;
 
-    // Update job status
-    job.complete(proof_commitment, proof_size, current_time);
+    // Update job status (new API: complete(proof_hash, current_time))
+    job.complete(proof_commitment, current_time);
 
     // Update prover statistics
     prover.total_jobs_completed = prover.total_jobs_completed.saturating_add(1);
@@ -161,10 +168,6 @@ pub fn process_submit_proof(
 
     msg!("Proof submitted successfully");
     msg!("  Job ID: {}", job.id);
-    msg!(
-        "  Completion time: {} seconds",
-        job.completion_duration_secs().unwrap_or(0)
-    );
 
     Ok(())
 }

@@ -1,5 +1,5 @@
 use borsh::BorshDeserialize;
-use zyberlink_types::{CircuitType, FheJobResult, JobStatus};
+use zyberlink_types::JobStatus;
 use solana_program::{
     account_info::{next_account_info, AccountInfo},
     entrypoint::ProgramResult,
@@ -7,48 +7,33 @@ use solana_program::{
     pubkey::Pubkey,
     sysvar::{clock::Clock, Sysvar},
 };
-use std::collections::HashMap;
 
 use crate::{
     error::ZyberLinkProgramError,
-    state::{JobAccount, MarketplaceConfig, ProverAccount},
+    state::{FheConsensusData, JobAccount, MarketplaceConfig, ProverAccount, MAX_FHE_PROVERS},
 };
-
-/// Find consensus among FHE results
-/// Returns Some(hash) if consensus reached, None if failed
-fn find_consensus(results: &[FheJobResult], consensus_threshold: u8) -> Option<[u8; 32]> {
-    let mut hash_counts: HashMap<[u8; 32], usize> = HashMap::new();
-
-    for result in results {
-        *hash_counts.entry(result.result_hash).or_insert(0) += 1;
-    }
-
-    // Find hash with >= consensus_threshold matches
-    hash_counts
-        .into_iter()
-        .find(|(_, count)| *count >= consensus_threshold as usize)
-        .map(|(hash, _)| hash)
-}
 
 /// Process FinalizeFheJob instruction
 ///
 /// Accounts expected (in order):
 /// 0. [writable, signer] finalizer (anyone can trigger finalization)
 /// 1. [writable] job_pda
-/// 2. [writable] escrow_pda
-/// 3. [writable] creator (for refunds)
-/// 4. [writable] protocol_fee_recipient
-/// 5. [] config_pda
-/// 6. [] system_program
-/// 7. [] clock_sysvar
-/// 8-N. [writable] prover_authority_accounts (dynamic, in same order as fhe_results)
-/// N+1-M. [writable] prover_pda_accounts (dynamic, in same order as fhe_results)
+/// 2. [writable] fhe_consensus_pda
+/// 3. [writable] escrow_pda
+/// 4. [writable] creator (for refunds)
+/// 5. [writable] protocol_fee_recipient
+/// 6. [] config_pda
+/// 7. [] system_program
+/// 8. [] clock_sysvar
+/// 9-N. [writable] prover_authority_accounts (in order of claimed_provers)
+/// N+1-M. [writable] prover_pda_accounts (in order of claimed_provers)
 pub fn process_finalize_fhe_job(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResult {
     let account_info_iter = &mut accounts.iter();
 
     // Fixed accounts
     let _finalizer_info = next_account_info(account_info_iter)?; // Can be anyone
     let job_info = next_account_info(account_info_iter)?;
+    let fhe_consensus_info = next_account_info(account_info_iter)?;
     let escrow_info = next_account_info(account_info_iter)?;
     let creator_info = next_account_info(account_info_iter)?;
     let protocol_fee_recipient_info = next_account_info(account_info_iter)?;
@@ -80,15 +65,28 @@ pub fn process_finalize_fhe_job(program_id: &Pubkey, accounts: &[AccountInfo]) -
     };
 
     // Validate: must be FHE job
-    if !matches!(job.circuit_type, CircuitType::FheComputation(_)) {
-        msg!("Job is not an FHE job");
+    if !job.is_fhe() {
+        msg!("Job is not an FHE job (circuit_type={})", job.circuit_type);
         return Err(ZyberLinkProgramError::NotFheJob.into());
     }
 
-    let config = job
-        .fhe_config
-        .as_ref()
-        .ok_or(ZyberLinkProgramError::MissingFheConfig)?;
+    // Verify FHE consensus PDA
+    let job_id_bytes = job.id.to_le_bytes();
+    let (fhe_pda, _) = Pubkey::find_program_address(
+        &[b"fhe_consensus", &job_id_bytes],
+        program_id,
+    );
+
+    if fhe_consensus_info.key != &fhe_pda {
+        msg!("Invalid FHE consensus account");
+        return Err(ZyberLinkProgramError::InvalidAccount.into());
+    }
+
+    // Load FHE consensus data (use deserialize to handle variable-size Option)
+    let mut fhe_data: FheConsensusData = {
+        let mut data_slice = &fhe_consensus_info.data.borrow()[..];
+        FheConsensusData::deserialize(&mut data_slice)?
+    };
 
     // Validate: job must be Claimed
     if job.status != JobStatus::Claimed {
@@ -97,17 +95,17 @@ pub fn process_finalize_fhe_job(program_id: &Pubkey, accounts: &[AccountInfo]) -
     }
 
     // Validate: all required provers have submitted
-    if job.fhe_results.len() < config.required_provers as usize {
+    if fhe_data.results_count < fhe_data.required_provers {
         msg!(
             "Insufficient FHE results: {}/{}",
-            job.fhe_results.len(),
-            config.required_provers
+            fhe_data.results_count,
+            fhe_data.required_provers
         );
         return Err(ZyberLinkProgramError::InsufficientFheResults.into());
     }
 
     // Validate: not already finalized
-    if job.fhe_consensus_hash.is_some() {
+    if fhe_data.has_consensus() {
         msg!("Job already finalized");
         return Err(ZyberLinkProgramError::AlreadyFinalized.into());
     }
@@ -140,7 +138,8 @@ pub fn process_finalize_fhe_job(program_id: &Pubkey, accounts: &[AccountInfo]) -
     }
 
     // Validate: we have enough accounts for all provers (2 per prover: authority + PDA)
-    let expected_accounts = job.fhe_results.len() * 2;
+    let num_provers = fhe_data.results_count as usize;
+    let expected_accounts = num_provers * 2;
     if remaining_accounts.len() != expected_accounts {
         msg!(
             "Invalid number of prover accounts: expected {}, got {}",
@@ -154,35 +153,34 @@ pub fn process_finalize_fhe_job(program_id: &Pubkey, accounts: &[AccountInfo]) -
     let clock = Clock::get()?;
     let current_time = clock.unix_timestamp;
 
-    // Find consensus
-    let consensus_result = find_consensus(&job.fhe_results, config.consensus_threshold);
+    // Check consensus
+    let consensus_result = fhe_data.check_consensus();
 
     match consensus_result {
         Some(consensus_hash) => {
             msg!("Consensus achieved! Hash: {:?}", consensus_hash);
 
-            // Mark consensus
-            job.fhe_consensus_hash = Some(consensus_hash);
+            // Mark job as completed
             job.status = JobStatus::Completed;
-            job.completed_at = Some(current_time);
+            job.proof_hash = Some(consensus_hash);
 
-            // Identify matching and mismatching provers
-            let matching_results: Vec<_> = job
-                .fhe_results
-                .iter()
-                .filter(|r| r.result_hash == consensus_hash)
-                .collect();
+            // Count matching and mismatching provers
+            let mut matching_count: usize = 0;
+            let mut matching_indices: [bool; MAX_FHE_PROVERS] = [false; MAX_FHE_PROVERS];
 
-            let mismatching_results: Vec<_> = job
-                .fhe_results
-                .iter()
-                .filter(|r| r.result_hash != consensus_hash)
-                .collect();
+            for i in 0..num_provers {
+                if fhe_data.result_submitted[i] && fhe_data.result_hashes[i] == consensus_hash {
+                    matching_count += 1;
+                    matching_indices[i] = true;
+                }
+            }
+
+            let mismatching_count = num_provers - matching_count;
 
             msg!(
                 "Matching: {} provers, Mismatching: {} provers",
-                matching_results.len(),
-                mismatching_results.len()
+                matching_count,
+                mismatching_count
             );
 
             // Calculate payments
@@ -194,9 +192,13 @@ pub fn process_finalize_fhe_job(program_id: &Pubkey, accounts: &[AccountInfo]) -
             let prover_payout_total = total_reward
                 .checked_sub(platform_fee)
                 .ok_or(ZyberLinkProgramError::Overflow)?;
-            let payout_per_prover = prover_payout_total
-                .checked_div(matching_results.len() as u64)
-                .ok_or(ZyberLinkProgramError::Overflow)?;
+            let payout_per_prover = if matching_count > 0 {
+                prover_payout_total
+                    .checked_div(matching_count as u64)
+                    .ok_or(ZyberLinkProgramError::Overflow)?
+            } else {
+                0
+            };
 
             msg!("Payment distribution:");
             msg!("  Total reward: {} lamports", total_reward);
@@ -215,16 +217,18 @@ pub fn process_finalize_fhe_job(program_id: &Pubkey, accounts: &[AccountInfo]) -
                 .ok_or(ZyberLinkProgramError::Overflow)?;
 
             // Process all provers (both matching and mismatching)
-            for (result_idx, result) in job.fhe_results.iter().enumerate() {
+            for result_idx in 0..num_provers {
                 let prover_authority_info = &remaining_accounts[result_idx * 2];
                 let prover_pda_info = &remaining_accounts[result_idx * 2 + 1];
 
+                let prover_key = &fhe_data.claimed_provers[result_idx];
+
                 // Verify prover authority matches
-                if prover_authority_info.key != &result.prover {
+                if prover_authority_info.key != prover_key {
                     msg!(
                         "Prover authority mismatch at index {}: expected {}, got {}",
                         result_idx,
-                        result.prover,
+                        prover_key,
                         prover_authority_info.key
                     );
                     return Err(ZyberLinkProgramError::InvalidAccount.into());
@@ -250,7 +254,7 @@ pub fn process_finalize_fhe_job(program_id: &Pubkey, accounts: &[AccountInfo]) -
                     borsh::from_slice(&prover_pda_info.data.borrow())?;
 
                 // Check if this prover matched consensus
-                let is_matching = result.result_hash == consensus_hash;
+                let is_matching = matching_indices[result_idx];
 
                 if is_matching {
                     // Pay matching prover
@@ -265,13 +269,13 @@ pub fn process_finalize_fhe_job(program_id: &Pubkey, accounts: &[AccountInfo]) -
 
                     // Update reputation: +10 for honest work
                     prover_account.on_job_completed(
-                        (current_time - result.submitted_at) as u32,
+                        (current_time - fhe_data.submission_timeout) as u32,
                         payout_per_prover,
                     );
 
                     msg!(
                         "Paid matching prover {}: {} lamports (reputation: {})",
-                        result.prover,
+                        prover_key,
                         payout_per_prover,
                         prover_account.reputation_score
                     );
@@ -281,7 +285,7 @@ pub fn process_finalize_fhe_job(program_id: &Pubkey, accounts: &[AccountInfo]) -
 
                     msg!(
                         "Penalized mismatching prover {}: reputation now {}",
-                        result.prover,
+                        prover_key,
                         prover_account.reputation_score
                     );
                 }
@@ -296,9 +300,7 @@ pub fn process_finalize_fhe_job(program_id: &Pubkey, accounts: &[AccountInfo]) -
         None => {
             msg!("Consensus failed! No majority agreement.");
 
-            job.fhe_consensus_hash = None;
             job.status = JobStatus::Failed;
-            job.completed_at = Some(current_time);
 
             // Refund creator
             let refund_amount = job.price_lamports;
@@ -318,16 +320,18 @@ pub fn process_finalize_fhe_job(program_id: &Pubkey, accounts: &[AccountInfo]) -
             );
 
             // Penalize ALL provers (-50 reputation each)
-            for (result_idx, result) in job.fhe_results.iter().enumerate() {
+            for result_idx in 0..num_provers {
                 let prover_authority_info = &remaining_accounts[result_idx * 2];
                 let prover_pda_info = &remaining_accounts[result_idx * 2 + 1];
 
+                let prover_key = &fhe_data.claimed_provers[result_idx];
+
                 // Verify prover authority matches
-                if prover_authority_info.key != &result.prover {
+                if prover_authority_info.key != prover_key {
                     msg!(
                         "Prover authority mismatch at index {}: expected {}, got {}",
                         result_idx,
-                        result.prover,
+                        prover_key,
                         prover_authority_info.key
                     );
                     return Err(ZyberLinkProgramError::InvalidAccount.into());
@@ -355,7 +359,7 @@ pub fn process_finalize_fhe_job(program_id: &Pubkey, accounts: &[AccountInfo]) -
 
                 msg!(
                     "Penalized prover {} for consensus failure: reputation now {}",
-                    result.prover,
+                    prover_key,
                     prover_account.reputation_score
                 );
 
@@ -371,6 +375,10 @@ pub fn process_finalize_fhe_job(program_id: &Pubkey, accounts: &[AccountInfo]) -
     // Serialize job back
     let mut job_data = job_info.try_borrow_mut_data()?;
     borsh::to_writer(&mut job_data[..], &job)?;
+
+    // Serialize FHE consensus data back
+    let mut fhe_account_data = fhe_consensus_info.try_borrow_mut_data()?;
+    borsh::to_writer(&mut fhe_account_data[..], &fhe_data)?;
 
     Ok(())
 }

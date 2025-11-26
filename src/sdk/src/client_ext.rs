@@ -148,9 +148,14 @@ impl MarketplaceClient {
             .register_prover(prover, stake_amount, encryption_key)
     }
 
-    /// Claim job instruction (wallet-compatible)
+    /// Claim ZK job instruction (wallet-compatible)
     pub fn claim_job_ix(&self, prover: Pubkey, job_pda: Pubkey) -> Result<Instruction> {
         self.instructions().claim_job(prover, job_pda)
+    }
+
+    /// Claim FHE job instruction (wallet-compatible)
+    pub fn claim_fhe_job_ix(&self, prover: Pubkey, job_pda: Pubkey, job_id: u64) -> Result<Instruction> {
+        self.instructions().claim_fhe_job(prover, job_pda, job_id)
     }
 
     /// Submit FHE result instruction (wallet-compatible)
@@ -158,10 +163,11 @@ impl MarketplaceClient {
         &self,
         prover: Pubkey,
         job_pda: Pubkey,
+        job_id: u64,
         result_hash: [u8; 32],
     ) -> Result<Instruction> {
         self.instructions()
-            .submit_fhe_result(prover, job_pda, result_hash)
+            .submit_fhe_result(prover, job_pda, job_id, result_hash)
     }
 
     // ============================================================================

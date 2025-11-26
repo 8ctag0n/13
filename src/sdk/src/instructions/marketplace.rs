@@ -80,6 +80,12 @@ impl InstructionBuilder {
         Pubkey::find_program_address(&[b"token_escrow", job_pda.as_ref()], &self.program_id)
     }
 
+    /// Get FHE consensus PDA for a job
+    pub fn fhe_consensus_pda(&self, job_id: u64) -> (Pubkey, u8) {
+        let job_id_bytes = job_id.to_le_bytes();
+        Pubkey::find_program_address(&[b"fhe_consensus", &job_id_bytes], &self.program_id)
+    }
+
     // ============================================================================
     // Instruction Builders
     // ============================================================================
@@ -161,6 +167,7 @@ impl InstructionBuilder {
     ///
     /// Creates a new compute job in the marketplace.
     /// Supports both ZK and FHE jobs.
+    /// For FHE jobs (when fhe_config is Some), this also includes the fhe_consensus_pda account.
     ///
     /// # Arguments
     /// * `creator` - Job creator pubkey (will sign and pay)
@@ -186,6 +193,8 @@ impl InstructionBuilder {
         let (job_pda, _) = self.job_pda(&creator, job_id);
         let (escrow_pda, _) = self.escrow_pda(&job_pda);
 
+        let is_fhe_job = fhe_config.is_some();
+
         let instruction_data = MarketplaceInstruction::CreateJob {
             circuit_type,
             witness_commitment,
@@ -195,15 +204,23 @@ impl InstructionBuilder {
             fhe_config,
         };
 
+        let mut accounts = vec![
+            AccountMeta::new(creator, true),
+            AccountMeta::new(job_pda, false),
+            AccountMeta::new(config_pda, false), // Writable - program increments next_job_id
+            AccountMeta::new(escrow_pda, false),
+            AccountMeta::new_readonly(system_program::id(), false),
+        ];
+
+        // FHE jobs require the fhe_consensus_pda account
+        if is_fhe_job {
+            let (fhe_consensus_pda, _) = self.fhe_consensus_pda(job_id);
+            accounts.push(AccountMeta::new(fhe_consensus_pda, false));
+        }
+
         Ok(Instruction {
             program_id: self.program_id,
-            accounts: vec![
-                AccountMeta::new(creator, true),
-                AccountMeta::new(job_pda, false),
-                AccountMeta::new(config_pda, false), // Writable - program increments next_job_id
-                AccountMeta::new(escrow_pda, false),
-                AccountMeta::new_readonly(system_program::id(), false),
-            ],
+            accounts,
             data: instruction_data.pack()?,
         })
     }
@@ -310,9 +327,10 @@ impl InstructionBuilder {
         })
     }
 
-    /// Build ClaimJob instruction
+    /// Build ClaimJob instruction for ZK jobs
     ///
-    /// Allows a prover to claim a pending job.
+    /// Allows a prover to claim a pending ZK job.
+    /// For FHE jobs, use `claim_fhe_job` instead.
     ///
     /// # Arguments
     /// * `prover` - Prover pubkey (will sign)
@@ -330,6 +348,35 @@ impl InstructionBuilder {
                 AccountMeta::new_readonly(prover_pda, false),
                 AccountMeta::new(job_pda, false),
                 AccountMeta::new_readonly(config_pda, false),
+            ],
+            data: instruction_data.pack()?,
+        })
+    }
+
+    /// Build ClaimJob instruction for FHE jobs
+    ///
+    /// Allows a prover to claim a pending FHE job.
+    /// FHE jobs require the fhe_consensus_pda account to track multi-prover claims.
+    ///
+    /// # Arguments
+    /// * `prover` - Prover pubkey (will sign)
+    /// * `job_pda` - Job account PDA
+    /// * `job_id` - Job ID (for FHE consensus PDA derivation)
+    pub fn claim_fhe_job(&self, prover: Pubkey, job_pda: Pubkey, job_id: u64) -> Result<Instruction> {
+        let (prover_pda, _) = self.prover_pda(&prover);
+        let (config_pda, _) = self.config_pda();
+        let (fhe_consensus_pda, _) = self.fhe_consensus_pda(job_id);
+
+        let instruction_data = MarketplaceInstruction::ClaimJob;
+
+        Ok(Instruction {
+            program_id: self.program_id,
+            accounts: vec![
+                AccountMeta::new(prover, true),
+                AccountMeta::new_readonly(prover_pda, false),
+                AccountMeta::new(job_pda, false),
+                AccountMeta::new_readonly(config_pda, false),
+                AccountMeta::new(fhe_consensus_pda, false),
             ],
             data: instruction_data.pack()?,
         })
@@ -387,20 +434,24 @@ impl InstructionBuilder {
     /// # Arguments
     /// * `prover` - Prover pubkey (will sign)
     /// * `job_pda` - Job account PDA
+    /// * `job_id` - Job ID (for FHE consensus PDA derivation)
     /// * `result_hash` - Hash of FHE computation result
     pub fn submit_fhe_result(
         &self,
         prover: Pubkey,
         job_pda: Pubkey,
+        job_id: u64,
         result_hash: [u8; 32],
     ) -> Result<Instruction> {
+        let (fhe_consensus_pda, _) = self.fhe_consensus_pda(job_id);
         let instruction_data = MarketplaceInstruction::SubmitFheResult { result_hash };
 
         Ok(Instruction {
             program_id: self.program_id,
             accounts: vec![
                 AccountMeta::new(prover, true),
-                AccountMeta::new(job_pda, false),
+                AccountMeta::new_readonly(job_pda, false),
+                AccountMeta::new(fhe_consensus_pda, false),
             ],
             data: instruction_data.pack()?,
         })
@@ -414,6 +465,7 @@ impl InstructionBuilder {
     /// # Arguments
     /// * `finalizer` - Anyone can finalize (will sign for tx fee)
     /// * `job_pda` - Job account PDA
+    /// * `job_id` - Job ID (for FHE consensus PDA derivation)
     /// * `job_creator` - Original job creator
     /// * `protocol_fee_recipient` - Protocol fee recipient
     /// * `matching_provers` - List of provers who submitted matching results
@@ -421,10 +473,12 @@ impl InstructionBuilder {
         &self,
         finalizer: Pubkey,
         job_pda: Pubkey,
+        job_id: u64,
         job_creator: Pubkey,
         protocol_fee_recipient: Pubkey,
         matching_provers: &[Pubkey],
     ) -> Result<Instruction> {
+        let (fhe_consensus_pda, _) = self.fhe_consensus_pda(job_id);
         let (escrow_pda, _) = self.escrow_pda(&job_pda);
         let (config_pda, _) = self.config_pda();
 
@@ -433,6 +487,7 @@ impl InstructionBuilder {
         let mut accounts = vec![
             AccountMeta::new(finalizer, true),
             AccountMeta::new(job_pda, false),
+            AccountMeta::new(fhe_consensus_pda, false),
             AccountMeta::new(escrow_pda, false),
             AccountMeta::new(job_creator, false),
             AccountMeta::new(protocol_fee_recipient, false),

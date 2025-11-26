@@ -103,6 +103,9 @@ pub enum ZyberLinkProgramError {
 
     #[error("Invalid job status for this operation")]
     InvalidJobStatus,
+
+    #[error("Missing FHE consensus account")]
+    MissingFheConsensusAccount,
 }
 
 impl From<ZyberLinkProgramError> for ProgramError {

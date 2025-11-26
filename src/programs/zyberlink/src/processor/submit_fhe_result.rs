@@ -1,5 +1,5 @@
 use borsh::BorshDeserialize;
-use zyberlink_types::{CircuitType, FheJobResult, JobStatus};
+use zyberlink_types::JobStatus;
 use solana_program::{
     account_info::{next_account_info, AccountInfo},
     entrypoint::ProgramResult,
@@ -9,9 +9,15 @@ use solana_program::{
     sysvar::{clock::Clock, Sysvar},
 };
 
-use crate::{error::ZyberLinkProgramError, state::JobAccount};
+use crate::{
+    error::ZyberLinkProgramError,
+    state::{FheConsensusData, JobAccount},
+};
 
 /// Process SubmitFheResult instruction
+///
+/// Provers submit their FHE computation results to the FheConsensusData account.
+/// The JobAccount itself is only read to verify the job is valid.
 pub fn process_submit_fhe_result(
     program_id: &Pubkey,
     accounts: &[AccountInfo],
@@ -21,6 +27,7 @@ pub fn process_submit_fhe_result(
 
     let prover_authority_info = next_account_info(account_info_iter)?;
     let job_info = next_account_info(account_info_iter)?;
+    let fhe_consensus_info = next_account_info(account_info_iter)?;
 
     // Prover must sign
     if !prover_authority_info.is_signer {
@@ -35,48 +42,39 @@ pub fn process_submit_fhe_result(
     }
 
     // Deserialize job
-    let mut job: JobAccount = {
+    let job: JobAccount = {
         let mut data_slice = &job_info.data.borrow()[..];
         JobAccount::deserialize(&mut data_slice)?
     };
 
     // Validate: must be FHE job
-    if !matches!(job.circuit_type, CircuitType::FheComputation(_)) {
-        msg!("Job is not an FHE job");
+    if !job.is_fhe() {
+        msg!("Job is not an FHE job (circuit_type={})", job.circuit_type);
         return Err(ZyberLinkProgramError::NotFheJob.into());
     }
 
-    let config = job
-        .fhe_config
-        .as_ref()
-        .ok_or(ZyberLinkProgramError::MissingFheConfig)?;
+    // Verify FHE consensus PDA
+    let job_id_bytes = job.id.to_le_bytes();
+    let (fhe_pda, _) = Pubkey::find_program_address(
+        &[b"fhe_consensus", &job_id_bytes],
+        program_id,
+    );
+
+    if fhe_consensus_info.key != &fhe_pda {
+        msg!("Invalid FHE consensus account");
+        return Err(ZyberLinkProgramError::InvalidAccount.into());
+    }
+
+    // Load FHE consensus data (use deserialize to handle variable-size Option)
+    let mut fhe_data: FheConsensusData = {
+        let mut data_slice = &fhe_consensus_info.data.borrow()[..];
+        FheConsensusData::deserialize(&mut data_slice)?
+    };
 
     // Validate: job must be Claimed (all provers have claimed)
     if job.status != JobStatus::Claimed {
         msg!("Job must be in Claimed status, current: {:?}", job.status);
         return Err(ZyberLinkProgramError::InvalidJobStatus.into());
-    }
-
-    // Validate: prover must have claimed this job
-    if !job.claimed_provers.contains(prover_authority_info.key) {
-        msg!("Prover did not claim this FHE job");
-        return Err(ZyberLinkProgramError::ProverNotClaimed.into());
-    }
-
-    // Validate: prover hasn't already submitted
-    if job
-        .fhe_results
-        .iter()
-        .any(|r| r.prover == *prover_authority_info.key)
-    {
-        msg!("Prover already submitted result");
-        return Err(ZyberLinkProgramError::ResultAlreadySubmitted.into());
-    }
-
-    // Validate: not exceeded max provers
-    if job.fhe_results.len() >= 10 {
-        msg!("Max provers (10) reached");
-        return Err(ZyberLinkProgramError::FheJobFullyClaimed.into());
     }
 
     // Get current time
@@ -89,21 +87,33 @@ pub fn process_submit_fhe_result(
         return Err(ZyberLinkProgramError::JobTimedOut.into());
     }
 
-    // Create result
-    let result = FheJobResult::new(*prover_authority_info.key, result_hash, current_time);
-    job.fhe_results.push(result);
+    // Submit result to FHE consensus data
+    match fhe_data.submit_result(prover_authority_info.key, result_hash) {
+        Ok(()) => {
+            msg!("FHE result submitted successfully");
+        }
+        Err(e) => {
+            msg!("Failed to submit FHE result: {}", e);
+            if e.contains("not claimed") {
+                return Err(ZyberLinkProgramError::ProverNotClaimed.into());
+            } else if e.contains("already submitted") {
+                return Err(ZyberLinkProgramError::ResultAlreadySubmitted.into());
+            }
+            return Err(ZyberLinkProgramError::InvalidAccount.into());
+        }
+    }
 
-    // Serialize back
-    let mut job_data = job_info.try_borrow_mut_data()?;
-    borsh::to_writer(&mut job_data[..], &job)?;
+    // Serialize FHE data back
+    let mut fhe_account_data = fhe_consensus_info.try_borrow_mut_data()?;
+    borsh::to_writer(&mut fhe_account_data[..], &fhe_data)?;
 
     msg!("FHE result submitted successfully");
     msg!("  Job ID: {}", job.id);
     msg!("  Prover: {}", prover_authority_info.key);
     msg!(
         "  Total results: {}/{}",
-        job.fhe_results.len(),
-        config.required_provers
+        fhe_data.results_count,
+        fhe_data.required_provers
     );
 
     Ok(())
