@@ -7,9 +7,13 @@
 /// - Consensus verification
 /// - Payment distribution
 /// - Edge cases and failure scenarios
+///
+/// NOTE: These tests use the new two-account model:
+/// - JobAccount: Fixed 203 bytes, stores job metadata
+/// - FheConsensusData: Fixed 384 bytes, stores multi-prover consensus state
 use anyhow::Result;
 use borsh::BorshDeserialize;
-use zyberlink_sdk::{CircuitType, JobAccount, MarketplaceClient, ProverAccount};
+use zyberlink_sdk::{FheConsensusData, JobAccount, MarketplaceClient, ProverAccount};
 use zyberlink_types::{FheConsensusConfig, FheOperation, JobStatus as TypesJobStatus};
 use solana_program_test::{processor, BanksClient, ProgramTest};
 use solana_sdk::{
@@ -67,6 +71,19 @@ async fn fund_account(
     tx.sign(&[payer], recent_blockhash);
     banks_client.process_transaction(tx).await?;
     Ok(())
+}
+
+/// Fetch FheConsensusData from the chain
+async fn fetch_fhe_consensus(
+    banks_client: &mut BanksClient,
+    fhe_consensus_pda: &Pubkey,
+) -> Result<FheConsensusData> {
+    let account = banks_client
+        .get_account(*fhe_consensus_pda)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("FheConsensusData account not found"))?;
+    let data = FheConsensusData::deserialize(&mut &account.data[..])?;
+    Ok(data)
 }
 
 // ============================================================================
@@ -146,6 +163,7 @@ async fn test_fhe_multi_prover_complete_flow() -> Result<()> {
     println!("\n4. Creating FHE job...");
     let job_id = 0u64;
     let (job_pda, _) = client.get_job_pda(&job_creator.pubkey(), job_id);
+    let (fhe_consensus_pda, _) = client.get_fhe_consensus_pda(job_id);
 
     let fhe_config = FheConsensusConfig {
         required_provers: 3,
@@ -157,7 +175,7 @@ async fn test_fhe_multi_prover_complete_flow() -> Result<()> {
     let create_ix = client.create_job_instruction(
         &job_creator.pubkey(),
         job_id,
-        CircuitType::FheComputation(FheOperation::Add(10)),
+        zyberlink_sdk::CircuitType::FheComputation(FheOperation::Add(10)),
         [42u8; 32], // witness commitment
         1024,       // witness size
         3_000_000,  // price: enough for 3 provers
@@ -175,14 +193,20 @@ async fn test_fhe_multi_prover_complete_flow() -> Result<()> {
     let job = JobAccount::deserialize(&mut &job_account.data[..])?;
     assert_eq!(job.status, TypesJobStatus::Pending);
     assert_eq!(job.price_lamports, 3_000_000);
-    assert!(job.fhe_config.is_some());
+    assert!(job.fhe_consensus_bump.is_some(), "FHE job should have consensus bump");
+
+    // Verify FheConsensusData created
+    let fhe_data = fetch_fhe_consensus(&mut banks_client, &fhe_consensus_pda).await?;
+    assert_eq!(fhe_data.job_id, job_id);
+    assert_eq!(fhe_data.required_provers, 3);
+    assert_eq!(fhe_data.consensus_threshold, 2);
     println!("   FHE job created (3 provers, 2/3 consensus, 3M lamports)");
 
-    // Step 4: Multi-Prover Claim
+    // Step 4: Multi-Prover Claim (using claim_fhe_job_instruction)
     println!("\n5. Provers claiming job...");
 
     for (i, prover) in [&prover1, &prover2, &prover3].iter().enumerate() {
-        let claim_ix = client.claim_job_instruction(&prover.pubkey(), &job_pda)?;
+        let claim_ix = client.claim_fhe_job_instruction(&prover.pubkey(), &job_pda, job_id)?;
 
         let recent_blockhash = banks_client.get_latest_blockhash().await?;
         let mut tx = Transaction::new_with_payer(&[claim_ix], Some(&prover.pubkey()));
@@ -192,14 +216,17 @@ async fn test_fhe_multi_prover_complete_flow() -> Result<()> {
         println!("   Prover {} claimed job", i + 1);
     }
 
-    // Verify all provers claimed
+    // Verify all provers claimed in FheConsensusData
+    let fhe_data = fetch_fhe_consensus(&mut banks_client, &fhe_consensus_pda).await?;
+    assert_eq!(fhe_data.claimed_count, 3);
+    assert!(fhe_data.claimed_provers[0..3].contains(&prover1.pubkey()));
+    assert!(fhe_data.claimed_provers[0..3].contains(&prover2.pubkey()));
+    assert!(fhe_data.claimed_provers[0..3].contains(&prover3.pubkey()));
+
+    // Verify job status is Claimed
     let job_account = banks_client.get_account(job_pda).await?.unwrap();
     let job = JobAccount::deserialize(&mut &job_account.data[..])?;
     assert_eq!(job.status, TypesJobStatus::Claimed);
-    assert_eq!(job.claimed_provers.len(), 3);
-    assert!(job.claimed_provers.contains(&prover1.pubkey()));
-    assert!(job.claimed_provers.contains(&prover2.pubkey()));
-    assert!(job.claimed_provers.contains(&prover3.pubkey()));
     println!("   All 3 provers successfully claimed");
 
     // Step 5: Submit FHE Results (with consensus)
@@ -210,7 +237,7 @@ async fn test_fhe_multi_prover_complete_flow() -> Result<()> {
 
     for (i, prover) in [&prover1, &prover2].iter().enumerate() {
         let submit_ix =
-            client.submit_fhe_result_instruction(&prover.pubkey(), &job_pda, consensus_hash)?;
+            client.submit_fhe_result_instruction(&prover.pubkey(), &job_pda, job_id, consensus_hash)?;
 
         let recent_blockhash = banks_client.get_latest_blockhash().await?;
         let mut tx = Transaction::new_with_payer(&[submit_ix], Some(&prover.pubkey()));
@@ -227,7 +254,7 @@ async fn test_fhe_multi_prover_complete_flow() -> Result<()> {
     // Prover 3 submits DIFFERENT hash (outlier)
     let outlier_hash = create_fhe_result_hash(200);
     let submit_ix =
-        client.submit_fhe_result_instruction(&prover3.pubkey(), &job_pda, outlier_hash)?;
+        client.submit_fhe_result_instruction(&prover3.pubkey(), &job_pda, job_id, outlier_hash)?;
 
     let recent_blockhash = banks_client.get_latest_blockhash().await?;
     let mut tx = Transaction::new_with_payer(&[submit_ix], Some(&prover3.pubkey()));
@@ -238,16 +265,15 @@ async fn test_fhe_multi_prover_complete_flow() -> Result<()> {
         outlier_hash[0]
     );
 
-    // Verify all results submitted
-    let job_account = banks_client.get_account(job_pda).await?.unwrap();
-    let job = JobAccount::deserialize(&mut &job_account.data[..])?;
-    assert_eq!(job.fhe_results.len(), 3);
+    // Verify all results submitted in FheConsensusData
+    let fhe_data = fetch_fhe_consensus(&mut banks_client, &fhe_consensus_pda).await?;
+    assert_eq!(fhe_data.results_count, 3);
 
     // Verify consensus pattern: 2 matching, 1 different
-    let matching_count = job
-        .fhe_results
+    let matching_count = fhe_data
+        .result_hashes[0..fhe_data.results_count as usize]
         .iter()
-        .filter(|r| r.result_hash == consensus_hash)
+        .filter(|r| **r == consensus_hash)
         .count();
     assert_eq!(matching_count, 2);
     println!("   Results verified: 2 matching, 1 outlier");
@@ -265,13 +291,16 @@ async fn test_fhe_multi_prover_complete_flow() -> Result<()> {
     println!("   Escrow balance: {} lamports", escrow_balance_before);
 
     // Step 7: Finalize Job
+    // NOTE: Must pass ALL provers in the order they claimed (not just matching ones)
+    // The program will verify prover order matches claimed_provers in FheConsensusData
     println!("\n8. Finalizing FHE job...");
     let finalize_ix = client.finalize_fhe_job_instruction_with_recipient(
         &authority.pubkey(), // finalizer (can be anyone)
         &job_pda,
+        job_id,
         &job_creator.pubkey(),
         &authority.pubkey(),                   // protocol fee recipient
-        &[prover1.pubkey(), prover2.pubkey()], // matching provers
+        &[prover1.pubkey(), prover2.pubkey(), prover3.pubkey()], // ALL provers in claim order
     )?;
 
     let recent_blockhash = banks_client.get_latest_blockhash().await?;
@@ -279,11 +308,14 @@ async fn test_fhe_multi_prover_complete_flow() -> Result<()> {
     tx.sign(&[&authority], recent_blockhash);
     banks_client.process_transaction(tx).await?;
 
-    // Verify job completed with consensus
+    // Verify job completed
     let job_account = banks_client.get_account(job_pda).await?.unwrap();
     let job = JobAccount::deserialize(&mut &job_account.data[..])?;
     assert_eq!(job.status, TypesJobStatus::Completed);
-    assert_eq!(job.fhe_consensus_hash, Some(consensus_hash));
+
+    // Verify consensus hash in FheConsensusData
+    let fhe_data = fetch_fhe_consensus(&mut banks_client, &fhe_consensus_pda).await?;
+    assert_eq!(fhe_data.consensus_hash, Some(consensus_hash));
     println!("   Job finalized successfully!");
     println!("   Consensus hash: {:02x}...", consensus_hash[0]);
 
@@ -296,9 +328,9 @@ async fn test_fhe_multi_prover_complete_flow() -> Result<()> {
     let escrow_balance_after = get_account_balance(&mut banks_client, &job.escrow_account).await;
 
     // Calculate expected payout (3M lamports - 10% fee = 2.7M, split between 2 provers)
-    let platform_fee = 300_000; // 10% of 3M
-    let total_prover_payout = 3_000_000 - platform_fee;
-    let payout_per_prover = total_prover_payout / 2; // Split among 2 matching provers
+    let _platform_fee = 300_000; // 10% of 3M
+    let _total_prover_payout = 3_000_000 - _platform_fee;
+    let _payout_per_prover = _total_prover_payout / 2; // Split among 2 matching provers
 
     // Verify provers 1 and 2 got paid
     let prover1_gain = prover1_balance_after.saturating_sub(prover1_balance_before);
@@ -394,6 +426,7 @@ async fn test_fhe_consensus_threshold_not_met() -> Result<()> {
     println!("\n2. Creating FHE job with consensus_threshold: 3 (100% agreement)...");
     let job_id = 0u64;
     let (job_pda, _) = client.get_job_pda(&job_creator.pubkey(), job_id);
+    let (fhe_consensus_pda, _) = client.get_fhe_consensus_pda(job_id);
 
     let fhe_config = FheConsensusConfig {
         required_provers: 3,
@@ -405,7 +438,7 @@ async fn test_fhe_consensus_threshold_not_met() -> Result<()> {
     let create_ix = client.create_job_instruction(
         &job_creator.pubkey(),
         job_id,
-        CircuitType::FheComputation(FheOperation::Add(10)),
+        zyberlink_sdk::CircuitType::FheComputation(FheOperation::Add(10)),
         [42u8; 32],
         1024,
         3_000_000,
@@ -419,10 +452,10 @@ async fn test_fhe_consensus_threshold_not_met() -> Result<()> {
     banks_client.process_transaction(tx).await?;
     println!("   Job created with strict consensus");
 
-    // Step 3: Provers claim
+    // Step 3: Provers claim (using FHE-specific claim)
     println!("\n3. Provers claiming job...");
     for prover in [&prover1, &prover2, &prover3] {
-        let claim_ix = client.claim_job_instruction(&prover.pubkey(), &job_pda)?;
+        let claim_ix = client.claim_fhe_job_instruction(&prover.pubkey(), &job_pda, job_id)?;
         let recent_blockhash = banks_client.get_latest_blockhash().await?;
         let mut tx = Transaction::new_with_payer(&[claim_ix], Some(&prover.pubkey()));
         tx.sign(&[prover], recent_blockhash);
@@ -436,7 +469,7 @@ async fn test_fhe_consensus_threshold_not_met() -> Result<()> {
     for (i, prover) in [&prover1, &prover2, &prover3].iter().enumerate() {
         let different_hash = create_fhe_result_hash((i + 1) as u8 * 10);
         let submit_ix =
-            client.submit_fhe_result_instruction(&prover.pubkey(), &job_pda, different_hash)?;
+            client.submit_fhe_result_instruction(&prover.pubkey(), &job_pda, job_id, different_hash)?;
 
         let recent_blockhash = banks_client.get_latest_blockhash().await?;
         let mut tx = Transaction::new_with_payer(&[submit_ix], Some(&prover.pubkey()));
@@ -450,18 +483,24 @@ async fn test_fhe_consensus_threshold_not_met() -> Result<()> {
         );
     }
 
+    // Verify results in FheConsensusData
+    let fhe_data = fetch_fhe_consensus(&mut banks_client, &fhe_consensus_pda).await?;
+    assert_eq!(fhe_data.results_count, 3);
+
     // Step 5: Record creator balance before finalize
     let creator_balance_before =
         get_account_balance(&mut banks_client, &job_creator.pubkey()).await;
 
     // Step 6: Attempt to finalize (should fail or mark as failed)
+    // NOTE: Must pass ALL provers in the order they claimed (not just matching ones)
     println!("\n5. Attempting to finalize (consensus should fail)...");
     let finalize_ix = client.finalize_fhe_job_instruction_with_recipient(
         &authority.pubkey(),
         &job_pda,
+        job_id,
         &job_creator.pubkey(),
         &authority.pubkey(),
-        &[], // No matching provers
+        &[prover1.pubkey(), prover2.pubkey(), prover3.pubkey()], // ALL provers in claim order
     )?;
 
     let recent_blockhash = banks_client.get_latest_blockhash().await?;
@@ -484,8 +523,11 @@ async fn test_fhe_consensus_threshold_not_met() -> Result<()> {
         TypesJobStatus::Failed,
         "Job should be marked as Failed"
     );
+
+    // Verify no consensus hash in FheConsensusData
+    let fhe_data = fetch_fhe_consensus(&mut banks_client, &fhe_consensus_pda).await?;
     assert!(
-        job.fhe_consensus_hash.is_none(),
+        fhe_data.consensus_hash.is_none(),
         "No consensus hash should be set"
     );
     println!("   Job correctly marked as Failed (no consensus)");
@@ -561,6 +603,7 @@ async fn test_fhe_insufficient_provers() -> Result<()> {
     println!("\n2. Creating FHE job requiring 3 provers...");
     let job_id = 0u64;
     let (job_pda, _) = client.get_job_pda(&job_creator.pubkey(), job_id);
+    let (fhe_consensus_pda, _) = client.get_fhe_consensus_pda(job_id);
 
     let fhe_config = FheConsensusConfig {
         required_provers: 3,
@@ -572,7 +615,7 @@ async fn test_fhe_insufficient_provers() -> Result<()> {
     let create_ix = client.create_job_instruction(
         &job_creator.pubkey(),
         job_id,
-        CircuitType::FheComputation(FheOperation::Add(10)),
+        zyberlink_sdk::CircuitType::FheComputation(FheOperation::Add(10)),
         [42u8; 32],
         1024,
         3_000_000,
@@ -589,7 +632,7 @@ async fn test_fhe_insufficient_provers() -> Result<()> {
     // Step 3: Only 2 provers claim (insufficient)
     println!("\n3. Only 2 provers claiming (insufficient)...");
     for prover in [&prover1, &prover2] {
-        let claim_ix = client.claim_job_instruction(&prover.pubkey(), &job_pda)?;
+        let claim_ix = client.claim_fhe_job_instruction(&prover.pubkey(), &job_pda, job_id)?;
         let recent_blockhash = banks_client.get_latest_blockhash().await?;
         let mut tx = Transaction::new_with_payer(&[claim_ix], Some(&prover.pubkey()));
         tx.sign(&[prover], recent_blockhash);
@@ -604,12 +647,15 @@ async fn test_fhe_insufficient_provers() -> Result<()> {
         TypesJobStatus::Pending,
         "Job should remain Pending until all provers claim"
     );
-    assert_eq!(job.claimed_provers.len(), 2);
+
+    // Verify FheConsensusData has only 2 claimed
+    let fhe_data = fetch_fhe_consensus(&mut banks_client, &fhe_consensus_pda).await?;
+    assert_eq!(fhe_data.claimed_count, 2);
     println!("   Only 2 provers claimed (job still Pending)");
 
     // Step 4: Have 3rd prover claim to transition to Claimed
     println!("\n4. Third prover claiming to complete claims...");
-    let claim_ix = client.claim_job_instruction(&prover3.pubkey(), &job_pda)?;
+    let claim_ix = client.claim_fhe_job_instruction(&prover3.pubkey(), &job_pda, job_id)?;
     let recent_blockhash = banks_client.get_latest_blockhash().await?;
     let mut tx = Transaction::new_with_payer(&[claim_ix], Some(&prover3.pubkey()));
     tx.sign(&[&prover3], recent_blockhash);
@@ -624,7 +670,10 @@ async fn test_fhe_insufficient_provers() -> Result<()> {
         TypesJobStatus::Claimed,
         "Job should be Claimed after all provers claim"
     );
-    assert_eq!(job.claimed_provers.len(), 3);
+
+    // Verify FheConsensusData has all 3 claimed
+    let fhe_data = fetch_fhe_consensus(&mut banks_client, &fhe_consensus_pda).await?;
+    assert_eq!(fhe_data.claimed_count, 3);
 
     // Step 5: Only 2 provers submit results (insufficient)
     println!("\n5. Only 2 provers submitting results (insufficient for finalization)...");
@@ -632,7 +681,7 @@ async fn test_fhe_insufficient_provers() -> Result<()> {
 
     for (i, prover) in [&prover1, &prover2].iter().enumerate() {
         let submit_ix =
-            client.submit_fhe_result_instruction(&prover.pubkey(), &job_pda, consensus_hash)?;
+            client.submit_fhe_result_instruction(&prover.pubkey(), &job_pda, job_id, consensus_hash)?;
         let recent_blockhash = banks_client.get_latest_blockhash().await?;
         let mut tx = Transaction::new_with_payer(&[submit_ix], Some(&prover.pubkey()));
         tx.sign(&[prover], recent_blockhash);
@@ -640,11 +689,16 @@ async fn test_fhe_insufficient_provers() -> Result<()> {
         println!("   Prover {} submitted result", i + 1);
     }
 
+    // Verify FheConsensusData has only 2 results
+    let fhe_data = fetch_fhe_consensus(&mut banks_client, &fhe_consensus_pda).await?;
+    assert_eq!(fhe_data.results_count, 2);
+
     // Step 6: Attempt to finalize (should fail - insufficient results)
     println!("\n6. Attempting to finalize with insufficient results...");
     let finalize_ix = client.finalize_fhe_job_instruction_with_recipient(
         &authority.pubkey(),
         &job_pda,
+        job_id,
         &job_creator.pubkey(),
         &authority.pubkey(),
         &[prover1.pubkey(), prover2.pubkey()],
@@ -667,7 +721,10 @@ async fn test_fhe_insufficient_provers() -> Result<()> {
     let job_account = banks_client.get_account(job_pda).await?.unwrap();
     let job = JobAccount::deserialize(&mut &job_account.data[..])?;
     assert_eq!(job.status, TypesJobStatus::Claimed);
-    assert_eq!(job.fhe_results.len(), 2);
+
+    // Verify FheConsensusData still has 2 results
+    let fhe_data = fetch_fhe_consensus(&mut banks_client, &fhe_consensus_pda).await?;
+    assert_eq!(fhe_data.results_count, 2);
     println!("   Job remains in Claimed state");
 
     println!("\n{}", "=".repeat(80));
@@ -735,6 +792,7 @@ async fn test_fhe_all_provers_agree() -> Result<()> {
     println!("\n2. Creating FHE job...");
     let job_id = 0u64;
     let (job_pda, _) = client.get_job_pda(&job_creator.pubkey(), job_id);
+    let (fhe_consensus_pda, _) = client.get_fhe_consensus_pda(job_id);
 
     let fhe_config = FheConsensusConfig {
         required_provers: 3,
@@ -746,7 +804,7 @@ async fn test_fhe_all_provers_agree() -> Result<()> {
     let create_ix = client.create_job_instruction(
         &job_creator.pubkey(),
         job_id,
-        CircuitType::FheComputation(FheOperation::Add(10)),
+        zyberlink_sdk::CircuitType::FheComputation(FheOperation::Add(10)),
         [42u8; 32],
         1024,
         3_000_000,
@@ -763,7 +821,7 @@ async fn test_fhe_all_provers_agree() -> Result<()> {
     // Step 3: All provers claim
     println!("\n3. All 3 provers claiming...");
     for prover in [&prover1, &prover2, &prover3] {
-        let claim_ix = client.claim_job_instruction(&prover.pubkey(), &job_pda)?;
+        let claim_ix = client.claim_fhe_job_instruction(&prover.pubkey(), &job_pda, job_id)?;
         let recent_blockhash = banks_client.get_latest_blockhash().await?;
         let mut tx = Transaction::new_with_payer(&[claim_ix], Some(&prover.pubkey()));
         tx.sign(&[prover], recent_blockhash);
@@ -777,7 +835,7 @@ async fn test_fhe_all_provers_agree() -> Result<()> {
 
     for (i, prover) in [&prover1, &prover2, &prover3].iter().enumerate() {
         let submit_ix =
-            client.submit_fhe_result_instruction(&prover.pubkey(), &job_pda, consensus_hash)?;
+            client.submit_fhe_result_instruction(&prover.pubkey(), &job_pda, job_id, consensus_hash)?;
         let recent_blockhash = banks_client.get_latest_blockhash().await?;
         let mut tx = Transaction::new_with_payer(&[submit_ix], Some(&prover.pubkey()));
         tx.sign(&[prover], recent_blockhash);
@@ -799,6 +857,7 @@ async fn test_fhe_all_provers_agree() -> Result<()> {
     let finalize_ix = client.finalize_fhe_job_instruction_with_recipient(
         &authority.pubkey(),
         &job_pda,
+        job_id,
         &job_creator.pubkey(),
         &authority.pubkey(),
         &[prover1.pubkey(), prover2.pubkey(), prover3.pubkey()], // All 3 match
@@ -813,7 +872,10 @@ async fn test_fhe_all_provers_agree() -> Result<()> {
     let job_account = banks_client.get_account(job_pda).await?.unwrap();
     let job = JobAccount::deserialize(&mut &job_account.data[..])?;
     assert_eq!(job.status, TypesJobStatus::Completed);
-    assert_eq!(job.fhe_consensus_hash, Some(consensus_hash));
+
+    // Verify consensus hash in FheConsensusData
+    let fhe_data = fetch_fhe_consensus(&mut banks_client, &fhe_consensus_pda).await?;
+    assert_eq!(fhe_data.consensus_hash, Some(consensus_hash));
     println!("   Job finalized successfully!");
 
     // Step 7: Verify equal payouts to all 3 provers

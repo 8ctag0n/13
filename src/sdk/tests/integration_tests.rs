@@ -1,6 +1,6 @@
 use zyberlink_sdk::{
     calculate_platform_fee, calculate_prover_payout, get_time_remaining, is_job_timed_out,
-    CircuitType, JobStatus, MarketplaceClient,
+    CircuitType, JobStatus, MarketplaceClient, JobAccount,
 };
 use solana_program_test::{processor, ProgramTest};
 use solana_sdk::{
@@ -357,7 +357,6 @@ fn test_fee_calculations() {
 
 #[test]
 fn test_timeout_calculations() {
-    use zyberlink_sdk::JobAccount;
     use solana_sdk::pubkey::Pubkey;
 
     let job = JobAccount {
@@ -365,22 +364,16 @@ fn test_timeout_calculations() {
         creator: Pubkey::new_unique(),
         prover: Some(Pubkey::new_unique()),
         status: JobStatus::Claimed,
-        circuit_type: CircuitType::ZcashOrchard,
-        witness_commitment: [0u8; 32],
+        circuit_type: 0, // ZcashOrchard
+        witness_hash: [0u8; 32],
         witness_size: 1024,
-        proof_commitment: None,
-        proof_size: None,
+        proof_hash: None,
         price_lamports: 1_000_000,
         escrow_account: Pubkey::new_unique(),
         created_at: 1000,
-        claimed_at: Some(1000),
-        completed_at: None,
-        timeout_at: 1600, // 600 seconds timeout from claimed_at (1000)
+        timeout_at: 1600, // 600 seconds timeout
         bump: 0,
-        fhe_config: None,
-        claimed_provers: vec![],
-        fhe_results: vec![],
-        fhe_consensus_hash: None,
+        fhe_consensus_bump: None,
     };
 
     // Not timed out yet

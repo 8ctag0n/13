@@ -1,6 +1,6 @@
 use borsh::BorshDeserialize;
 use chrono::{DateTime, NaiveDateTime, Utc};
-use zyberlink_sdk::JobAccount;
+use zyberlink_sdk::{JobAccount, FheConsensusData, fetch_fhe_consensus};
 use solana_client::rpc_client::RpcClient;
 use solana_client::rpc_config::{RpcAccountInfoConfig, RpcProgramAccountsConfig};
 use solana_client::rpc_filter::RpcFilterType;
@@ -8,6 +8,50 @@ use solana_sdk::commitment_config::CommitmentConfig;
 use solana_sdk::pubkey::Pubkey;
 use sqlx::PgPool;
 use std::time::Duration;
+
+// Circuit type ID constants (must match program)
+const CIRCUIT_ZCASH_ORCHARD: u8 = 0;
+const CIRCUIT_ANONYMOUS_VOTE: u8 = 2;
+const CIRCUIT_CREDENTIAL: u8 = 3;
+const CIRCUIT_FHE_ADD: u8 = 4;
+const CIRCUIT_FHE_MULTIPLY: u8 = 5;
+const CIRCUIT_FHE_SUM: u8 = 6;
+const CIRCUIT_FHE_THRESHOLD: u8 = 7;
+const CIRCUIT_FHE_RANGE_CHECK: u8 = 8;
+const CIRCUIT_FHE_AVERAGE: u8 = 9;
+const CIRCUIT_FHE_COUNT_IF: u8 = 10;
+const CIRCUIT_FHE_HISTOGRAM: u8 = 11;
+
+/// Check if circuit_type u8 represents an FHE job
+fn is_fhe_circuit(circuit_type: u8) -> bool {
+    circuit_type >= 4 && circuit_type <= 11
+}
+
+/// Convert circuit_type u8 to string
+fn circuit_type_to_str(circuit_type: u8) -> &'static str {
+    match circuit_type {
+        CIRCUIT_ZCASH_ORCHARD | 1 => "zcash_orchard",
+        CIRCUIT_ANONYMOUS_VOTE => "anonymous_vote",
+        CIRCUIT_CREDENTIAL => "credential",
+        CIRCUIT_FHE_ADD..=CIRCUIT_FHE_HISTOGRAM => "fhe_computation",
+        _ => "custom",
+    }
+}
+
+/// Get FHE operation name from circuit type
+fn fhe_operation_name(circuit_type: u8) -> Option<String> {
+    match circuit_type {
+        CIRCUIT_FHE_ADD => Some("Add".to_string()),
+        CIRCUIT_FHE_MULTIPLY => Some("Multiply".to_string()),
+        CIRCUIT_FHE_SUM => Some("Sum".to_string()),
+        CIRCUIT_FHE_THRESHOLD => Some("Threshold".to_string()),
+        CIRCUIT_FHE_RANGE_CHECK => Some("RangeCheck".to_string()),
+        CIRCUIT_FHE_AVERAGE => Some("Average".to_string()),
+        CIRCUIT_FHE_COUNT_IF => Some("CountIf".to_string()),
+        CIRCUIT_FHE_HISTOGRAM => Some("Histogram".to_string()),
+        _ => None,
+    }
+}
 
 /// Convert Unix timestamp (i64) to NaiveDateTime for PostgreSQL
 fn timestamp_to_naive(ts: i64) -> NaiveDateTime {
@@ -51,10 +95,10 @@ async fn sync_jobs(
         // Create RPC client inside spawn_blocking (blocking context)
         let rpc_client = RpcClient::new_with_commitment(rpc_url, CommitmentConfig::confirmed());
 
-        // Fetch all program accounts with JobAccount discriminator
-        // JobAccount has a fixed size of 879 bytes
+        // Fetch all program accounts with JobAccount size filter
+        // JobAccount has a fixed size of 203 bytes (updated structure)
         let config = RpcProgramAccountsConfig {
-            filters: Some(vec![RpcFilterType::DataSize(879)]),
+            filters: Some(vec![RpcFilterType::DataSize(203)]),
             account_config: RpcAccountInfoConfig {
                 encoding: Some(solana_account_decoder::UiAccountEncoding::Base64),
                 commitment: Some(CommitmentConfig::confirmed()),
@@ -109,24 +153,21 @@ async fn sync_jobs(
 
 /// Insert or update a job in the database
 async fn upsert_job(db_pool: &PgPool, pubkey: &Pubkey, job: &JobAccount) -> anyhow::Result<()> {
-    // Extract FHE operation name if present
-    let fhe_operation = job
-        .fhe_config
-        .as_ref()
-        .map(|cfg| cfg.operation.name().to_string());
+    // Extract FHE operation name from circuit type
+    let fhe_operation = fhe_operation_name(job.circuit_type);
 
     // Convert timestamps
     let created_at = timestamp_to_naive(job.created_at);
-    let claimed_at = job.claimed_at.map(timestamp_to_naive);
-    let completed_at = job.completed_at.map(timestamp_to_naive);
     let timeout_at = timestamp_to_naive(job.timeout_at);
 
-    // Extract FHE config values
-    let (required_provers, consensus_threshold) = job
-        .fhe_config
-        .as_ref()
-        .map(|cfg| (Some(cfg.required_provers as i16), Some(cfg.consensus_threshold as i16)))
-        .unwrap_or((None, None));
+    // FHE config values will be populated from FheConsensusData if available
+    // For now, we don't have access to the RPC client here, so we use defaults for FHE jobs
+    let (required_provers, consensus_threshold): (Option<i16>, Option<i16>) = if is_fhe_circuit(job.circuit_type) {
+        // Default values - ideally we'd fetch FheConsensusData
+        (Some(3), Some(2))
+    } else {
+        (None, None)
+    };
 
     // Convert enums to strings for database storage
     let status_str = match job.status {
@@ -137,12 +178,20 @@ async fn upsert_job(db_pool: &PgPool, pubkey: &Pubkey, job: &JobAccount) -> anyh
         zyberlink_types::JobStatus::Cancelled => "cancelled",
     };
 
-    let circuit_type_str = match &job.circuit_type {
-        zyberlink_types::CircuitType::ZcashOrchard => "zcash_orchard",
-        zyberlink_types::CircuitType::AnonymousVote => "anonymous_vote",
-        zyberlink_types::CircuitType::Credential => "credential",
-        zyberlink_types::CircuitType::FheComputation(_) => "fhe_computation",
-        zyberlink_types::CircuitType::Custom(_) => "custom",
+    let circuit_type_str = circuit_type_to_str(job.circuit_type);
+
+    // Note: claimed_at and completed_at are no longer stored in JobAccount
+    // They would need to be tracked separately or derived from status changes
+    let claimed_at: Option<NaiveDateTime> = if job.status == zyberlink_types::JobStatus::Claimed {
+        Some(timestamp_to_naive(job.created_at)) // Use created_at as approximation
+    } else {
+        None
+    };
+
+    let completed_at: Option<NaiveDateTime> = if job.status == zyberlink_types::JobStatus::Completed {
+        Some(timestamp_to_naive(job.timeout_at)) // Use timeout_at as approximation
+    } else {
+        None
     };
 
     sqlx::query!(

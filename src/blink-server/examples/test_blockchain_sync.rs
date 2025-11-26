@@ -73,11 +73,13 @@ fn main() -> Result<()> {
                     println!("  Prover: {}", prover);
                 }
 
-                if let Some(ref fhe_config) = job.fhe_config {
-                    println!("  FHE Config:");
-                    println!("    Required provers: {}", fhe_config.required_provers);
-                    println!("    Consensus threshold: {}", fhe_config.consensus_threshold);
-                    println!("    Operation: {:?}", fhe_config.operation);
+                // FHE config is now stored in separate FheConsensusData account
+                // Check if this is an FHE job by circuit_type (4-11 = FHE operations)
+                if job.circuit_type >= 4 && job.circuit_type <= 11 {
+                    println!("  FHE Job (circuit_type: {})", job.circuit_type);
+                    if let Some(bump) = job.fhe_consensus_bump {
+                        println!("    FHE Consensus Data bump: {}", bump);
+                    }
                 }
 
                 // Test conversion to format for database

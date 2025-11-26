@@ -56,21 +56,20 @@ pub struct ProverAccount {
 /// NOTE: FHE-specific fields (claimed_provers, fhe_results) are now in FheConsensusData account
 #[derive(Debug, Clone, BorshDeserialize)]
 pub struct JobAccount {
-    pub id: u64,
-    pub creator: Pubkey,
-    pub prover: Option<Pubkey>,           // For ZK jobs: the single prover
-    pub status: JobStatus,
-    pub circuit_type: CircuitType,
-    pub witness_commitment: [u8; 32],
-    pub witness_size: u32,
-    pub price_lamports: u64,
-    pub escrow_account: Pubkey,
-    pub created_at: i64,
-    pub claimed_at: Option<i64>,
-    pub timeout_at: i64,
-    pub bump: u8,
-    pub proof_hash: Option<[u8; 32]>,     // Final proof/consensus hash
-    pub fhe_consensus_bump: Option<u8>,   // Bump for FheConsensusData PDA (only for FHE jobs)
+    pub id: u64,                          // 8 bytes
+    pub creator: Pubkey,                  // 32 bytes
+    pub prover: Option<Pubkey>,           // 33 bytes (for ZK jobs: the single prover)
+    pub status: JobStatus,                // 1 byte
+    pub circuit_type: u8,                 // 1 byte (0-3 = ZK, 4-11 = FHE)
+    pub witness_hash: [u8; 32],           // 32 bytes
+    pub witness_size: u32,                // 4 bytes
+    pub proof_hash: Option<[u8; 32]>,     // 33 bytes
+    pub price_lamports: u64,              // 8 bytes
+    pub escrow_account: Pubkey,           // 32 bytes
+    pub created_at: i64,                  // 8 bytes
+    pub timeout_at: i64,                  // 8 bytes
+    pub bump: u8,                         // 1 byte
+    pub fhe_consensus_bump: Option<u8>,   // 2 bytes (bump for FheConsensusData PDA)
 }
 
 /// FHE Consensus Data account (separate from JobAccount)
@@ -78,17 +77,21 @@ pub struct JobAccount {
 /// This account stores multi-prover FHE consensus information
 #[derive(Debug, Clone, BorshDeserialize)]
 pub struct FheConsensusData {
-    pub job_id: u64,
-    pub required_provers: u8,
-    pub consensus_threshold: u8,
-    pub submission_timeout: i64,
-    pub claimed_count: u8,
-    pub results_count: u8,
-    pub claimed_provers: [Pubkey; 5],     // MAX_FHE_PROVERS = 5
-    pub result_submitted: [bool; 5],
-    pub result_hashes: [[u8; 32]; 5],
-    pub consensus_hash: Option<[u8; 32]>,
-    pub bump: u8,
+    pub job_id: u64,                      // 8 bytes
+    pub operation_type: u8,               // 1 byte
+    pub operation_param1: u16,            // 2 bytes
+    pub operation_param2: u8,             // 1 byte
+    pub operation_param3: u8,             // 1 byte
+    pub required_provers: u8,             // 1 byte
+    pub consensus_threshold: u8,          // 1 byte
+    pub submission_timeout: i64,          // 8 bytes
+    pub claimed_provers: [Pubkey; 5],     // MAX_FHE_PROVERS = 5 (160 bytes)
+    pub claimed_count: u8,                // 1 byte
+    pub result_hashes: [[u8; 32]; 5],     // 160 bytes
+    pub result_submitted: [bool; 5],      // 5 bytes
+    pub results_count: u8,                // 1 byte
+    pub consensus_hash: Option<[u8; 32]>, // 33 bytes
+    pub bump: u8,                         // 1 byte
 }
 
 // ============================================================================
@@ -398,8 +401,9 @@ pub fn is_job_timed_out(job: &JobAccount, current_timestamp: i64) -> bool {
 }
 
 /// Calculate estimated time remaining for a job
+/// Returns remaining time if job is claimed, None if still pending
 pub fn get_time_remaining(job: &JobAccount, current_timestamp: i64) -> Option<i64> {
-    if job.claimed_at.is_some() {
+    if job.status == JobStatus::Claimed {
         let remaining = job.timeout_at - current_timestamp;
         Some(remaining.max(0))
     } else {
@@ -439,16 +443,15 @@ mod tests {
             creator: Pubkey::default(),
             prover: Some(Pubkey::default()),
             status: JobStatus::Claimed,
-            circuit_type: CircuitType::ZcashOrchard,
-            witness_commitment: [0u8; 32],
+            circuit_type: 0, // ZcashOrchard
+            witness_hash: [0u8; 32],
             witness_size: 1024,
+            proof_hash: None,
             price_lamports: 1_000_000,
             escrow_account: Pubkey::default(),
             created_at: 1000,
-            claimed_at: Some(1000),
             timeout_at: 1600, // Timeout at timestamp 1600 (600 seconds after claim at 1000)
             bump: 0,
-            proof_hash: None,
             fhe_consensus_bump: None,
         };
 
@@ -460,7 +463,7 @@ mod tests {
         assert!(is_job_timed_out(&job, 1700));
 
         // Not claimed yet
-        job.claimed_at = None;
+        job.status = JobStatus::Pending;
         assert_eq!(get_time_remaining(&job, 1000), None);
         assert!(!is_job_timed_out(&job, 1000));
     }

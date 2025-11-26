@@ -1,10 +1,11 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use zyberlink_sdk::{fetch_job, find_pending_jobs, MarketplaceClient};
-use zyberlink_types::{CircuitType, JobStatus};
+use zyberlink_sdk::{fetch_job, fetch_fhe_consensus, find_pending_jobs, MarketplaceClient, FheConsensusData};
+use zyberlink_types::{CircuitType, FheOperation, FhePredicate, HistogramBin, JobStatus};
 use log::{debug, error, info, warn};
 use solana_sdk::{
     commitment_config::CommitmentConfig,
+    pubkey::Pubkey,
     signature::{read_keypair_file, Keypair, Signer},
 };
 use std::{sync::Arc, time::Duration};
@@ -25,6 +26,83 @@ use halo2_prover::{Halo2Prover, OrchardWitness};
 use roi_calculator::ROICalculator;
 use witness_encryption::WitnessEncryption;
 use witness_fetcher::WitnessFetcher;
+
+// Circuit type ID constants (must match program)
+const CIRCUIT_ZCASH_ORCHARD: u8 = 0;
+const CIRCUIT_ANONYMOUS_VOTE: u8 = 2;
+const CIRCUIT_CREDENTIAL: u8 = 3;
+const CIRCUIT_FHE_ADD: u8 = 4;
+const CIRCUIT_FHE_MULTIPLY: u8 = 5;
+const CIRCUIT_FHE_SUM: u8 = 6;
+const CIRCUIT_FHE_THRESHOLD: u8 = 7;
+const CIRCUIT_FHE_RANGE_CHECK: u8 = 8;
+const CIRCUIT_FHE_AVERAGE: u8 = 9;
+const CIRCUIT_FHE_COUNT_IF: u8 = 10;
+const CIRCUIT_FHE_HISTOGRAM: u8 = 11;
+
+/// Convert circuit_type u8 to CircuitType enum
+/// For FHE jobs, also requires FheConsensusData to reconstruct the FheOperation
+fn circuit_type_from_u8(circuit_type: u8, fhe_data: Option<&FheConsensusData>) -> CircuitType {
+    match circuit_type {
+        CIRCUIT_ZCASH_ORCHARD => CircuitType::ZcashOrchard,
+        1 => CircuitType::ZcashOrchard, // ZcashSapling not yet supported
+        CIRCUIT_ANONYMOUS_VOTE => CircuitType::AnonymousVote,
+        CIRCUIT_CREDENTIAL => CircuitType::Credential,
+        CIRCUIT_FHE_ADD => {
+            let param = fhe_data.map(|d| d.operation_param1 as u8).unwrap_or(0);
+            CircuitType::FheComputation(FheOperation::Add(param))
+        }
+        CIRCUIT_FHE_MULTIPLY => {
+            let param = fhe_data.map(|d| d.operation_param1 as u8).unwrap_or(0);
+            CircuitType::FheComputation(FheOperation::Multiply(param))
+        }
+        CIRCUIT_FHE_SUM => {
+            let count = fhe_data.map(|d| d.operation_param1).unwrap_or(0);
+            CircuitType::FheComputation(FheOperation::Sum { expected_count: count })
+        }
+        CIRCUIT_FHE_THRESHOLD => {
+            let threshold = fhe_data.map(|d| d.operation_param1 as u8).unwrap_or(0);
+            let greater_or_equal = fhe_data.map(|d| d.operation_param2 != 0).unwrap_or(true);
+            CircuitType::FheComputation(FheOperation::Threshold { threshold, greater_or_equal })
+        }
+        CIRCUIT_FHE_RANGE_CHECK => {
+            let min = fhe_data.map(|d| d.operation_param2).unwrap_or(0);
+            let max = fhe_data.map(|d| d.operation_param3).unwrap_or(255);
+            CircuitType::FheComputation(FheOperation::RangeCheck { min, max })
+        }
+        CIRCUIT_FHE_AVERAGE => {
+            let count = fhe_data.map(|d| d.operation_param1).unwrap_or(0);
+            CircuitType::FheComputation(FheOperation::Average { expected_count: count })
+        }
+        CIRCUIT_FHE_COUNT_IF => {
+            let count = fhe_data.map(|d| d.operation_param1).unwrap_or(0);
+            // CountIf predicate cannot be fully reconstructed from u8, use default
+            CircuitType::FheComputation(FheOperation::CountIf {
+                predicate: FhePredicate::Equals(0),
+                expected_count: count,
+            })
+        }
+        CIRCUIT_FHE_HISTOGRAM => {
+            let bins_count = fhe_data.map(|d| d.operation_param1 as usize).unwrap_or(4);
+            // Default histogram bins, actual bins need to come from FheConsensusData extension
+            let bins = (0..bins_count)
+                .map(|i| {
+                    let bin_size = 256 / bins_count;
+                    let min = (i * bin_size) as u8;
+                    let max = ((i + 1) * bin_size - 1) as u8;
+                    HistogramBin::new(min, max, &format!("{}-{}", min, max))
+                })
+                .collect();
+            CircuitType::FheComputation(FheOperation::Histogram { bins })
+        }
+        _ => CircuitType::Custom(format!("Unknown({})", circuit_type)),
+    }
+}
+
+/// Check if circuit_type u8 represents an FHE job
+fn is_fhe_circuit(circuit_type: u8) -> bool {
+    circuit_type >= 4 && circuit_type <= 11
+}
 
 /// ZyberLink Prover Node - Autonomous ZK proof generation daemon
 #[derive(Parser, Debug)]
@@ -283,25 +361,31 @@ impl ProverNode {
         let mut rejected_count = 0;
 
         for (job_pda, job) in pending_jobs {
-            // Get required provers from FHE config
-            let required_provers = match &job.circuit_type {
-                CircuitType::FheComputation(_) => {
-                    // Try to fetch FHE config from job account (not available in JobAccount struct)
-                    // For now, default to 3 provers
-                    3u8
+            // Convert u8 circuit_type to CircuitType enum
+            // For FHE jobs, we need FheConsensusData to get full operation info
+            let (circuit_type, fhe_data) = if is_fhe_circuit(job.circuit_type) {
+                // Fetch FheConsensusData for this job
+                let (fhe_pda, _) = self.client.get_fhe_consensus_pda(job.id);
+                match fetch_fhe_consensus(&self.client.rpc_client, &fhe_pda) {
+                    Ok(data) => (circuit_type_from_u8(job.circuit_type, Some(&data)), Some(data)),
+                    Err(_) => (circuit_type_from_u8(job.circuit_type, None), None),
                 }
-                _ => 3u8,
+            } else {
+                (circuit_type_from_u8(job.circuit_type, None), None)
             };
+
+            // Get required provers from FHE config
+            let required_provers = fhe_data.as_ref().map(|d| d.required_provers).unwrap_or(3u8);
 
             // Evaluate job profitability
             let roi = self.roi_calculator.evaluate_job(
-                &job.circuit_type,
+                &circuit_type,
                 job.price_lamports,
                 required_provers,
             );
 
             if roi.is_profitable {
-                suitable_jobs.push((job_pda, job, roi));
+                suitable_jobs.push((job_pda, job, circuit_type, roi));
             } else {
                 rejected_count += 1;
                 debug!(
@@ -339,10 +423,10 @@ impl ProverNode {
 
         // Process jobs up to max concurrent limit
         let slots_available = self.config.max_concurrent_jobs - active_count;
-        for (job_pda, job, roi) in suitable_jobs.into_iter().take(slots_available) {
+        for (job_pda, job, circuit_type, roi) in suitable_jobs.into_iter().take(slots_available) {
             info!(
                 "Processing job {} - Price: {} lamports, Circuit: {:?}, ROI: {:.1}%, Profit: {} lamports",
-                job.id, job.price_lamports, job.circuit_type, roi.roi_percentage, roi.profit
+                job.id, job.price_lamports, circuit_type, roi.roi_percentage, roi.profit
             );
 
             // Spawn job processing task
@@ -366,8 +450,8 @@ impl ProverNode {
                     keypair,
                     job_pda,
                     job.id,
-                    job.circuit_type,
-                    job.witness_commitment,
+                    circuit_type,
+                    job.witness_hash,
                     mock_proving_time,
                     halo2_prover,
                     witness_encryption,
@@ -404,10 +488,10 @@ impl ProverNode {
     async fn process_job(
         client: Arc<MarketplaceClient>,
         keypair: Arc<Keypair>,
-        job_pda: solana_sdk::pubkey::Pubkey,
+        job_pda: Pubkey,
         job_id: u64,
         circuit_type: CircuitType,
-        witness_commitment: [u8; 32],
+        witness_hash: [u8; 32],
         _mock_proving_time: Duration,
         halo2_prover: Arc<Halo2Prover>,
         witness_encryption: Arc<WitnessEncryption>,
@@ -447,14 +531,25 @@ impl ProverNode {
             }
         }
 
-        // For FHE jobs: verify we're in the claimed_provers list
+        // For FHE jobs: verify we're in the claimed_provers list (from FheConsensusData)
         if let CircuitType::FheComputation(_) = circuit_type {
             if job.status != JobStatus::Claimed {
                 warn!("[Job {}] FHE job not in Claimed status, aborting", job_id);
                 return Ok(());
             }
 
-            if !job.claimed_provers.contains(&keypair.pubkey()) {
+            // Fetch FheConsensusData to check claimed_provers
+            let (fhe_pda, _) = client.get_fhe_consensus_pda(job_id);
+            let fhe_data = fetch_fhe_consensus(&client.rpc_client, &fhe_pda)
+                .context("Failed to fetch FHE consensus data")?;
+
+            // Check if we're in the claimed_provers list
+            let our_pubkey = keypair.pubkey();
+            let is_claimed = fhe_data.claimed_provers[..fhe_data.claimed_count as usize]
+                .iter()
+                .any(|p| *p == our_pubkey);
+
+            if !is_claimed {
                 warn!(
                     "[Job {}] We are not in the claimed_provers list, aborting",
                     job_id
@@ -463,9 +558,15 @@ impl ProverNode {
             }
 
             // Check if we already submitted a result
-            if job.fhe_results.iter().any(|r| r.prover == keypair.pubkey()) {
-                info!("[Job {}] Already submitted FHE result, skipping", job_id);
-                return Ok(());
+            let our_index = fhe_data.claimed_provers[..fhe_data.claimed_count as usize]
+                .iter()
+                .position(|p| *p == our_pubkey);
+
+            if let Some(idx) = our_index {
+                if fhe_data.result_submitted[idx] {
+                    info!("[Job {}] Already submitted FHE result, skipping", job_id);
+                    return Ok(());
+                }
             }
         }
 
@@ -476,7 +577,7 @@ impl ProverNode {
         );
 
         let encrypted_witness = witness_fetcher
-            .download_witness(&witness_commitment)
+            .download_witness(&witness_hash)
             .await
             .context("Failed to download witness from backend")?;
 
@@ -658,7 +759,7 @@ impl ProverNode {
 
                 // Build SubmitFheResult instruction
                 let submit_ix = client
-                    .submit_fhe_result_instruction(&keypair.pubkey(), &job_pda, result_hash)
+                    .submit_fhe_result_instruction(&keypair.pubkey(), &job_pda, job_id, result_hash)
                     .context("Failed to build submit FHE result instruction")?;
 
                 match client.send_and_confirm_transaction(&[submit_ix], &[&*keypair]) {

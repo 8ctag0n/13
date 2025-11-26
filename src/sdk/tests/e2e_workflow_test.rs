@@ -293,7 +293,7 @@ async fn test_e2e_complete_marketplace_workflow() -> Result<()> {
         let job_account = banks_client.get_account(*job_pda).await?.unwrap();
         let job = JobAccount::deserialize(&mut &job_account.data[..])?;
         assert_eq!(job.status, JobStatus::Completed);
-        assert!(job.proof_commitment.is_some());
+        assert!(job.proof_hash.is_some());
         println!("\n✓ Job {} final state verified (Completed)", idx);
     }
 

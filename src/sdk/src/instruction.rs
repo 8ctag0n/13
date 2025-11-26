@@ -5,10 +5,11 @@ use zyberlink_types::{CircuitType, FheConsensusConfig};
 ///
 /// NOTE: This is a duplicate of the enum in programs/zyberlink/src/instruction.rs
 /// We duplicate it here because the SDK cannot depend on solana_program crate.
-/// Any changes to the program's instruction enum MUST be replicated here.
+/// IMPORTANT: The order of variants MUST match the program's instruction enum exactly!
+/// Any changes to the program's instruction enum MUST be replicated here in the same order.
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, PartialEq)]
 pub enum MarketplaceInstruction {
-    /// Initialize the marketplace
+    /// Initialize the marketplace (0)
     Initialize {
         fee_basis_points: u16,
         min_stake_amount: u64,
@@ -16,13 +17,13 @@ pub enum MarketplaceInstruction {
         default_job_timeout_seconds: i64,
     },
 
-    /// Register a new prover
+    /// Register a new prover (1)
     RegisterProver {
         stake_amount: u64,
         encryption_pubkey: [u8; 32],
     },
 
-    /// Create a new proving job
+    /// Create a new proving job (2)
     CreateJob {
         circuit_type: CircuitType,
         witness_commitment: [u8; 32],
@@ -32,7 +33,28 @@ pub enum MarketplaceInstruction {
         fhe_config: Option<FheConsensusConfig>,
     },
 
-    /// Create a new proving job with SPL token payment
+    /// Claim a pending job (3)
+    ClaimJob,
+
+    /// Submit proof for a claimed job (4)
+    SubmitProof {
+        proof_commitment: [u8; 32],
+        proof_size: u32,
+    },
+
+    /// Cancel a pending job (5)
+    CancelJob,
+
+    /// Slash a prover for misbehavior (6)
+    SlashProver { slash_amount: u64 },
+
+    /// Submit FHE computation result (7)
+    SubmitFheResult { result_hash: [u8; 32] },
+
+    /// Finalize FHE job after consensus reached (8)
+    FinalizeFheJob,
+
+    /// Create a new proving job with SPL token payment (9)
     CreateJobWithToken {
         circuit_type: CircuitType,
         witness_commitment: [u8; 32],
@@ -41,27 +63,6 @@ pub enum MarketplaceInstruction {
         timeout_seconds: i64,
         fhe_config: Option<FheConsensusConfig>,
     },
-
-    /// Claim a pending job
-    ClaimJob,
-
-    /// Submit proof for a claimed job
-    SubmitProof {
-        proof_commitment: [u8; 32],
-        proof_size: u32,
-    },
-
-    /// Cancel a pending job
-    CancelJob,
-
-    /// Slash a prover for misbehavior
-    SlashProver { slash_amount: u64 },
-
-    /// Submit FHE computation result
-    SubmitFheResult { result_hash: [u8; 32] },
-
-    /// Finalize FHE job after consensus reached
-    FinalizeFheJob,
 }
 
 impl MarketplaceInstruction {
