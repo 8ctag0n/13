@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use cypherlink_types::fhe::FheConsensusConfig;
+use zyberlink_types::fhe::FheConsensusConfig;
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::{instruction::Instruction, pubkey::Pubkey};
 
@@ -18,7 +18,7 @@ impl MarketplaceSDK {
     /// Create a new MarketplaceSDK instance
     ///
     /// # Arguments
-    /// * `program_id` - The CypherLink program ID
+    /// * `program_id` - The ZyberLink program ID
     pub fn new(program_id: Pubkey) -> Self {
         Self {
             instruction_builder: InstructionBuilder::new(program_id),

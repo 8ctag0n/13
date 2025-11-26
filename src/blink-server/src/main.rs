@@ -8,7 +8,7 @@ mod validators;
 
 use actix_cors::Cors;
 use actix_web::{get, middleware, web, App, HttpResponse, HttpServer, Responder};
-use cypherlink_sdk::instructions::InstructionBuilder;
+use zyberlink_sdk::instructions::InstructionBuilder;
 use solana_sdk::pubkey::Pubkey;
 use sqlx::PgPool;
 use std::env;
@@ -76,7 +76,7 @@ async fn main() -> std::io::Result<()> {
         env::var("SOLANA_RPC_URL").unwrap_or_else(|_| "http://localhost:8899".to_string());
 
     let program_id_str = env::var("PROGRAM_ID")
-        .unwrap_or_else(|_| "CypherLinkProgram11111111111111111111111111".to_string());
+        .unwrap_or_else(|_| "ZyberLinkProgram11111111111111111111111111".to_string());
     let program_id = Pubkey::from_str(&program_id_str).expect("Invalid PROGRAM_ID");
 
     let cleanup_interval_secs = env::var("CLEANUP_INTERVAL_SECS")

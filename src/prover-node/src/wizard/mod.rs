@@ -87,7 +87,7 @@ impl SetupWizard {
         ui::print_step_header(0, 0, "Program Configuration");
 
         let program_id_str = ui::input_with_validation(
-            "Enter CypherLink Program ID",
+            "Enter ZyberLink Program ID",
             None,
             validation::validate_pubkey_string,
             3, // max retries
@@ -110,7 +110,7 @@ impl SetupWizard {
 fn derive_encryption_seed(keypair: &Keypair) -> [u8; 32] {
     use solana_sdk::hash::hash;
 
-    let mut seed_material = b"CYPHERLINK_WITNESS_ENCRYPTION_V1:".to_vec();
+    let mut seed_material = b"ZYBERLINK_WITNESS_ENCRYPTION_V1:".to_vec();
     seed_material.extend_from_slice(&keypair.to_bytes());
 
     let hash_result = hash(&seed_material);

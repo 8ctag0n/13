@@ -1,6 +1,6 @@
 use anyhow::Result;
 use borsh::BorshDeserialize;
-use cypherlink_sdk::JobAccount;
+use zyberlink_sdk::JobAccount;
 use solana_client::rpc_client::RpcClient;
 use solana_client::rpc_config::{RpcAccountInfoConfig, RpcProgramAccountsConfig};
 use solana_client::rpc_filter::RpcFilterType;

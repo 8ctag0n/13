@@ -6,7 +6,7 @@
 /// 3. Provers reach consensus on vote tallies
 /// 4. Payment distribution and verification
 use anyhow::Result;
-use cypherlink_types::fhe::FhePredicate;
+use zyberlink_types::fhe::FhePredicate;
 use tfhe::prelude::*;
 use tfhe::{generate_keys, set_server_key, ConfigBuilder, FheUint8};
 

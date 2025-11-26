@@ -1,4 +1,4 @@
-# FHE Integration Report - CypherLink Prover Node
+# FHE Integration Report - ZyberLink Prover Node
 
 **Date**: 2025-11-14
 **Task**: Integrate TFHE-rs (Concrete) into prover-node for FHE job execution
@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-Successfully integrated Fully Homomorphic Encryption (FHE) capabilities into the CypherLink prover node. Provers can now execute FHE computations on encrypted data alongside existing Halo2 ZK proof generation.
+Successfully integrated Fully Homomorphic Encryption (FHE) capabilities into the ZyberLink prover node. Provers can now execute FHE computations on encrypted data alongside existing Halo2 ZK proof generation.
 
 **Key Achievement**: Prover node can now process both ZK proofs and FHE computations in a unified architecture.
 
@@ -125,7 +125,7 @@ cargo run --bin generate-fhe-keys -- \
 
 **Usage**:
 ```bash
-cypherlink-prover \
+zyberlink-prover \
   --program-id <ID> \
   --fhe-server-key-path ./keys/fhe_server_key.bin \
   --rpc-url <URL>
@@ -310,7 +310,7 @@ Keys saved:
 
 4. **No Client SDK**: Manual encryption required
    - Impact: Complex client integration
-   - Future: Add to `cypherlink-sdk`
+   - Future: Add to `zyberlink-sdk`
 
 ### Known Issues
 
@@ -333,7 +333,7 @@ Keys saved:
 ### Immediate (Week 1)
 
 1. ✅ **Prover Integration** - DONE
-2. ⏳ **Client SDK** - Add FHE helpers to `cypherlink-sdk`
+2. ⏳ **Client SDK** - Add FHE helpers to `zyberlink-sdk`
 3. ⏳ **On-chain Program** - Add `SubmitFheResult` instruction
 4. ⏳ **E2E Test** - Full client → prover → chain test
 

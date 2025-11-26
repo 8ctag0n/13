@@ -1,6 +1,6 @@
 use borsh::BorshDeserialize;
 use chrono::{DateTime, NaiveDateTime, Utc};
-use cypherlink_sdk::JobAccount;
+use zyberlink_sdk::JobAccount;
 use solana_client::rpc_client::RpcClient;
 use solana_client::rpc_config::{RpcAccountInfoConfig, RpcProgramAccountsConfig};
 use solana_client::rpc_filter::RpcFilterType;
@@ -130,19 +130,19 @@ async fn upsert_job(db_pool: &PgPool, pubkey: &Pubkey, job: &JobAccount) -> anyh
 
     // Convert enums to strings for database storage
     let status_str = match job.status {
-        cypherlink_types::JobStatus::Pending => "pending",
-        cypherlink_types::JobStatus::Claimed => "claimed",
-        cypherlink_types::JobStatus::Completed => "completed",
-        cypherlink_types::JobStatus::Failed => "failed",
-        cypherlink_types::JobStatus::Cancelled => "cancelled",
+        zyberlink_types::JobStatus::Pending => "pending",
+        zyberlink_types::JobStatus::Claimed => "claimed",
+        zyberlink_types::JobStatus::Completed => "completed",
+        zyberlink_types::JobStatus::Failed => "failed",
+        zyberlink_types::JobStatus::Cancelled => "cancelled",
     };
 
     let circuit_type_str = match &job.circuit_type {
-        cypherlink_types::CircuitType::ZcashOrchard => "zcash_orchard",
-        cypherlink_types::CircuitType::AnonymousVote => "anonymous_vote",
-        cypherlink_types::CircuitType::Credential => "credential",
-        cypherlink_types::CircuitType::FheComputation(_) => "fhe_computation",
-        cypherlink_types::CircuitType::Custom(_) => "custom",
+        zyberlink_types::CircuitType::ZcashOrchard => "zcash_orchard",
+        zyberlink_types::CircuitType::AnonymousVote => "anonymous_vote",
+        zyberlink_types::CircuitType::Credential => "credential",
+        zyberlink_types::CircuitType::FheComputation(_) => "fhe_computation",
+        zyberlink_types::CircuitType::Custom(_) => "custom",
     };
 
     sqlx::query!(

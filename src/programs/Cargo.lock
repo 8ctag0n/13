@@ -1008,29 +1008,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cypherlink"
-version = "0.1.0"
-dependencies = [
- "borsh 1.5.7",
- "cypherlink-types",
- "solana-program",
- "solana-program-test",
- "solana-sdk",
- "thiserror 1.0.69",
- "tokio",
-]
-
-[[package]]
-name = "cypherlink-types"
-version = "0.1.0"
-dependencies = [
- "borsh 1.5.7",
- "serde",
- "solana-program",
- "thiserror 1.0.69",
-]
-
-[[package]]
 name = "darling"
 version = "0.21.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8201,4 +8178,27 @@ checksum = "91e19ebc2adc8f83e43039e79776e3fda8ca919132d68a1fed6a5faca2683748"
 dependencies = [
  "cc",
  "pkg-config",
+]
+
+[[package]]
+name = "zyberlink"
+version = "0.1.0"
+dependencies = [
+ "borsh 1.5.7",
+ "solana-program",
+ "solana-program-test",
+ "solana-sdk",
+ "thiserror 1.0.69",
+ "tokio",
+ "zyberlink-types",
+]
+
+[[package]]
+name = "zyberlink-types"
+version = "0.1.0"
+dependencies = [
+ "borsh 1.5.7",
+ "serde",
+ "solana-program",
+ "thiserror 1.0.69",
 ]

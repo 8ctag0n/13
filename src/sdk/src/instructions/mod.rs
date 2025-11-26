@@ -1,4 +1,4 @@
-/// Pure instruction builders for CypherLink marketplace
+/// Pure instruction builders for ZyberLink marketplace
 ///
 /// This module provides wallet-compatible instruction builders that:
 /// - Accept Pubkey instead of Keypair (no signing)

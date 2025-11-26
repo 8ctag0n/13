@@ -121,7 +121,7 @@ fn main() -> Result<()> {
         server_key_path.display()
     );
     println!("\nExample prover command:");
-    println!("  cypherlink-prover \\");
+    println!("  zyberlink-prover \\");
     println!("    --program-id <PROGRAM_ID> \\");
     println!("    --fhe-server-key-path {} \\", server_key_path.display());
     println!("    --rpc-url <RPC_URL>");

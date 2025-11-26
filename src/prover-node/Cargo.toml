@@ -1,5 +1,5 @@
 [package]
-name = "cypherlink-prover"
+name = "zyberlink-prover"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,7 +10,7 @@ name = "prover_node"
 path = "src/lib.rs"
 
 [[bin]]
-name = "cypherlink-prover"
+name = "zyberlink-prover"
 path = "src/main.rs"
 
 [[bin]]
@@ -31,8 +31,8 @@ hex = "0.4"
 solana-sdk.workspace = true
 solana-client.workspace = true
 
-cypherlink-sdk = { path = "../sdk" }
-cypherlink-types = { path = "../shared/types" }
+zyberlink-sdk = { path = "../sdk" }
+zyberlink-types = { path = "../shared/types" }
 
 # Halo2 and Zcash Orchard dependencies
 halo2_proofs = "0.3"

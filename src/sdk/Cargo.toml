@@ -1,5 +1,5 @@
 [package]
-name = "cypherlink-sdk"
+name = "zyberlink-sdk"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,18 +8,19 @@ authors.workspace = true
 [dependencies]
 solana-sdk.workspace = true
 solana-client.workspace = true
+solana-account-decoder.workspace = true
 borsh.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
 blake2 = "0.10"
 
-cypherlink-types = { path = "../shared/types" }
+zyberlink-types = { path = "../shared/types" }
 
 [dev-dependencies]
 solana-program-test.workspace = true
 tokio = { workspace = true, features = ["test-util", "rt-multi-thread", "macros"] }
-cypherlink = { path = "../programs/cypherlink", features = ["no-entrypoint"] }
+zyberlink = { path = "../programs/zyberlink", features = ["no-entrypoint"] }
 reqwest.workspace = true
 hex.workspace = true
 serde_json.workspace = true

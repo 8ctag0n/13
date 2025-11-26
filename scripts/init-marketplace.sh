@@ -16,12 +16,12 @@ log_ok() { echo -e "${GREEN}[OK]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 
 # Load config
-if [ ! -f blink-server/.env ]; then
-    echo "ERROR: blink-server/.env not found"
+if [ ! -f src/blink-server/.env ]; then
+    echo "ERROR: src/blink-server/.env not found"
     exit 1
 fi
 
-export $(grep -v '^#' blink-server/.env | xargs)
+export $(grep -v '^#' src/blink-server/.env | xargs)
 
 echo ""
 echo "==========================================="
@@ -32,9 +32,9 @@ echo "RPC URL: $SOLANA_RPC_URL"
 echo "Program ID: $PROGRAM_ID"
 echo ""
 
-# Check if localnet is running
-if ! curl -s http://127.0.0.1:8080/health >/dev/null 2>&1; then
-    echo "ERROR: Localnet not running. Start with: ./start-localnet.sh"
+# Check if validator is running (only need validator, not backend)
+if ! solana cluster-version --url http://localhost:8899 >/dev/null 2>&1; then
+    echo "ERROR: Solana validator not running. Run: make l1 (localnet-setup)"
     exit 1
 fi
 
@@ -65,7 +65,7 @@ fi
 log_step "Building initialization CLI..."
 cat > /tmp/init-marketplace.rs <<'EOF'
 use anyhow::{Context, Result};
-use cypherlink_sdk::MarketplaceSDK;
+use zyberlink_sdk::MarketplaceSDK;
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::{
     commitment_config::CommitmentConfig,
@@ -143,16 +143,16 @@ fn main() -> Result<()> {
 EOF
 
 # Build the CLI tool
-cd job-creator
+cd src/job-creator
 cargo build --release --bin job-creator 2>&1 | grep -E "Compiling|Finished" || true
-cd ..
+cd ../..
 
 log_step "Initializing marketplace..."
 
-# Run initialization (pass keypair via stdin for security)
-cat "$ADMIN_KEYPAIR" | cargo run --manifest-path job-creator/Cargo.toml --release --bin init-marketplace -- "$SOLANA_RPC_URL" "$PROGRAM_ID" 2>/dev/null || {
-    # If separate binary doesn't exist, we'll use a simple Rust script
-    log_warn "Using alternative initialization method..."
+# Try using SDK example first, fallback to manual instructions
+cargo run --manifest-path src/sdk/Cargo.toml --example initialize_program --release || {
+    # If SDK example fails, show manual instructions
+    log_warn "SDK example failed. Trying alternative method..."
 
     # For now, just output instructions
     echo ""
@@ -163,5 +163,42 @@ cat "$ADMIN_KEYPAIR" | cargo run --manifest-path job-creator/Cargo.toml --releas
     echo "    --url $SOLANA_RPC_URL"
     echo ""
 }
+
+# ============================================================================
+# Register provers on-chain
+# ============================================================================
+log_step "Registering prover nodes..."
+
+PROVER_BIN="./target/release/zyberlink-prover"
+if [ ! -f "$PROVER_BIN" ]; then
+    log_warn "Prover binary not found, skipping registration"
+else
+    for i in 1 2 3; do
+        PROVER_KEYPAIR="/tmp/prover-$i-keypair.json"
+        if [ -f "$PROVER_KEYPAIR" ]; then
+            PROVER_ADDR=$(solana address -k "$PROVER_KEYPAIR")
+
+            # Check if already registered by trying to find prover PDA
+            # If register fails with "already in use", that's OK
+            if $PROVER_BIN register \
+                --program-id $PROGRAM_ID \
+                --rpc-url $SOLANA_RPC_URL \
+                --keypair $PROVER_KEYPAIR \
+                --stake-amount 5000000000 2>&1 | grep -q "success\|already"; then
+                log_ok "Prover $i registered: $PROVER_ADDR"
+            else
+                # Try anyway and check result
+                $PROVER_BIN register \
+                    --program-id $PROGRAM_ID \
+                    --rpc-url $SOLANA_RPC_URL \
+                    --keypair $PROVER_KEYPAIR \
+                    --stake-amount 5000000000 2>&1 || true
+                log_ok "Prover $i: $PROVER_ADDR (may already be registered)"
+            fi
+        else
+            log_warn "Prover $i keypair not found"
+        fi
+    done
+fi
 
 log_ok "Done!"

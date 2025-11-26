@@ -1,5 +1,5 @@
 use borsh::BorshDeserialize;
-use cypherlink_types::{CircuitType, FheJobResult, JobStatus};
+use zyberlink_types::{CircuitType, FheJobResult, JobStatus};
 use solana_program::{
     account_info::{next_account_info, AccountInfo},
     entrypoint::ProgramResult,
@@ -9,7 +9,7 @@ use solana_program::{
     sysvar::{clock::Clock, Sysvar},
 };
 
-use crate::{error::CypherLinkProgramError, state::JobAccount};
+use crate::{error::ZyberLinkProgramError, state::JobAccount};
 
 /// Process SubmitFheResult instruction
 pub fn process_submit_fhe_result(
@@ -31,7 +31,7 @@ pub fn process_submit_fhe_result(
     // Verify job account is owned by program
     if job_info.owner != program_id {
         msg!("Invalid job account owner");
-        return Err(CypherLinkProgramError::InvalidAccount.into());
+        return Err(ZyberLinkProgramError::InvalidAccount.into());
     }
 
     // Deserialize job
@@ -43,24 +43,24 @@ pub fn process_submit_fhe_result(
     // Validate: must be FHE job
     if !matches!(job.circuit_type, CircuitType::FheComputation(_)) {
         msg!("Job is not an FHE job");
-        return Err(CypherLinkProgramError::NotFheJob.into());
+        return Err(ZyberLinkProgramError::NotFheJob.into());
     }
 
     let config = job
         .fhe_config
         .as_ref()
-        .ok_or(CypherLinkProgramError::MissingFheConfig)?;
+        .ok_or(ZyberLinkProgramError::MissingFheConfig)?;
 
     // Validate: job must be Claimed (all provers have claimed)
     if job.status != JobStatus::Claimed {
         msg!("Job must be in Claimed status, current: {:?}", job.status);
-        return Err(CypherLinkProgramError::InvalidJobStatus.into());
+        return Err(ZyberLinkProgramError::InvalidJobStatus.into());
     }
 
     // Validate: prover must have claimed this job
     if !job.claimed_provers.contains(prover_authority_info.key) {
         msg!("Prover did not claim this FHE job");
-        return Err(CypherLinkProgramError::ProverNotClaimed.into());
+        return Err(ZyberLinkProgramError::ProverNotClaimed.into());
     }
 
     // Validate: prover hasn't already submitted
@@ -70,13 +70,13 @@ pub fn process_submit_fhe_result(
         .any(|r| r.prover == *prover_authority_info.key)
     {
         msg!("Prover already submitted result");
-        return Err(CypherLinkProgramError::ResultAlreadySubmitted.into());
+        return Err(ZyberLinkProgramError::ResultAlreadySubmitted.into());
     }
 
     // Validate: not exceeded max provers
     if job.fhe_results.len() >= 10 {
         msg!("Max provers (10) reached");
-        return Err(CypherLinkProgramError::FheJobFullyClaimed.into());
+        return Err(ZyberLinkProgramError::FheJobFullyClaimed.into());
     }
 
     // Get current time
@@ -86,7 +86,7 @@ pub fn process_submit_fhe_result(
     // Validate: not timed out
     if job.is_timed_out(current_time) {
         msg!("Job has timed out");
-        return Err(CypherLinkProgramError::JobTimedOut.into());
+        return Err(ZyberLinkProgramError::JobTimedOut.into());
     }
 
     // Create result

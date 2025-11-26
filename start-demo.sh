@@ -37,12 +37,12 @@ pkill -f blink-server || true
 sleep 1
 
 # Load env from backend if exists, otherwise use defaults
-if [ -f "blink-server/.env" ]; then
-    export $(grep -v '^#' blink-server/.env | xargs)
+if [ -f "src/blink-server/.env" ]; then
+    export $(grep -v '^#' src/blink-server/.env | xargs)
 else
     export DATABASE_URL=postgresql://zyberlink:dev_password@localhost:5432/zyberlink
     export SOLANA_RPC_URL=http://localhost:8899
-    export PROGRAM_ID=CypherLinkProgram11111111111111111111111111
+    export PROGRAM_ID=ZyberLinkProgram11111111111111111111111111
 fi
 
 RUST_LOG=info \
@@ -67,7 +67,7 @@ fi
 
 # Start 3 provers
 echo "[4/6] Starting 3 prover nodes..."
-pkill -f cypherlink-prover || true
+pkill -f zyberlink-prover || true
 sleep 1
 
 for i in 1 2 3; do
@@ -80,7 +80,7 @@ for i in 1 2 3; do
     fi
 
     RUST_LOG=info \
-    ./target/release/cypherlink-prover \
+    ./target/release/zyberlink-prover \
         --program-id $PROGRAM_ID \
         --rpc-url $SOLANA_RPC_URL \
         --keypair $PROVER_KEYPAIR \
@@ -92,12 +92,12 @@ sleep 2
 # Start frontend
 echo "[5/6] Starting frontend..."
 pkill -f "vite" || true
-cd webapp
+cd src/webapp
 npm run dev > ~/zyberlink-logs/frontend.log 2>&1 &
 FRONTEND_PID=$!
 echo "       Frontend PID: $FRONTEND_PID"
 sleep 3
-cd ..
+cd ../..
 
 echo "[6/6] All services started!"
 echo ""
@@ -123,6 +123,6 @@ echo "Press Ctrl+C to stop (or run: ./stop-demo.sh)"
 echo ""
 
 # Wait for user interrupt
-trap "echo ''; echo 'Stopping services...'; pkill -f blink-server; pkill -f cypherlink-prover; pkill -f vite; echo 'Done!'; exit 0" INT
+trap "echo ''; echo 'Stopping services...'; pkill -f blink-server; pkill -f zyberlink-prover; pkill -f vite; echo 'Done!'; exit 0" INT
 
 wait

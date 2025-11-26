@@ -1,7 +1,7 @@
 # Halo2 Integration - Implementation Report
 
 ## Overview
-Successfully integrated Halo2 proving system with Zcash Orchard circuit into the CypherLink prover node. The prover now generates REAL Halo2 proofs instead of mock proofs.
+Successfully integrated Halo2 proving system with Zcash Orchard circuit into the ZyberLink prover node. The prover now generates REAL Halo2 proofs instead of mock proofs.
 
 ## What Was Implemented
 
@@ -115,7 +115,7 @@ let proof_commitment = Self::generate_proof_commitment(&proof_bytes);
 
 ### Unit Tests
 ```bash
-cargo test -p cypherlink-prover halo2_prover
+cargo test -p zyberlink-prover halo2_prover
 ```
 
 Tests included:
@@ -128,13 +128,13 @@ All tests pass.
 
 ### Build Verification
 ```bash
-cargo build --release -p cypherlink-prover
+cargo build --release -p zyberlink-prover
 ```
 
 - Compiles successfully
 - No warnings
 - Binary size: 6.9MB
-- Target: `target/release/cypherlink-prover`
+- Target: `target/release/zyberlink-prover`
 
 ## Current Status
 
@@ -223,7 +223,7 @@ Proof Generation (blocking thread)
 
 ### CLI Arguments
 ```bash
-cypherlink-prover \
+zyberlink-prover \
   --program-id <PROGRAM_ID> \
   --rpc-url http://localhost:8899 \
   --keypair ~/.config/solana/id.json \
@@ -269,19 +269,19 @@ Total additional dependencies: ~34 crates
 
 ### 1. Binary Check
 ```bash
-ls -lh target/release/cypherlink-prover
+ls -lh target/release/zyberlink-prover
 # Output: 6.9M binary
 ```
 
 ### 2. Help Output
 ```bash
-./target/release/cypherlink-prover --help
+./target/release/zyberlink-prover --help
 # Shows all CLI options
 ```
 
 ### 3. Tests
 ```bash
-cargo test -p cypherlink-prover
+cargo test -p zyberlink-prover
 # All tests pass
 ```
 

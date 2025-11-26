@@ -1,4 +1,4 @@
-use cypherlink_sdk::{
+use zyberlink_sdk::{
     calculate_platform_fee, calculate_prover_payout, get_time_remaining, is_job_timed_out,
     CircuitType, JobStatus, MarketplaceClient,
 };
@@ -16,9 +16,9 @@ fn program_id() -> solana_sdk::pubkey::Pubkey {
 
 fn setup_program_test(program_id: solana_sdk::pubkey::Pubkey) -> ProgramTest {
     ProgramTest::new(
-        "cypherlink",
+        "zyberlink",
         program_id,
-        processor!(cypherlink::process_instruction),
+        processor!(zyberlink::process_instruction),
     )
 }
 
@@ -357,7 +357,7 @@ fn test_fee_calculations() {
 
 #[test]
 fn test_timeout_calculations() {
-    use cypherlink_sdk::JobAccount;
+    use zyberlink_sdk::JobAccount;
     use solana_sdk::pubkey::Pubkey;
 
     let job = JobAccount {

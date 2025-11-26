@@ -1,9 +1,9 @@
 use solana_program::program_error::ProgramError;
 use thiserror::Error;
 
-/// Errors that can occur in CypherLink operations
+/// Errors that can occur in ZyberLink operations
 #[derive(Error, Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CypherLinkError {
+pub enum ZyberLinkError {
     /// Invalid instruction data
     #[error("Invalid instruction data")]
     InvalidInstructionData,
@@ -93,15 +93,15 @@ pub enum CypherLinkError {
     SerializationError,
 }
 
-impl From<CypherLinkError> for ProgramError {
-    fn from(e: CypherLinkError) -> Self {
+impl From<ZyberLinkError> for ProgramError {
+    fn from(e: ZyberLinkError) -> Self {
         ProgramError::Custom(e as u32)
     }
 }
 
-impl From<std::io::Error> for CypherLinkError {
+impl From<std::io::Error> for ZyberLinkError {
     fn from(_: std::io::Error) -> Self {
-        CypherLinkError::SerializationError
+        ZyberLinkError::SerializationError
     }
 }
 
@@ -111,12 +111,12 @@ mod tests {
 
     #[test]
     fn test_error_conversion() {
-        let error = CypherLinkError::InvalidAccount;
+        let error = ZyberLinkError::InvalidAccount;
         let program_error: ProgramError = error.into();
 
         match program_error {
             ProgramError::Custom(code) => {
-                assert_eq!(code, CypherLinkError::InvalidAccount as u32);
+                assert_eq!(code, ZyberLinkError::InvalidAccount as u32);
             }
             _ => panic!("Expected Custom error"),
         }
@@ -124,7 +124,7 @@ mod tests {
 
     #[test]
     fn test_error_display() {
-        let error = CypherLinkError::InsufficientFunds;
+        let error = ZyberLinkError::InsufficientFunds;
         assert_eq!(error.to_string(), "Insufficient funds");
     }
 }

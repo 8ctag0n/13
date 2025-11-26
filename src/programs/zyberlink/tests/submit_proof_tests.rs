@@ -2,11 +2,11 @@ mod common;
 
 use borsh::BorshDeserialize;
 use common::{initialize_marketplace, register_prover, setup_program_test};
-use cypherlink::{
+use zyberlink::{
     instruction::MarketplaceInstruction, state::JobAccount, state::MarketplaceConfig,
     state::ProverAccount,
 };
-use cypherlink_types::{CircuitType, JobStatus};
+use zyberlink_types::{CircuitType, JobStatus};
 use solana_program::pubkey::Pubkey;
 use solana_sdk::{
     signature::{Keypair, Signer},

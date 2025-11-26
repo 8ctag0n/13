@@ -4,8 +4,8 @@ use chacha20poly1305::{
     aead::{Aead, AeadCore, KeyInit, OsRng as AeadRng},
     ChaCha20Poly1305,
 };
-use cypherlink_sdk::MarketplaceClient;
-use cypherlink_types::{CircuitType, FheOperation};
+use zyberlink_sdk::MarketplaceClient;
+use zyberlink_types::{CircuitType, FheOperation};
 use rand::rngs::OsRng;
 use reqwest::Client;
 use solana_sdk::{

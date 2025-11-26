@@ -1,5 +1,5 @@
 use borsh::BorshDeserialize;
-use cypherlink_types::{CircuitType, FheJobResult, JobStatus};
+use zyberlink_types::{CircuitType, FheJobResult, JobStatus};
 use solana_program::{
     account_info::{next_account_info, AccountInfo},
     entrypoint::ProgramResult,
@@ -10,7 +10,7 @@ use solana_program::{
 use std::collections::HashMap;
 
 use crate::{
-    error::CypherLinkProgramError,
+    error::ZyberLinkProgramError,
     state::{JobAccount, MarketplaceConfig, ProverAccount},
 };
 
@@ -63,14 +63,14 @@ pub fn process_finalize_fhe_job(program_id: &Pubkey, accounts: &[AccountInfo]) -
     // Verify job account is owned by program
     if job_info.owner != program_id {
         msg!("Invalid job account owner");
-        return Err(CypherLinkProgramError::InvalidAccount.into());
+        return Err(ZyberLinkProgramError::InvalidAccount.into());
     }
 
     // Verify config PDA
     let (config_pda, _) = Pubkey::find_program_address(&[b"config"], program_id);
     if config_info.key != &config_pda {
         msg!("Invalid config account");
-        return Err(CypherLinkProgramError::InvalidAccount.into());
+        return Err(ZyberLinkProgramError::InvalidAccount.into());
     }
 
     // Deserialize job
@@ -82,18 +82,18 @@ pub fn process_finalize_fhe_job(program_id: &Pubkey, accounts: &[AccountInfo]) -
     // Validate: must be FHE job
     if !matches!(job.circuit_type, CircuitType::FheComputation(_)) {
         msg!("Job is not an FHE job");
-        return Err(CypherLinkProgramError::NotFheJob.into());
+        return Err(ZyberLinkProgramError::NotFheJob.into());
     }
 
     let config = job
         .fhe_config
         .as_ref()
-        .ok_or(CypherLinkProgramError::MissingFheConfig)?;
+        .ok_or(ZyberLinkProgramError::MissingFheConfig)?;
 
     // Validate: job must be Claimed
     if job.status != JobStatus::Claimed {
         msg!("Job must be in Claimed status, current: {:?}", job.status);
-        return Err(CypherLinkProgramError::InvalidJobStatus.into());
+        return Err(ZyberLinkProgramError::InvalidJobStatus.into());
     }
 
     // Validate: all required provers have submitted
@@ -103,13 +103,13 @@ pub fn process_finalize_fhe_job(program_id: &Pubkey, accounts: &[AccountInfo]) -
             job.fhe_results.len(),
             config.required_provers
         );
-        return Err(CypherLinkProgramError::InsufficientFheResults.into());
+        return Err(ZyberLinkProgramError::InsufficientFheResults.into());
     }
 
     // Validate: not already finalized
     if job.fhe_consensus_hash.is_some() {
         msg!("Job already finalized");
-        return Err(CypherLinkProgramError::AlreadyFinalized.into());
+        return Err(ZyberLinkProgramError::AlreadyFinalized.into());
     }
 
     // Validate: creator account matches job creator
@@ -119,7 +119,7 @@ pub fn process_finalize_fhe_job(program_id: &Pubkey, accounts: &[AccountInfo]) -
             job.creator,
             creator_info.key
         );
-        return Err(CypherLinkProgramError::InvalidAccount.into());
+        return Err(ZyberLinkProgramError::InvalidAccount.into());
     }
 
     // Validate: escrow PDA
@@ -127,7 +127,7 @@ pub fn process_finalize_fhe_job(program_id: &Pubkey, accounts: &[AccountInfo]) -
         Pubkey::find_program_address(&[b"escrow", job_info.key.as_ref()], program_id);
     if escrow_info.key != &escrow_pda {
         msg!("Invalid escrow account");
-        return Err(CypherLinkProgramError::InvalidAccount.into());
+        return Err(ZyberLinkProgramError::InvalidAccount.into());
     }
 
     // Load marketplace config
@@ -136,7 +136,7 @@ pub fn process_finalize_fhe_job(program_id: &Pubkey, accounts: &[AccountInfo]) -
     // Validate: protocol fee recipient
     if protocol_fee_recipient_info.key != &marketplace_config.protocol_fee_recipient {
         msg!("Invalid protocol fee recipient");
-        return Err(CypherLinkProgramError::InvalidAccount.into());
+        return Err(ZyberLinkProgramError::InvalidAccount.into());
     }
 
     // Validate: we have enough accounts for all provers (2 per prover: authority + PDA)
@@ -147,7 +147,7 @@ pub fn process_finalize_fhe_job(program_id: &Pubkey, accounts: &[AccountInfo]) -
             expected_accounts,
             remaining_accounts.len()
         );
-        return Err(CypherLinkProgramError::InvalidAccount.into());
+        return Err(ZyberLinkProgramError::InvalidAccount.into());
     }
 
     // Get current time
@@ -190,13 +190,13 @@ pub fn process_finalize_fhe_job(program_id: &Pubkey, accounts: &[AccountInfo]) -
             let platform_fee = total_reward
                 .checked_mul(marketplace_config.fee_basis_points as u64)
                 .and_then(|v| v.checked_div(10000))
-                .ok_or(CypherLinkProgramError::Overflow)?;
+                .ok_or(ZyberLinkProgramError::Overflow)?;
             let prover_payout_total = total_reward
                 .checked_sub(platform_fee)
-                .ok_or(CypherLinkProgramError::Overflow)?;
+                .ok_or(ZyberLinkProgramError::Overflow)?;
             let payout_per_prover = prover_payout_total
                 .checked_div(matching_results.len() as u64)
-                .ok_or(CypherLinkProgramError::Overflow)?;
+                .ok_or(ZyberLinkProgramError::Overflow)?;
 
             msg!("Payment distribution:");
             msg!("  Total reward: {} lamports", total_reward);
@@ -208,11 +208,11 @@ pub fn process_finalize_fhe_job(program_id: &Pubkey, accounts: &[AccountInfo]) -
             **escrow_info.try_borrow_mut_lamports()? = escrow_info
                 .lamports()
                 .checked_sub(platform_fee)
-                .ok_or(CypherLinkProgramError::InsufficientFunds)?;
+                .ok_or(ZyberLinkProgramError::InsufficientFunds)?;
             **protocol_fee_recipient_info.try_borrow_mut_lamports()? = protocol_fee_recipient_info
                 .lamports()
                 .checked_add(platform_fee)
-                .ok_or(CypherLinkProgramError::Overflow)?;
+                .ok_or(ZyberLinkProgramError::Overflow)?;
 
             // Process all provers (both matching and mismatching)
             for (result_idx, result) in job.fhe_results.iter().enumerate() {
@@ -227,7 +227,7 @@ pub fn process_finalize_fhe_job(program_id: &Pubkey, accounts: &[AccountInfo]) -
                         result.prover,
                         prover_authority_info.key
                     );
-                    return Err(CypherLinkProgramError::InvalidAccount.into());
+                    return Err(ZyberLinkProgramError::InvalidAccount.into());
                 }
 
                 // Verify prover PDA
@@ -242,7 +242,7 @@ pub fn process_finalize_fhe_job(program_id: &Pubkey, accounts: &[AccountInfo]) -
                         expected_prover_pda,
                         prover_pda_info.key
                     );
-                    return Err(CypherLinkProgramError::InvalidAccount.into());
+                    return Err(ZyberLinkProgramError::InvalidAccount.into());
                 }
 
                 // Load prover account
@@ -257,11 +257,11 @@ pub fn process_finalize_fhe_job(program_id: &Pubkey, accounts: &[AccountInfo]) -
                     **escrow_info.try_borrow_mut_lamports()? = escrow_info
                         .lamports()
                         .checked_sub(payout_per_prover)
-                        .ok_or(CypherLinkProgramError::InsufficientFunds)?;
+                        .ok_or(ZyberLinkProgramError::InsufficientFunds)?;
                     **prover_authority_info.try_borrow_mut_lamports()? = prover_authority_info
                         .lamports()
                         .checked_add(payout_per_prover)
-                        .ok_or(CypherLinkProgramError::Overflow)?;
+                        .ok_or(ZyberLinkProgramError::Overflow)?;
 
                     // Update reputation: +10 for honest work
                     prover_account.on_job_completed(
@@ -305,11 +305,11 @@ pub fn process_finalize_fhe_job(program_id: &Pubkey, accounts: &[AccountInfo]) -
             **escrow_info.try_borrow_mut_lamports()? = escrow_info
                 .lamports()
                 .checked_sub(refund_amount)
-                .ok_or(CypherLinkProgramError::InsufficientFunds)?;
+                .ok_or(ZyberLinkProgramError::InsufficientFunds)?;
             **creator_info.try_borrow_mut_lamports()? = creator_info
                 .lamports()
                 .checked_add(refund_amount)
-                .ok_or(CypherLinkProgramError::Overflow)?;
+                .ok_or(ZyberLinkProgramError::Overflow)?;
 
             msg!(
                 "Refunded {} lamports to creator {}",
@@ -330,7 +330,7 @@ pub fn process_finalize_fhe_job(program_id: &Pubkey, accounts: &[AccountInfo]) -
                         result.prover,
                         prover_authority_info.key
                     );
-                    return Err(CypherLinkProgramError::InvalidAccount.into());
+                    return Err(ZyberLinkProgramError::InvalidAccount.into());
                 }
 
                 // Verify prover PDA
@@ -345,7 +345,7 @@ pub fn process_finalize_fhe_job(program_id: &Pubkey, accounts: &[AccountInfo]) -
                         expected_prover_pda,
                         prover_pda_info.key
                     );
-                    return Err(CypherLinkProgramError::InvalidAccount.into());
+                    return Err(ZyberLinkProgramError::InvalidAccount.into());
                 }
 
                 // Load and penalize prover

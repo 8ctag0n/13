@@ -47,7 +47,7 @@ log_step "Setting up infrastructure..."
 # Kill old processes
 pkill -f solana-test-validator || true
 pkill -f blink-server || true
-pkill -f cypherlink-prover || true
+pkill -f zyberlink-prover || true
 sleep 2
 
 # Run setup
@@ -62,7 +62,7 @@ fi
 # ============================================================================
 log_step "Starting backend server..."
 
-export $(grep -v '^#' blink-server/.env | xargs)
+export $(grep -v '^#' src/blink-server/.env | xargs)
 
 RUST_LOG=info \
 DATABASE_URL=$DATABASE_URL \
@@ -94,10 +94,10 @@ done
 # ============================================================================
 # STEP 5: Build provers if needed
 # ============================================================================
-PROVER_BIN="./target/release/cypherlink-prover"
+PROVER_BIN="./target/release/zyberlink-prover"
 if [ ! -f "$PROVER_BIN" ]; then
     log_step "Building prover binary (first time only)..."
-    if cargo build --release --bin cypherlink-prover > /tmp/prover-build.log 2>&1; then
+    if cargo build --release --bin zyberlink-prover > /tmp/prover-build.log 2>&1; then
         log_ok "Prover built successfully"
     else
         log_error "Prover build failed. Check: tail -50 /tmp/prover-build.log"

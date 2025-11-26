@@ -218,7 +218,7 @@ DATABASE_URL=postgresql://zyberlink:dev_password@localhost:5432/zyberlink
 
 # Solana
 SOLANA_RPC_URL=http://localhost:8899
-PROGRAM_ID=CypherLinkProgram11111111111111111111111111
+PROGRAM_ID=ZyberLinkProgram11111111111111111111111111
 
 # Server
 HOST=0.0.0.0

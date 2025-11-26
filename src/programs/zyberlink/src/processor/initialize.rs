@@ -10,7 +10,7 @@ use solana_program::{
     sysvar::Sysvar,
 };
 
-use crate::{error::CypherLinkProgramError, state::MarketplaceConfig};
+use crate::{error::ZyberLinkProgramError, state::MarketplaceConfig};
 
 /// Process Initialize instruction
 pub fn process_initialize(
@@ -38,7 +38,7 @@ pub fn process_initialize(
 
     if config_info.key != &config_pda {
         msg!("Invalid config account");
-        return Err(CypherLinkProgramError::InvalidAccount.into());
+        return Err(ZyberLinkProgramError::InvalidAccount.into());
     }
 
     // Check if already initialized
@@ -47,7 +47,7 @@ pub fn process_initialize(
         // Try to deserialize to verify it's properly initialized
         if let Ok(_config) = MarketplaceConfig::try_from_slice(&config_info.data.borrow()) {
             msg!("Marketplace already initialized");
-            return Err(CypherLinkProgramError::AlreadyInitialized.into());
+            return Err(ZyberLinkProgramError::AlreadyInitialized.into());
         }
     }
 

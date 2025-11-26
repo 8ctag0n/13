@@ -1,5 +1,5 @@
 [package]
-name = "cypherlink-crypto"
+name = "zyberlink-crypto"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

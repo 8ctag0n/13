@@ -1,8 +1,8 @@
 mod common;
 
 use common::{initialize_marketplace, setup_program_test};
-use cypherlink::instruction::MarketplaceInstruction;
-use cypherlink_types::{fhe::FheOperation, CircuitType, FheConsensusConfig};
+use zyberlink::instruction::MarketplaceInstruction;
+use zyberlink_types::{fhe::FheOperation, CircuitType, FheConsensusConfig};
 use solana_program::pubkey::Pubkey;
 use solana_program_test::*;
 use solana_sdk::signature::Signer;

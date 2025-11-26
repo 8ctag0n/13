@@ -50,12 +50,12 @@ status: ## Check status of all services
 
 init-marketplace: ## Initialize marketplace on-chain
 	@echo "$(BLUE) Initializing marketplace...$(NC)"
-	@if [ ! -f "blink-server/.env" ]; then \
-		echo "$(RED)ERROR: blink-server/.env not found. Run 'make start' first$(NC)"; \
+	@if [ ! -f "src/blink-server/.env" ]; then \
+		echo "$(RED)ERROR: src/blink-server/.env not found. Run 'make start' first$(NC)"; \
 		exit 1; \
 	fi
-	@export $$(grep -v '^#' blink-server/.env | xargs) && \
-	cargo run --manifest-path sdk/Cargo.toml --example initialize_program
+	@export $$(grep -v '^#' src/blink-server/.env | xargs) && \
+	cargo run --manifest-path src/sdk/Cargo.toml --example initialize_program
 
 check-provers: ## Check if provers are registered in marketplace
 	@echo "$(BLUE) Checking prover registration...$(NC)"
@@ -77,7 +77,7 @@ start-provers: ## Start 3 prover nodes
 
 stop-provers: ## Stop all prover nodes
 	@echo "$(BLUE)⏹️  Stopping provers...$(NC)"
-	@pkill -f cypherlink-prover || true
+	@pkill -f zyberlink-prover || true
 	@echo "$(GREEN) Provers stopped$(NC)"
 
 restart-provers: stop-provers start-provers ## Restart prover nodes
@@ -98,8 +98,8 @@ stop-validator: ## Stop Solana validator
 
 start-backend: ## Start backend server only
 	@echo "$(BLUE) Starting backend server...$(NC)"
-	@if [ -f "blink-server/.env" ]; then \
-		export $$(grep -v '^#' blink-server/.env | xargs); \
+	@if [ -f "src/blink-server/.env" ]; then \
+		export $$(grep -v '^#' src/blink-server/.env | xargs); \
 	fi; \
 	RUST_LOG=info ./target/release/blink-server > /tmp/blink-server.log 2>&1 &
 	@sleep 2
@@ -111,7 +111,7 @@ stop-backend: ## Stop backend server
 
 start-frontend: ## Start frontend dev server
 	@echo "$(BLUE) Starting frontend...$(NC)"
-	@cd webapp && npm run dev > ~/zyberlink-logs/frontend.log 2>&1 &
+	@cd src/webapp && npm run dev > ~/zyberlink-logs/frontend.log 2>&1 &
 	@echo "$(GREEN) Frontend started at http://localhost:5173$(NC)"
 
 stop-frontend: ## Stop frontend server
@@ -144,7 +144,7 @@ logs: ## Tail all logs
 
 build-program: ## Build Solana program
 	@echo "$(BLUE) Building Solana program...$(NC)"
-	@cd programs && cargo build-sbf
+	@cd src/programs && cargo build-sbf
 	@echo "$(GREEN) Program built$(NC)"
 
 build-backend: ## Build backend server
@@ -154,12 +154,12 @@ build-backend: ## Build backend server
 
 build-prover: ## Build prover node
 	@echo "$(BLUE) Building prover node...$(NC)"
-	@cargo build --release --bin cypherlink-prover
+	@cargo build --release --bin zyberlink-prover
 	@echo "$(GREEN) Prover built$(NC)"
 
 build-frontend: ## Build frontend
 	@echo "$(BLUE) Building frontend...$(NC)"
-	@cd webapp && npm install && npm run build
+	@cd src/webapp && npm install && npm run build
 	@echo "$(GREEN) Frontend built$(NC)"
 
 build-all: build-program build-backend build-prover ## Build all components
@@ -212,7 +212,7 @@ test: ## Run tests
 
 test-program: ## Run Solana program tests
 	@echo "$(BLUE) Running program tests...$(NC)"
-	@cd programs && cargo test-sbf
+	@cd src/programs && cargo test-sbf
 
 test-e2e: ## Run end-to-end tests
 	@echo "$(BLUE) Running E2E tests...$(NC)"
@@ -224,12 +224,12 @@ test-e2e: ## Run end-to-end tests
 
 create-job: ## Create a single test job
 	@echo "$(BLUE) Creating test job...$(NC)"
-	@if [ ! -f "blink-server/.env" ]; then \
-		echo "$(RED)ERROR: blink-server/.env not found. Run 'make start' first$(NC)"; \
+	@if [ ! -f "src/blink-server/.env" ]; then \
+		echo "$(RED)ERROR: src/blink-server/.env not found. Run 'make start' first$(NC)"; \
 		exit 1; \
 	fi
-	@export $$(grep -v '^#' blink-server/.env | xargs) && \
-	cargo run --manifest-path sdk/Cargo.toml --example create_test_job
+	@export $$(grep -v '^#' src/blink-server/.env | xargs) && \
+	cargo run --manifest-path src/sdk/Cargo.toml --example create_test_job
 
 start-job-creator: ## Start job creator (creates jobs every 10 seconds)
 	@echo "$(BLUE) Starting job creator...$(NC)"
@@ -245,12 +245,12 @@ list-jobs-active: ## List only active jobs
 
 inspect-accounts: ## Inspect all on-chain accounts (jobs, provers)
 	@echo "$(BLUE) Inspecting on-chain accounts...$(NC)"
-	@if [ ! -f "blink-server/.env" ]; then \
-		echo "$(RED)ERROR: blink-server/.env not found. Run 'make start' first$(NC)"; \
+	@if [ ! -f "src/blink-server/.env" ]; then \
+		echo "$(RED)ERROR: src/blink-server/.env not found. Run 'make start' first$(NC)"; \
 		exit 1; \
 	fi
-	@export $$(grep -v '^#' blink-server/.env | xargs) && \
-	cargo run --manifest-path sdk/Cargo.toml --example inspect_accounts
+	@export $$(grep -v '^#' src/blink-server/.env | xargs) && \
+	cargo run --manifest-path src/sdk/Cargo.toml --example inspect_accounts
 
 watch-jobs: ## Watch jobs in real-time (refresh every 5s)
 	@echo "$(BLUE) Watching jobs (Ctrl+C to stop)...$(NC)"
@@ -269,7 +269,7 @@ watch-jobs: ## Watch jobs in real-time (refresh every 5s)
 clean: ## Clean build artifacts
 	@echo "$(BLUE) Cleaning build artifacts...$(NC)"
 	@cargo clean
-	@cd programs && cargo clean
+	@cd src/programs && cargo clean
 	@echo "$(GREEN) Build artifacts cleaned$(NC)"
 
 clean-logs: ## Remove all log files
@@ -375,6 +375,56 @@ check-balances: ## Check balances of all wallets
 	@echo ""
 
 # ============================================================================
+# Docker Full Stack Commands
+# ============================================================================
+
+docker-up: ## Start full stack with Docker Compose (postgres + backend + frontend)
+	@echo "$(BLUE)Starting full Docker stack...$(NC)"
+	@docker-compose -f infra/docker/docker-compose.full.yml up -d
+	@echo "$(GREEN)Stack started!$(NC)"
+	@echo "  - Frontend: http://localhost:5173"
+	@echo "  - Backend:  http://localhost:8080"
+	@echo "  - Postgres: localhost:5432"
+
+docker-down: ## Stop Docker stack
+	@echo "$(BLUE)Stopping Docker stack...$(NC)"
+	@docker-compose -f infra/docker/docker-compose.full.yml down
+
+docker-logs: ## Show Docker stack logs
+	@docker-compose -f infra/docker/docker-compose.full.yml logs -f
+
+docker-build: ## Rebuild Docker images
+	@echo "$(BLUE)Building Docker images...$(NC)"
+	@docker-compose -f infra/docker/docker-compose.full.yml build
+
+docker-restart: docker-down docker-up ## Restart Docker stack
+
+docker-status: ## Show Docker container status
+	@docker-compose -f infra/docker/docker-compose.full.yml ps
+
+# ============================================================================
+# Production Docker Commands
+# ============================================================================
+
+prod-up: ## Start production stack (nginx + backend + postgres)
+	@echo "$(BLUE)Starting production stack...$(NC)"
+	@docker-compose -f infra/docker/docker-compose.prod.yml up -d --build
+	@echo "$(GREEN)Production stack running!$(NC)"
+	@echo "  - Web: http://localhost (or port in .env)"
+	@echo "  - API: proxied through nginx at /api/"
+
+prod-down: ## Stop production stack
+	@docker-compose -f infra/docker/docker-compose.prod.yml down
+
+prod-logs: ## Show production logs
+	@docker-compose -f infra/docker/docker-compose.prod.yml logs -f
+
+prod-restart: prod-down prod-up ## Restart production stack
+
+prod-status: ## Show production container status
+	@docker-compose -f infra/docker/docker-compose.prod.yml ps
+
+# ============================================================================
 # Quick Start Workflows
 # ============================================================================
 
@@ -394,3 +444,30 @@ quickstart: build-all start init-marketplace ## Full setup from scratch (recomme
 dev: demo-up ## Quick start for development (use after first setup)
 	@echo "$(GREEN) Demo stack is running!$(NC)"
 	@make health
+
+# ============================================================================
+# Localnet Setup (Step by Step) - Working Flow
+# ============================================================================
+
+localnet-start: ## [STEP 1] Start localnet: validator + db + deploy + backend + provers
+	@echo "$(BLUE)Starting ZyberLink localnet (full setup)...$(NC)"
+	@scripts/start-localnet.sh
+
+localnet-init: ## [STEP 2] Initialize marketplace on-chain (run once after setup)
+	@echo "$(BLUE)Initializing marketplace...$(NC)"
+	@scripts/init-marketplace.sh
+
+localnet-jobs: ## [STEP 3] Start job creator (generates test jobs every 10s)
+	@echo "$(BLUE)Starting job creator...$(NC)"
+	@scripts/start-job-creator.sh
+
+# ============================================================================
+# Helpful Aliases
+# ============================================================================
+
+localnet-stop: stop ## Stop all localnet services
+
+l1: localnet-start ## Alias: make l1 = start localnet (validator + backend + provers)
+l2: localnet-init  ## Alias: make l2 = init marketplace
+l3: localnet-jobs  ## Alias: make l3 = start job creator
+l0: localnet-stop  ## Alias: make l0 = stop all

@@ -4,14 +4,14 @@ use solana_sdk::{
     transaction::Transaction,
 };
 
-/// Fluent transaction builder for composing CypherLink transactions
+/// Fluent transaction builder for composing ZyberLink transactions
 ///
 /// This builder provides a wallet-compatible way to construct transactions.
 /// It can build both unsigned (for wallet signing) and signed (for CLI) transactions.
 ///
 /// # Example - Wallet Mode
 /// ```no_run
-/// use cypherlink_sdk::transaction::TransactionBuilder;
+/// use zyberlink_sdk::transaction::TransactionBuilder;
 /// use solana_sdk::hash::Hash;
 ///
 /// let tx = TransactionBuilder::new()

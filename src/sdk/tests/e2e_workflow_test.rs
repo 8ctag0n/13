@@ -1,6 +1,6 @@
 use anyhow::Result;
 use borsh::BorshDeserialize;
-use cypherlink_sdk::{
+use zyberlink_sdk::{
     CircuitType, JobAccount, JobStatus, MarketplaceClient, MarketplaceConfig, ProverAccount,
 };
 use solana_program_test::{processor, ProgramTest};
@@ -16,9 +16,9 @@ fn program_id() -> solana_sdk::pubkey::Pubkey {
 
 fn setup_program_test(program_id: solana_sdk::pubkey::Pubkey) -> ProgramTest {
     ProgramTest::new(
-        "cypherlink",
+        "zyberlink",
         program_id,
-        processor!(cypherlink::process_instruction),
+        processor!(zyberlink::process_instruction),
     )
 }
 

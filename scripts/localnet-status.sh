@@ -37,10 +37,10 @@ echo ""
 
 # Provers
 echo -e "${YELLOW}Prover Nodes:${NC}"
-PROVER_COUNT=$(ps aux | grep -E "cypherlink-prover|prover-node" | grep -v grep | wc -l)
+PROVER_COUNT=$(ps aux | grep -E "zyberlink-prover|prover-node" | grep -v grep | wc -l)
 if [ "$PROVER_COUNT" -gt 0 ]; then
     echo -e "  ${GREEN}[OK]${NC} $PROVER_COUNT prover(s) running"
-    ps aux | grep -E "cypherlink-prover|prover-node" | grep -v grep | awk '{print "    - PID " $2}'
+    ps aux | grep -E "zyberlink-prover|prover-node" | grep -v grep | awk '{print "    - PID " $2}'
 else
     echo -e "  ${RED}[FAIL]${NC} No provers running"
 fi
@@ -65,8 +65,8 @@ echo ""
 
 # Program
 echo -e "${YELLOW}Solana Program:${NC}"
-if [ -f "blink-server/.env" ]; then
-    PROGRAM_ID=$(grep PROGRAM_ID blink-server/.env | cut -d= -f2)
+if [ -f "src/blink-server/.env" ]; then
+    PROGRAM_ID=$(grep PROGRAM_ID src/blink-server/.env | cut -d= -f2)
     if solana account "$PROGRAM_ID" --url http://localhost:8899 >/dev/null 2>&1; then
         echo -e "  ${GREEN}[OK]${NC} Program deployed: $PROGRAM_ID"
     else

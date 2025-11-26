@@ -27,7 +27,7 @@ pkill -f blink-server || true
 
 # Stop provers
 log_info "Stopping prover nodes..."
-pkill -f cypherlink-prover || true
+pkill -f zyberlink-prover || true
 pkill -f prover-node || true
 
 # Give processes time to cleanup

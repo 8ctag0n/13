@@ -1,5 +1,5 @@
 use anyhow::Result;
-use cypherlink_sdk::MarketplaceClient;
+use zyberlink_sdk::MarketplaceClient;
 use solana_sdk::{
     commitment_config::CommitmentConfig,
     signature::{read_keypair_file, Signer},
@@ -7,7 +7,7 @@ use solana_sdk::{
 };
 use std::env;
 
-/// Initialize the CypherLink program
+/// Initialize the ZyberLink program
 fn main() -> Result<()> {
     // Get configuration
     let rpc_url =
@@ -21,7 +21,7 @@ fn main() -> Result<()> {
     let keypair_path = env::var("KEYPAIR_PATH")
         .unwrap_or_else(|_| format!("{}/.config/solana/id.json", env::var("HOME").unwrap()));
 
-    println!(" Initializing CypherLink Program");
+    println!(" Initializing ZyberLink Program");
     println!("  RPC URL: {}", rpc_url);
     println!("  Program ID: {}", program_id);
     println!();

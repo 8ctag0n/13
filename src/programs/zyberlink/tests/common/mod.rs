@@ -1,4 +1,4 @@
-use cypherlink::instruction::MarketplaceInstruction;
+use zyberlink::instruction::MarketplaceInstruction;
 use solana_program::pubkey::Pubkey;
 use solana_program_test::{processor, BanksClient, ProgramTest};
 use solana_sdk::{
@@ -9,9 +9,9 @@ use solana_sdk::{
 /// Initialize a new program test environment
 pub fn setup_program_test(program_id: Pubkey) -> ProgramTest {
     ProgramTest::new(
-        "cypherlink",
+        "zyberlink",
         program_id,
-        processor!(cypherlink::process_instruction),
+        processor!(zyberlink::process_instruction),
     )
 }
 

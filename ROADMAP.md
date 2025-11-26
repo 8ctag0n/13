@@ -2,323 +2,118 @@
 
 ## Overview
 
-This roadmap outlines the development phases for ZyberLink, a decentralized ZK and FHE compute marketplace on Solana. Features are organized by priority and timeline, with clear distinction between current development, near-term goals, and long-term vision.
+ZyberLink is a decentralized ZK and FHE compute marketplace on Solana. This roadmap reflects the current state of development for the Zypherpunk Hackathon (Nov 10 - Dec 1, 2025).
 
 ---
 
-## Phase 1: Multi-Prover Consensus (Current - November 2025)
+## Done
 
-**Status:** In Development (Zypherpunk Hackathon)
-**Timeline:** Nov 10 - Dec 1, 2025
+### Solana Program (Marketplace)
+- Job lifecycle management (Create, Claim, Submit, Verify)
+- Multi-prover job claiming for FHE computations
+- On-chain consensus algorithm (hash-based result verification)
+- Automated payment distribution to matching provers
+- Prover registration and stake management
+- Dynamic pricing system
 
-### Completed
+### SDK (Rust Client Library)
+- 3-layer architecture (state, instructions, helpers)
+- MarketplaceClient for program interactions
+- Job creation and querying
+- Event parsing and monitoring
 
-- **Solana Program (Marketplace)**
-  - Job lifecycle management (Create, Claim, Submit, Verify)
-  - Multi-prover job claiming for FHE computations
-  - On-chain consensus algorithm (hash-based result verification)
-  - Automated payment distribution to matching provers
-  - Prover registration and stake management
+### FHE Computation Engine
+- TFHE-rs integration for encrypted computations
+- Support for Add, Multiply, Subtract operations
+- Server key caching and management
+- Result hashing for consensus
 
-- **SDK (Rust Client Library)**
-  - 3-layer architecture (state, instructions, helpers)
-  - MarketplaceClient for program interactions
-  - Job creation and querying
-  - Event parsing and monitoring
+### Prover Node Infrastructure
+- Job polling and automatic claiming
+- Halo2 ZK proof generation (~15s average)
+- FHE computation execution
+- Multi-prover consensus validation
 
-- **FHE Computation Engine**
-  - TFHE-rs integration for encrypted computations
-  - Support for Add, Multiply, Subtract operations
-  - Server key caching and management
-  - Result hashing for consensus
+### Backend API (blink-server)
+- REST API for job management
+- PostgreSQL persistence
+- Blockchain synchronization
+- Health monitoring endpoints
 
-- **Prover Node Infrastructure**
-  - Job polling and automatic claiming
-  - Halo2 ZK proof generation (15s average)
-  - FHE computation execution
-  - Terminal User Interface (TUI) with real-time monitoring
-  - Interactive setup wizard with Solana Blinks funding
+### Frontend (webapp)
+- Svelte-based SPA
+- Wallet connection (Phantom/Solflare)
+- Job creation interface
+- Real-time job status
 
-- **Demo & Testing**
-  - E2E test suite (14/14 self-executing tests passing)
-  - Demo orchestration scripts
-  - Multi-prover consensus validation
+### Testing & Infrastructure
+- E2E test suite: 55/56 tests passing (98%)
+- Backend API: 100% coverage
+- Security audit: 6/6 checks passing
+- Docker infrastructure (dev + prod)
+- Make automation (localnet-setup, run, stop)
 
-- **FHE E2E Integration**
-  - SDK methods for FHE result submission
-  - ClaimJob multi-prover support for FHE
-  - Full E2E validation (14/14 self-executing tests passing)
-  - On-chain FHE job finalization complete
-
-### In Progress
-
-- **Documentation**
-  - Deployment guides for all components
-  - Architecture documentation updates
-  - Demo reproduction guides
-
-### Deferred to Post-Hackathon
-
-- **Light Protocol Integration** (see Phase 2)
-- **Reputation System (SAS)** (see Phase 3)
-- **Mobile Wallet SDK** (see Phase 3)
-- **Dynamic Pricing** (see Phase 3)
+### Project Organization
+- Reorganized to `src/`, `tests/`, `docs/`, `infra/`, `scripts/`
+- GitBook documentation structure
+- Comprehensive Makefile with aliases (l1-l4)
 
 ---
 
-## Phase 2: Light Protocol Integration (Post-Hackathon - Dec 2025)
+## In Progress
 
-**Status:** Planned
-**Timeline:** December 2025 - January 2026
+### Documentation
+- Deployment guides
+- Architecture documentation
+- Demo reproduction guides
 
-### Goals
-
-Enable ZK Compression for efficient state management, reducing on-chain storage costs while maintaining security guarantees.
-
-### Features
-
-- **Light Protocol SDK Integration**
-  - State compression for JobAccount and ProverAccount
-  - Merkle tree-based state verification
-  - Compressed PDA management
-
-- **Cost Optimization**
-  - 50-100x reduction in state storage costs
-  - Scalable job history (thousands of jobs)
-  - Efficient prover registry updates
-
-- **Backward Compatibility**
-  - Maintain existing SDK interface
-  - Gradual migration path from uncompressed state
-  - Optional compression flag for clients
-
-### Success Criteria
-
-- [DONE]Light SDK integrated and tested
-- [DONE]50x+ cost reduction measured
-- [DONE]Existing E2E tests pass with compression
-- [DONE]Production deployment guide
+### UI Polish
+- Fix remaining UI test (1 failing)
+- Improve error handling in frontend
+- Better loading states
 
 ---
 
-## Phase 3: Advanced Features (Q1 2026)
+## Post-Hackathon Ideas
 
-**Status:** Future
-**Timeline:** January - March 2026
+These are ideas for future development, not committed features:
 
-### Hardware Acceleration
+### Near-term
+- Light Protocol integration (ZK compression for cheaper state)
+- Reputation system for provers
+- More FHE operations (comparison, division)
 
-- **GPU Proving Support**
-  - CUDA integration for Halo2 proofs
-  - GPU-accelerated FHE operations
-  - Performance benchmarking (target: 5x faster)
+### Medium-term
+- GPU acceleration for faster proofs
+- Mobile wallet SDK
+- Dynamic pricing based on demand
 
-- **FPGA Support**
-  - Custom circuit acceleration
-  - Prover hardware attestation
-  - Premium pricing for accelerated provers
-
-### Mobile Wallet SDK
-
-- **Client Libraries**
-  - Flutter/Dart SDK for mobile apps
-  - React Native SDK
-  - Swift/Kotlin native SDKs
-
-- **Reference Implementation**
-  - Zcash mobile wallet demo
-  - Shielded transaction proving
-  - 10x speed improvement showcase
-
-### Reputation System (SAS Integration)
-
-- **Solana Attestation Service**
-  - Prover capability attestations
-  - Quality score tracking
-  - KYC/compliance certifications
-
-- **Reputation-Weighted Selection**
-  - Job requirements (min reputation)
-  - Premium jobs for verified provers
-  - Slashing mechanism for dishonest behavior
-
-### Dynamic Pricing
-
-- **Market Mechanisms**
-  - Supply/demand-based pricing
-  - Auction-style job bidding
-  - Prover price discovery
-
-- **Economic Incentives**
-  - Long-term prover rewards
-  - Staking multipliers
-  - Fee optimization
-
-### Circuit Marketplace
-
-- **Custom Circuit Support**
-  - Provers advertise circuit capabilities
-  - Circuit-specific job matching
-  - Community-contributed circuits
+### Long-term Vision
+- Multi-chain support
+- DAO governance
+- Enterprise API with SLAs
 
 ---
 
-## Phase 4: Production Deployment (Q2 2026)
+## Quick Start
 
-**Status:** Future
-**Timeline:** April - June 2026
+```bash
+# Full setup from scratch
+make localnet-setup    # or: make l1
+make localnet-init     # or: make l2
+make localnet-run      # or: make l3
 
-### Security & Audit
+# Optional: auto-generate test jobs
+make localnet-jobs     # or: make l4
 
-- **Smart Contract Audit**
-  - Third-party security review
-  - Formal verification of consensus algorithm
-  - Economic attack surface analysis
-
-- **Bug Bounty Program**
-  - Community security testing
-  - Responsible disclosure process
-  - Rewards for critical findings
-
-### Mainnet Launch
-
-- **Solana Mainnet Deployment**
-  - Production program deployment
-  - Multi-sig authority setup
-  - Emergency pause mechanisms
-
-- **Infrastructure**
-  - RPC endpoint redundancy
-  - Monitoring and alerting
-  - Incident response plan
-
-### Ecosystem Development
-
-- **Developer Grants**
-  - Fund integration projects
-  - Support open-source tooling
-  - Community circuit development
-
-- **Enterprise API**
-  - SLA guarantees
-  - Dedicated prover pools
-  - White-glove onboarding
-  - Custom pricing tiers
-
-### Cross-Chain Expansion
-
-- **Multi-Chain Support**
-  - Ethereum L2 integration (Polygon, Arbitrum)
-  - Cross-chain proof verification
-  - Unified SDK across chains
-
----
-
-## Long-Term Vision (2026+)
-
-### Decentralized Governance
-
-- **DAO Structure**
-  - Token-based governance
-  - Protocol parameter management
-  - Community treasury
-
-- **Prover Governance**
-  - Network policy decisions
-  - Fee structure voting
-  - Feature prioritization
-
-### Advanced Cryptography
-
-- **MPC (Multi-Party Computation)**
-  - Threshold signature support
-  - Distributed key generation
-  - Secure enclaves (SGX/TrustZone)
-
-- **Post-Quantum Upgrades**
-  - Lattice-based ZK proofs
-  - PQ-resistant encryption
-  - Future-proof architecture
-
-### Ecosystem Integration
-
-- **DeFi Protocols**
-  - Private DEX integrations
-  - Encrypted lending protocols
-  - Anonymous staking
-
-- **Gaming & AI**
-  - ZK state verification for games
-  - Private AI inference
-  - Decentralized compute for ML models
-
----
-
-## Research & Exploration
-
-### Under Investigation
-
-These features are being researched but not committed to the roadmap:
-
-- **Concrete Library Migration**
-  - 260x faster FHE (vs TFHE-rs)
-  - Evaluation in progress
-  - Compatibility assessment
-
-- **Prover Node Clustering**
-  - Horizontal scaling for large jobs
-  - Distributed proving coordination
-  - Load balancing strategies
-
-- **State Channels**
-  - Off-chain job negotiation
-  - Reduced on-chain transactions
-  - Fast finality for small jobs
-
-- **Verifiable Delay Functions (VDF)**
-  - Fair prover selection
-  - Sybil resistance
-  - Time-locked computations
-
----
-
-## Archived Features
-
-Features that were considered but deprioritized or deferred indefinitely:
-
-- **Zcash Native Integration**
-  - Direct Zcash proving on ZyberLink
-  - Deferred: Focus on generic infrastructure first
-
-- **Single-Purpose Mobile Wallet**
-  - Standalone Zcash wallet app
-  - Archived: Mobile SDK enables any wallet to integrate
-
-- **Centralized Indexer**
-  - Off-chain job history database
-  - Deferred: Light Protocol provides this via compression
-
----
-
-## Contributing to the Roadmap
-
-We welcome community input on feature priorities and new ideas:
-
-- **GitHub Discussions:** Propose new features
-- **GitHub Issues:** Report bugs or request enhancements
-- **Research Forum:** Share cryptographic research relevant to ZyberLink
+# Stop everything
+make localnet-stop     # or: make l0
+```
 
 ---
 
 ## Changelog
 
-- **2025-11-16:** Initial roadmap created, Light Protocol moved to Phase 2
+- **2025-11-25:** Simplified roadmap, updated test counts (55/56), documented new structure
+- **2025-11-16:** Initial roadmap created
 - **2025-11-10:** Project started for Zypherpunk Hackathon
-
----
-
-**Status Legend:**
-- [DONE]Completed
-- [IN PROGRESS]In Progress
-- [NEXT]Next Up (committed)
-- [FUTURE]Future (planned but not committed)

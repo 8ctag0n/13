@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use cypherlink_types::{CircuitType, FheConsensusConfig};
+use zyberlink_types::{CircuitType, FheConsensusConfig};
 
-/// Instructions supported by the CypherLink marketplace program
+/// Instructions supported by the ZyberLink marketplace program
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, PartialEq)]
 pub enum MarketplaceInstruction {
     /// Initialize the marketplace

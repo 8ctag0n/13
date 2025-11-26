@@ -4,7 +4,7 @@
 
 use super::passport::PassportCircuit;
 use anyhow::{Context, Result};
-use cypherlink_types::fhe::FhePredicate;
+use zyberlink_types::fhe::FhePredicate;
 use tfhe::prelude::*;
 use tfhe::{FheBool, FheUint8};
 
@@ -153,7 +153,7 @@ impl VotingCircuit {
     /// ```
     pub fn compute_histogram(
         encrypted_inputs: Vec<&[u8]>,
-        bins: &[cypherlink_types::fhe::HistogramBin],
+        bins: &[zyberlink_types::fhe::HistogramBin],
     ) -> Result<Vec<u8>> {
         if encrypted_inputs.is_empty() {
             anyhow::bail!("Cannot compute histogram on empty input list");
@@ -186,7 +186,7 @@ impl VotingCircuit {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cypherlink_types::fhe::FhePredicate;
+    use zyberlink_types::fhe::FhePredicate;
     use tfhe::{generate_keys, set_server_key, ClientKey, ConfigBuilder, ServerKey};
 
     fn generate_test_keys() -> (ClientKey, ServerKey) {
@@ -480,7 +480,7 @@ mod tests {
 
         let input_refs: Vec<&[u8]> = encrypted.iter().map(|v| v.as_slice()).collect();
 
-        use cypherlink_types::fhe::HistogramBin;
+        use zyberlink_types::fhe::HistogramBin;
         let bins = vec![
             HistogramBin::new(0, 17, "0-17 (child)"),
             HistogramBin::new(18, 65, "18-65 (adult)"),
@@ -528,7 +528,7 @@ mod tests {
 
         let input_refs: Vec<&[u8]> = encrypted.iter().map(|v| v.as_slice()).collect();
 
-        use cypherlink_types::fhe::HistogramBin;
+        use zyberlink_types::fhe::HistogramBin;
         let bins = vec![
             HistogramBin::new(0, 30, "Low"),
             HistogramBin::new(31, 70, "Medium"),
@@ -555,7 +555,7 @@ mod tests {
 
     #[test]
     fn test_histogram_empty_inputs_fails() {
-        use cypherlink_types::fhe::HistogramBin;
+        use zyberlink_types::fhe::HistogramBin;
         let bins = vec![HistogramBin::new(0, 10, "bin1")];
         let result = VotingCircuit::compute_histogram(vec![], &bins);
 
@@ -597,7 +597,7 @@ mod tests {
 
         let input_refs: Vec<&[u8]> = encrypted.iter().map(|v| v.as_slice()).collect();
 
-        use cypherlink_types::fhe::HistogramBin;
+        use zyberlink_types::fhe::HistogramBin;
         let bins = vec![
             HistogramBin::new(0, 17, "Minors (cannot vote)"),
             HistogramBin::new(18, 65, "Eligible voters"),
@@ -642,7 +642,7 @@ mod tests {
 
         let input_refs: Vec<&[u8]> = encrypted.iter().map(|v| v.as_slice()).collect();
 
-        use cypherlink_types::fhe::HistogramBin;
+        use zyberlink_types::fhe::HistogramBin;
         let bins = vec![
             HistogramBin::new(0, 24, "Q1"),
             HistogramBin::new(25, 49, "Q2"),

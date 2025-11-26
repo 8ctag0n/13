@@ -1,6 +1,6 @@
 use anyhow::Result;
 use blake2::{Blake2s256, Digest};
-use cypherlink_types::{CircuitType, FheConsensusConfig};
+use zyberlink_types::{CircuitType, FheConsensusConfig};
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::{
     commitment_config::CommitmentConfig,
@@ -12,7 +12,7 @@ use solana_sdk::{
 
 use crate::instruction::MarketplaceInstruction;
 
-/// Client for interacting with the CypherLink marketplace program
+/// Client for interacting with the ZyberLink marketplace program
 pub struct MarketplaceClient {
     /// RPC client for Solana
     pub rpc_client: RpcClient,

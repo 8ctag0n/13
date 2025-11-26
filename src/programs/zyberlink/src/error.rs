@@ -3,7 +3,7 @@ use thiserror::Error;
 
 /// Program-specific errors
 #[derive(Error, Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CypherLinkProgramError {
+pub enum ZyberLinkProgramError {
     #[error("Invalid instruction data")]
     InvalidInstructionData,
 
@@ -105,8 +105,8 @@ pub enum CypherLinkProgramError {
     InvalidJobStatus,
 }
 
-impl From<CypherLinkProgramError> for ProgramError {
-    fn from(e: CypherLinkProgramError) -> Self {
+impl From<ZyberLinkProgramError> for ProgramError {
+    fn from(e: ZyberLinkProgramError) -> Self {
         ProgramError::Custom(e as u32)
     }
 }

@@ -8,7 +8,7 @@ use solana_program::{
 };
 
 use crate::{
-    error::CypherLinkProgramError,
+    error::ZyberLinkProgramError,
     state::{JobAccount, MarketplaceConfig, ProverAccount},
 };
 
@@ -36,7 +36,7 @@ pub fn process_slash_prover(
     let (config_pda, _) = Pubkey::find_program_address(&[b"config"], program_id);
     if config_info.key != &config_pda {
         msg!("Invalid config account");
-        return Err(CypherLinkProgramError::InvalidAccount.into());
+        return Err(ZyberLinkProgramError::InvalidAccount.into());
     }
 
     // Load marketplace config
@@ -45,13 +45,13 @@ pub fn process_slash_prover(
     // Verify authority matches config
     if config.authority != *authority_info.key {
         msg!("Only marketplace authority can slash provers");
-        return Err(CypherLinkProgramError::Unauthorized.into());
+        return Err(ZyberLinkProgramError::Unauthorized.into());
     }
 
     // Verify protocol fee recipient matches
     if protocol_fee_recipient_info.key != &config.protocol_fee_recipient {
         msg!("Invalid protocol fee recipient");
-        return Err(CypherLinkProgramError::InvalidAccount.into());
+        return Err(ZyberLinkProgramError::InvalidAccount.into());
     }
 
     // Load prover account
@@ -60,7 +60,7 @@ pub fn process_slash_prover(
     // Verify prover account is owned by program
     if prover_info.owner != program_id {
         msg!("Invalid prover account owner");
-        return Err(CypherLinkProgramError::InvalidAccount.into());
+        return Err(ZyberLinkProgramError::InvalidAccount.into());
     }
 
     // Load job account (as evidence)
@@ -72,7 +72,7 @@ pub fn process_slash_prover(
     // Verify job is related to this prover (as evidence of misbehavior)
     if job.prover != Some(prover.authority) {
         msg!("Job does not belong to this prover");
-        return Err(CypherLinkProgramError::InvalidProver.into());
+        return Err(ZyberLinkProgramError::InvalidProver.into());
     }
 
     // Verify we can slash this amount
@@ -82,7 +82,7 @@ pub fn process_slash_prover(
             slash_amount,
             prover.stake_amount
         );
-        return Err(CypherLinkProgramError::InsufficientFunds.into());
+        return Err(ZyberLinkProgramError::InsufficientFunds.into());
     }
 
     msg!("Slashing prover");
@@ -94,24 +94,24 @@ pub fn process_slash_prover(
     **prover_info.lamports.borrow_mut() = prover_info
         .lamports()
         .checked_sub(slash_amount)
-        .ok_or(CypherLinkProgramError::InsufficientFunds)?;
+        .ok_or(ZyberLinkProgramError::InsufficientFunds)?;
 
     **protocol_fee_recipient_info.lamports.borrow_mut() = protocol_fee_recipient_info
         .lamports()
         .checked_add(slash_amount)
-        .ok_or(CypherLinkProgramError::Overflow)?;
+        .ok_or(ZyberLinkProgramError::Overflow)?;
 
     // Update prover stake
     prover.stake_amount = prover
         .stake_amount
         .checked_sub(slash_amount)
-        .ok_or(CypherLinkProgramError::Overflow)?;
+        .ok_or(ZyberLinkProgramError::Overflow)?;
 
     // Increment failed jobs counter
     prover.total_jobs_failed = prover
         .total_jobs_failed
         .checked_add(1)
-        .ok_or(CypherLinkProgramError::Overflow)?;
+        .ok_or(ZyberLinkProgramError::Overflow)?;
 
     // Reduce reputation (e.g., reduce by 10% or a fixed amount)
     let reputation_penalty = 100; // Reduce by 100 points

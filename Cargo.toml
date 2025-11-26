@@ -1,23 +1,22 @@
 [workspace]
 members = [
-    "sdk",
-    "prover-node",
-    "witness-storage",
-    "blink-server",
-    "shared/types",
-    "shared/crypto",
-    # Temporarily excluded due to zeroize version conflict with programs workspace
-    # "e2e-tests",
-    "fhe-cli",
-    "test-utils",
+    "src/sdk",
+    "src/prover-node",
+    "src/witness-storage",
+    "src/blink-server",
+    "src/shared/types",
+    "src/shared/crypto",
+    "src/fhe-cli",
+    "src/test-utils",
 ]
 exclude = [
-    "job-creator",  # Standalone E2E testing tool
+    "src/job-creator",  # Standalone E2E testing tool
+    "src/programs",     # Separate workspace for Solana BPF
 ]
 resolver = "2"
 
-# Note: programs/ has its own separate workspace for Solana BPF compilation
-# See programs/Cargo.toml
+# Note: src/programs/ has its own separate workspace for Solana BPF compilation
+# See src/programs/Cargo.toml
 
 [workspace.package]
 version = "0.1.0"
@@ -27,7 +26,7 @@ authors = ["ZyberLink Team"]
 
 [workspace.dependencies]
 # Shared types
-cypherlink-types = { path = "shared/types" }
+zyberlink-types = { path = "src/shared/types" }
 
 # Solana (updated to 2.3.x for better compatibility)
 solana-program = "2.3"

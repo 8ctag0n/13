@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "cypherlink",
+    "zyberlink",
 ]
 resolver = "2"
 
@@ -18,7 +18,7 @@ thiserror = "1.0"
 # NOTE: spl-token removed - not used in on-chain program
 
 # Shared types (using relative path outside workspace)
-cypherlink-types = { path = "../shared/types" }
+zyberlink-types = { path = "../shared/types" }
 
 # Testing
 solana-program-test = "2.3"

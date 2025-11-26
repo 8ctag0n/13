@@ -446,7 +446,7 @@ async fn list_jobs(data: web::Data<AppState>, query: web::Query<ListJobsQuery>) 
 /// Helps users understand pricing before creating a job.
 #[post("/api/estimate-cost")]
 async fn estimate_operation_cost(req: web::Json<EstimateCostRequest>) -> impl Responder {
-    use cypherlink_types::fhe::{FheOperation, HistogramBin};
+    use zyberlink_types::fhe::{FheOperation, HistogramBin};
 
     log::info!("Estimating cost for operation: {}", req.operation);
 
@@ -478,7 +478,7 @@ async fn estimate_operation_cost(req: web::Json<EstimateCostRequest>) -> impl Re
         "count_if" => {
             let count = req.expected_count.unwrap_or(100);
             FheOperation::CountIf {
-                predicate: cypherlink_types::fhe::FhePredicate::GreaterThan(op_value),
+                predicate: zyberlink_types::fhe::FhePredicate::GreaterThan(op_value),
                 expected_count: count,
             }
         }
@@ -540,9 +540,9 @@ async fn estimate_operation_cost(req: web::Json<EstimateCostRequest>) -> impl Re
 /// Build unsigned create_fhe_job transaction (supports SOL and wZEC payments)
 fn build_create_job_transaction(
     validated: &crate::validators::ValidatedJob,
-    builder: &cypherlink_sdk::instructions::InstructionBuilder,
+    builder: &zyberlink_sdk::instructions::InstructionBuilder,
 ) -> anyhow::Result<Transaction> {
-    use cypherlink_types::{FheConsensusConfig, FheOperation};
+    use zyberlink_types::{FheConsensusConfig, FheOperation};
     use solana_sdk::pubkey::Pubkey;
     use std::str::FromStr;
 

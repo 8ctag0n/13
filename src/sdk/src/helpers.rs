@@ -1,21 +1,22 @@
 use anyhow::Result;
 use borsh::BorshDeserialize;
+use solana_account_decoder::UiAccountEncoding;
 use solana_client::rpc_client::RpcClient;
 use solana_client::rpc_config::{RpcAccountInfoConfig, RpcProgramAccountsConfig};
 use solana_client::rpc_filter::RpcFilterType;
 use solana_sdk::commitment_config::CommitmentConfig;
 use solana_sdk::pubkey::Pubkey;
 
-// Re-export types from cypherlink program
-pub use cypherlink_types::{CircuitType, FheConsensusConfig, FheJobResult, JobStatus};
+// Re-export types from zyberlink program
+pub use zyberlink_types::{CircuitType, FheConsensusConfig, FheJobResult, JobStatus};
 
 // Account size constants (must match on-chain program)
 // These are used for RPC filtering to only fetch accounts of the correct type
-const JOB_ACCOUNT_SIZE: usize = 879; // JobAccount::LEN from programs/cypherlink/src/state/job.rs
-const PROVER_ACCOUNT_SIZE: usize = 114; // ProverAccount::LEN from programs/cypherlink/src/state/prover.rs
+const JOB_ACCOUNT_SIZE: usize = 879; // JobAccount::LEN from programs/zyberlink/src/state/job.rs
+const PROVER_ACCOUNT_SIZE: usize = 114; // ProverAccount::LEN from programs/zyberlink/src/state/prover.rs
 
 /// Marketplace configuration account
-/// IMPORTANT: Field order must match programs/cypherlink/src/state/config.rs
+/// IMPORTANT: Field order must match programs/zyberlink/src/state/config.rs
 #[derive(Debug, Clone, BorshDeserialize)]
 pub struct MarketplaceConfig {
     pub authority: Pubkey,
@@ -33,7 +34,7 @@ pub struct MarketplaceConfig {
 }
 
 /// Prover account
-/// IMPORTANT: Field order must match programs/cypherlink/src/state/prover.rs
+/// IMPORTANT: Field order must match programs/zyberlink/src/state/prover.rs
 #[derive(Debug, Clone, BorshDeserialize)]
 pub struct ProverAccount {
     pub authority: Pubkey,
@@ -50,7 +51,7 @@ pub struct ProverAccount {
 }
 
 /// Job account
-/// IMPORTANT: Field order must match programs/cypherlink/src/state/job.rs
+/// IMPORTANT: Field order must match programs/zyberlink/src/state/job.rs
 #[derive(Debug, Clone, BorshDeserialize)]
 pub struct JobAccount {
     pub id: u64,
@@ -106,90 +107,18 @@ pub fn fetch_job(rpc_client: &RpcClient, job_pda: &Pubkey) -> Result<JobAccount>
 // ============================================================================
 
 /// Query all jobs with a specific status
-/// Uses RPC filters to only fetch JobAccount-sized accounts for efficiency
+/// Fetches program accounts and filters by successful JobAccount deserialization
 pub fn find_jobs_by_status(
     rpc_client: &RpcClient,
     program_id: &Pubkey,
     status: JobStatus,
 ) -> Result<Vec<(Pubkey, JobAccount)>> {
-    // Configure RPC to only fetch JobAccount-sized accounts (879 bytes)
-    // This filters out ProverAccounts (114 bytes), MarketplaceConfig (120 bytes), escrows (0 bytes)
+    // Fetch all program accounts without size filter
+    // Use Base64 encoding for accounts > 128 bytes (base58 limit)
     let config = RpcProgramAccountsConfig {
-        filters: Some(vec![RpcFilterType::DataSize(JOB_ACCOUNT_SIZE as u64)]),
+        filters: None,
         account_config: RpcAccountInfoConfig {
-            encoding: None,
-            commitment: Some(CommitmentConfig::confirmed()),
-            ..Default::default()
-        },
-        ..Default::default()
-    };
-
-    let accounts = rpc_client.get_program_accounts_with_config(program_id, config)?;
-
-    eprintln!(
-        "[DEBUG] find_jobs_by_status: Looking for status {:?}",
-        status
-    );
-    eprintln!(
-        "[DEBUG] Total JobAccounts fetched (filtered by size): {}",
-        accounts.len()
-    );
-
-    let mut jobs = Vec::new();
-    for (i, (pubkey, account)) in accounts.iter().enumerate() {
-        eprintln!(
-            "[DEBUG] JobAccount #{}: {} ({} bytes)",
-            i,
-            pubkey,
-            account.data.len()
-        );
-
-        // Deserialize - should always succeed since we filtered by size
-        match JobAccount::deserialize(&mut &account.data[..]) {
-            Ok(job) => {
-                eprintln!(
-                    "[DEBUG]   -> ID={}, Status={:?}, Circuit={:?}",
-                    job.id, job.status, job.circuit_type
-                );
-                if job.status == status {
-                    eprintln!("[DEBUG]   -> ✓ MATCH! Adding to results");
-                    jobs.push((*pubkey, job));
-                } else {
-                    eprintln!(
-                        "[DEBUG]   -> Status mismatch (want {:?}, got {:?})",
-                        status, job.status
-                    );
-                }
-            }
-            Err(e) => {
-                // This shouldn't happen since we filtered by exact size
-                eprintln!(
-                    "[DEBUG]   -> ERROR: Unexpected deserialization failure: {}",
-                    e
-                );
-            }
-        }
-    }
-
-    eprintln!(
-        "[DEBUG] Returning {} jobs with status {:?}",
-        jobs.len(),
-        status
-    );
-    Ok(jobs)
-}
-
-/// Query all jobs created by a specific creator
-/// Uses RPC filters to only fetch JobAccount-sized accounts for efficiency
-pub fn find_jobs_by_creator(
-    rpc_client: &RpcClient,
-    program_id: &Pubkey,
-    creator: &Pubkey,
-) -> Result<Vec<(Pubkey, JobAccount)>> {
-    let config = RpcProgramAccountsConfig {
-        filters: Some(vec![RpcFilterType::DataSize(JOB_ACCOUNT_SIZE as u64)]),
-        account_config: RpcAccountInfoConfig {
-            encoding: None,
+            encoding: Some(UiAccountEncoding::Base64),
             commitment: Some(CommitmentConfig::confirmed()),
             ..Default::default()
         },
@@ -200,6 +129,45 @@ pub fn find_jobs_by_creator(
 
     let mut jobs = Vec::new();
     for (pubkey, account) in accounts {
+        // Skip small accounts (escrows, config, provers are all < 200 bytes)
+        if account.data.len() < 200 {
+            continue;
+        }
+
+        // Try to deserialize as JobAccount
+        if let Ok(job) = JobAccount::deserialize(&mut &account.data[..]) {
+            if job.status == status {
+                jobs.push((pubkey, job));
+            }
+        }
+    }
+
+    Ok(jobs)
+}
+
+/// Query all jobs created by a specific creator
+pub fn find_jobs_by_creator(
+    rpc_client: &RpcClient,
+    program_id: &Pubkey,
+    creator: &Pubkey,
+) -> Result<Vec<(Pubkey, JobAccount)>> {
+    let config = RpcProgramAccountsConfig {
+        filters: None,
+        account_config: RpcAccountInfoConfig {
+            encoding: Some(UiAccountEncoding::Base64),
+            commitment: Some(CommitmentConfig::confirmed()),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let accounts = rpc_client.get_program_accounts_with_config(program_id, config)?;
+
+    let mut jobs = Vec::new();
+    for (pubkey, account) in accounts {
+        if account.data.len() < 200 {
+            continue;
+        }
         if let Ok(job) = JobAccount::deserialize(&mut &account.data[..]) {
             if job.creator == *creator {
                 jobs.push((pubkey, job));
@@ -211,16 +179,15 @@ pub fn find_jobs_by_creator(
 }
 
 /// Query all jobs claimed by a specific prover
-/// Uses RPC filters to only fetch JobAccount-sized accounts for efficiency
 pub fn find_jobs_by_prover(
     rpc_client: &RpcClient,
     program_id: &Pubkey,
     prover: &Pubkey,
 ) -> Result<Vec<(Pubkey, JobAccount)>> {
     let config = RpcProgramAccountsConfig {
-        filters: Some(vec![RpcFilterType::DataSize(JOB_ACCOUNT_SIZE as u64)]),
+        filters: None,
         account_config: RpcAccountInfoConfig {
-            encoding: None,
+            encoding: Some(UiAccountEncoding::Base64),
             commitment: Some(CommitmentConfig::confirmed()),
             ..Default::default()
         },
@@ -231,6 +198,9 @@ pub fn find_jobs_by_prover(
 
     let mut jobs = Vec::new();
     for (pubkey, account) in accounts {
+        if account.data.len() < 200 {
+            continue;
+        }
         if let Ok(job) = JobAccount::deserialize(&mut &account.data[..]) {
             if let Some(job_prover) = job.prover {
                 if job_prover == *prover {
@@ -280,7 +250,7 @@ pub fn find_all_provers(
     let config = RpcProgramAccountsConfig {
         filters: Some(vec![RpcFilterType::DataSize(PROVER_ACCOUNT_SIZE as u64)]),
         account_config: RpcAccountInfoConfig {
-            encoding: None,
+            encoding: Some(UiAccountEncoding::Base64),
             commitment: Some(CommitmentConfig::confirmed()),
             ..Default::default()
         },

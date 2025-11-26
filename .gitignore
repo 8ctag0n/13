@@ -1,4 +1,4 @@
-# CypherLink / ZyberLink - Gitignore
+# ZyberLink / ZyberLink - Gitignore
 
 # ============================================
 # Rust / Cargo
@@ -55,18 +55,18 @@ payer-keypair.json
 internal
 
 # IntelliJ related
-cypherlink-wallet/*.iml
-cypherlink-wallet/*.ipr
-cypherlink-wallet/*.iws
-cypherlink-wallet/.idea/
+zyberlink-wallet/*.iml
+zyberlink-wallet/*.ipr
+zyberlink-wallet/*.iws
+zyberlink-wallet/.idea/
 
 # ============================================
 # Rust FFI Bridge
 # ============================================
 
 # Generated FFI bindings
-cypherlink-wallet/lib/bridge_generated.dart
-cypherlink-wallet/rust/target/
+zyberlink-wallet/lib/bridge_generated.dart
+zyberlink-wallet/rust/target/
 
 # ============================================
 # Node / JavaScript (if used for testing)
@@ -238,7 +238,7 @@ test-output/
 
 # Anchor (if we migrate to it later)
 .anchor/
-programs/*/target/
+src/programs/*/target/
 
 # ============================================
 # Zcash / ZK Proving
@@ -266,12 +266,12 @@ proofs/
 # ============================================
 
 # Prover node runtime data
-prover-node/runtime/
-prover-node/jobs/
-prover-node/state/
+src/prover-node/runtime/
+src/prover-node/jobs/
+src/prover-node/state/
 
 # Prover configuration (may contain sensitive data)
-prover-node/config.local.toml
+src/prover-node/config.local.toml
 
 # ============================================
 # Docker
@@ -403,6 +403,7 @@ docs/internal/
 docs/planning/
 docs/strategy-internal/
 docs/strategy/
+docs/private/
 
 # ============================================
 # Misc

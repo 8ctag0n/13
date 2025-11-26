@@ -1,4 +1,4 @@
-/// Transaction building utilities for CypherLink
+/// Transaction building utilities for ZyberLink
 ///
 /// This module provides transaction composition tools that:
 /// - Combine multiple instructions

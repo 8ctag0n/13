@@ -1,5 +1,5 @@
 use borsh::BorshDeserialize;
-use cypherlink_sdk::{JobAccount, MarketplaceClient, ProverAccount};
+use zyberlink_sdk::{JobAccount, MarketplaceClient, ProverAccount};
 use solana_sdk::pubkey::Pubkey;
 use std::str::FromStr;
 

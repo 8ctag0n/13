@@ -9,7 +9,7 @@ use solana_program::{
 };
 
 use crate::{
-    error::CypherLinkProgramError,
+    error::ZyberLinkProgramError,
     state::{JobAccount, MarketplaceConfig, ProverAccount},
 };
 
@@ -42,7 +42,7 @@ pub fn process_submit_proof(
     let (config_pda, _) = Pubkey::find_program_address(&[b"config"], program_id);
     if config_info.key != &config_pda {
         msg!("Invalid config account");
-        return Err(CypherLinkProgramError::InvalidAccount.into());
+        return Err(ZyberLinkProgramError::InvalidAccount.into());
     }
 
     // Load marketplace config
@@ -54,7 +54,7 @@ pub fn process_submit_proof(
 
     if prover_info.key != &prover_pda {
         msg!("Invalid prover account");
-        return Err(CypherLinkProgramError::InvalidAccount.into());
+        return Err(ZyberLinkProgramError::InvalidAccount.into());
     }
 
     // Load prover account
@@ -67,21 +67,21 @@ pub fn process_submit_proof(
     };
 
     // Verify job is in Claimed status
-    if job.status != cypherlink_types::JobStatus::Claimed {
+    if job.status != zyberlink_types::JobStatus::Claimed {
         msg!("Job is not in Claimed status");
-        return Err(CypherLinkProgramError::JobNotClaimed.into());
+        return Err(ZyberLinkProgramError::JobNotClaimed.into());
     }
 
     // Verify prover is the one who claimed the job
     if job.prover != Some(*prover_authority_info.key) {
         msg!("Job was not claimed by this prover");
-        return Err(CypherLinkProgramError::Unauthorized.into());
+        return Err(ZyberLinkProgramError::Unauthorized.into());
     }
 
     // Verify job creator matches
     if job.creator != *job_creator_info.key {
         msg!("Invalid job creator");
-        return Err(CypherLinkProgramError::InvalidAccount.into());
+        return Err(ZyberLinkProgramError::InvalidAccount.into());
     }
 
     // Get current time
@@ -91,7 +91,7 @@ pub fn process_submit_proof(
     // Check if job timed out
     if job.is_timed_out(current_time) {
         msg!("Job has timed out");
-        return Err(CypherLinkProgramError::JobTimedOut.into());
+        return Err(ZyberLinkProgramError::JobTimedOut.into());
     }
 
     // Verify escrow PDA
@@ -100,13 +100,13 @@ pub fn process_submit_proof(
 
     if escrow_info.key != &escrow_pda {
         msg!("Invalid escrow account");
-        return Err(CypherLinkProgramError::InvalidAccount.into());
+        return Err(ZyberLinkProgramError::InvalidAccount.into());
     }
 
     // Verify protocol fee recipient
     if protocol_fee_recipient_info.key != &config.protocol_fee_recipient {
         msg!("Invalid protocol fee recipient");
-        return Err(CypherLinkProgramError::InvalidAccount.into());
+        return Err(ZyberLinkProgramError::InvalidAccount.into());
     }
 
     // Calculate fees and payout
@@ -123,22 +123,22 @@ pub fn process_submit_proof(
         **escrow_info.lamports.borrow_mut() = escrow_info
             .lamports()
             .checked_sub(platform_fee)
-            .ok_or(CypherLinkProgramError::InsufficientFunds)?;
+            .ok_or(ZyberLinkProgramError::InsufficientFunds)?;
         **protocol_fee_recipient_info.lamports.borrow_mut() = protocol_fee_recipient_info
             .lamports()
             .checked_add(platform_fee)
-            .ok_or(CypherLinkProgramError::Overflow)?;
+            .ok_or(ZyberLinkProgramError::Overflow)?;
     }
 
     // Transfer prover payout (manual lamport transfer)
     **escrow_info.lamports.borrow_mut() = escrow_info
         .lamports()
         .checked_sub(prover_payout)
-        .ok_or(CypherLinkProgramError::InsufficientFunds)?;
+        .ok_or(ZyberLinkProgramError::InsufficientFunds)?;
     **prover_authority_info.lamports.borrow_mut() = prover_authority_info
         .lamports()
         .checked_add(prover_payout)
-        .ok_or(CypherLinkProgramError::Overflow)?;
+        .ok_or(ZyberLinkProgramError::Overflow)?;
 
     // Update job status
     job.complete(proof_commitment, proof_size, current_time);

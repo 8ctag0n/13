@@ -6,7 +6,7 @@
 /// - Transaction simulation support
 /// - Fluent API for common workflows
 use anyhow::Result;
-use cypherlink_types::{CircuitType, FheConsensusConfig, FheOperation};
+use zyberlink_types::{CircuitType, FheConsensusConfig, FheOperation};
 use solana_sdk::{
     hash::Hash,
     instruction::Instruction,

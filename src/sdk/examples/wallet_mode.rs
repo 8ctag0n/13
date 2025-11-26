@@ -3,13 +3,13 @@
 /// This example demonstrates how to use the SDK with wallet integration.
 /// Instructions are built WITHOUT signing, allowing wallets (Phantom, Solflare, etc.)
 /// to handle the signing process.
-use cypherlink_sdk::MarketplaceClient;
-use cypherlink_types::{CircuitType, FheOperation};
+use zyberlink_sdk::MarketplaceClient;
+use zyberlink_types::{CircuitType, FheOperation};
 use solana_sdk::pubkey::Pubkey;
 use std::str::FromStr;
 
 fn main() -> anyhow::Result<()> {
-    println!("=== CypherLink SDK - Wallet Mode Example ===\n");
+    println!("=== ZyberLink SDK - Wallet Mode Example ===\n");
 
     // Initialize client
     let rpc_url = "https://api.devnet.solana.com".to_string();

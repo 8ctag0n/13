@@ -2,8 +2,8 @@ mod common;
 
 use borsh::BorshDeserialize;
 use common::{initialize_marketplace, register_prover, setup_program_test};
-use cypherlink::{instruction::MarketplaceInstruction, state::JobAccount};
-use cypherlink_types::{fhe::FheOperation, CircuitType, FheConsensusConfig, JobStatus};
+use zyberlink::{instruction::MarketplaceInstruction, state::JobAccount};
+use zyberlink_types::{fhe::FheOperation, CircuitType, FheConsensusConfig, JobStatus};
 use solana_program::pubkey::Pubkey;
 use solana_program_test::*;
 use solana_sdk::{
@@ -236,7 +236,7 @@ async fn test_finalize_fhe_job_consensus_reached() {
 
     // Get protocol fee recipient from config
     let config_account = banks_client.get_account(config_pda).await.unwrap().unwrap();
-    let config: cypherlink::state::MarketplaceConfig =
+    let config: zyberlink::state::MarketplaceConfig =
         borsh::from_slice(&config_account.data).unwrap();
 
     // Finalize FHE job
@@ -401,7 +401,7 @@ async fn test_finalize_fhe_job_no_consensus() {
 
     // Get protocol fee recipient from config
     let config_account = banks_client.get_account(config_pda).await.unwrap().unwrap();
-    let config: cypherlink::state::MarketplaceConfig =
+    let config: zyberlink::state::MarketplaceConfig =
         borsh::from_slice(&config_account.data).unwrap();
 
     // Try to finalize (should fail - not enough submissions)
@@ -574,7 +574,7 @@ async fn test_finalize_fhe_job_payment_split() {
 
     // Get protocol fee recipient from config
     let config_account = banks_client.get_account(config_pda).await.unwrap().unwrap();
-    let config: cypherlink::state::MarketplaceConfig =
+    let config: zyberlink::state::MarketplaceConfig =
         borsh::from_slice(&config_account.data).unwrap();
 
     // Finalize FHE job

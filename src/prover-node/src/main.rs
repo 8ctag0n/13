@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use cypherlink_sdk::{fetch_job, find_pending_jobs, MarketplaceClient};
-use cypherlink_types::{CircuitType, JobStatus};
+use zyberlink_sdk::{fetch_job, find_pending_jobs, MarketplaceClient};
+use zyberlink_types::{CircuitType, JobStatus};
 use log::{debug, error, info, warn};
 use solana_sdk::{
     commitment_config::CommitmentConfig,
@@ -26,7 +26,7 @@ use roi_calculator::ROICalculator;
 use witness_encryption::WitnessEncryption;
 use witness_fetcher::WitnessFetcher;
 
-/// CypherLink Prover Node - Autonomous ZK proof generation daemon
+/// ZyberLink Prover Node - Autonomous ZK proof generation daemon
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -37,7 +37,7 @@ struct Args {
     #[arg(short, long, default_value = "http://localhost:8899", global = true)]
     rpc_url: String,
 
-    /// CypherLink program ID
+    /// ZyberLink program ID
     #[arg(short, long, global = true)]
     program_id: Option<String>,
 
@@ -241,7 +241,7 @@ impl ProverNode {
 
     /// Start the prover node main loop
     async fn run(&self) -> Result<()> {
-        info!("Starting CypherLink Prover Node");
+        info!("Starting ZyberLink Prover Node");
         info!("Prover Authority: {}", self.keypair.pubkey());
         info!("Program ID: {}", self.config.program_id);
         info!("RPC URL: {}", self.config.rpc_url);
@@ -251,7 +251,7 @@ impl ProverNode {
 
         loop {
             if let Err(e) = self.poll_and_process_jobs().await {
-                error!("Error in job processing loop: {}", e);
+                error!("Error in job processing loop: {:#}", e);
             }
 
             sleep(self.config.poll_interval).await;
@@ -734,10 +734,10 @@ impl ProverNode {
     async fn execute_fhe_computation(
         engine: Arc<FheEngine>,
         encrypted_input: &[u8],
-        operation: &cypherlink_types::FheOperation,
+        operation: &zyberlink_types::FheOperation,
     ) -> Result<Vec<u8>> {
         use crate::circuits::{CensusCircuit, DemographicsCircuit, PassportCircuit, VotingCircuit};
-        use cypherlink_types::FheOperation;
+        use zyberlink_types::FheOperation;
 
         // encrypted_input contains serialized FheUint8 ciphertext
         let input_bytes = encrypted_input.to_vec();
@@ -991,7 +991,7 @@ fn derive_encryption_seed(keypair: &Keypair) -> [u8; 32] {
 
     // Hash the secret key bytes to derive encryption seed
     // This provides domain separation from the signing key
-    let mut seed_material = b"CYPHERLINK_WITNESS_ENCRYPTION_V1:".to_vec();
+    let mut seed_material = b"ZYBERLINK_WITNESS_ENCRYPTION_V1:".to_vec();
     seed_material.extend_from_slice(&keypair.to_bytes());
 
     let hash_result = hash(&seed_material);

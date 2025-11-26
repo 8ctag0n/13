@@ -1,4 +1,4 @@
-use cypherlink_types::{CircuitType, FheConsensusConfig};
+use zyberlink_types::{CircuitType, FheConsensusConfig};
 use solana_program::{
     account_info::{next_account_info, AccountInfo},
     entrypoint::ProgramResult,
@@ -12,7 +12,7 @@ use solana_program::{
 };
 
 use crate::{
-    error::CypherLinkProgramError,
+    error::ZyberLinkProgramError,
     state::{JobAccount, MarketplaceConfig},
 };
 
@@ -46,13 +46,13 @@ pub fn process_create_job(
     let (config_pda, _) = Pubkey::find_program_address(&[b"config"], program_id);
     if config_info.key != &config_pda {
         msg!("Invalid config account");
-        return Err(CypherLinkProgramError::InvalidAccount.into());
+        return Err(ZyberLinkProgramError::InvalidAccount.into());
     }
 
     // Check marketplace is initialized
     if config_info.owner != program_id {
         msg!("Marketplace not initialized");
-        return Err(CypherLinkProgramError::MarketplaceNotInitialized.into());
+        return Err(ZyberLinkProgramError::MarketplaceNotInitialized.into());
     }
 
     // Deserialize config to get next job ID
@@ -61,7 +61,7 @@ pub fn process_create_job(
     // Check marketplace is not paused
     if config.is_paused {
         msg!("Marketplace is paused");
-        return Err(CypherLinkProgramError::MarketplacePaused.into());
+        return Err(ZyberLinkProgramError::MarketplacePaused.into());
     }
 
     // Get next job ID
@@ -76,7 +76,7 @@ pub fn process_create_job(
 
     if job_info.key != &job_pda {
         msg!("Invalid job account");
-        return Err(CypherLinkProgramError::InvalidAccount.into());
+        return Err(ZyberLinkProgramError::InvalidAccount.into());
     }
 
     // Derive and verify escrow PDA
@@ -85,13 +85,13 @@ pub fn process_create_job(
 
     if escrow_info.key != &escrow_pda {
         msg!("Invalid escrow account");
-        return Err(CypherLinkProgramError::InvalidAccount.into());
+        return Err(ZyberLinkProgramError::InvalidAccount.into());
     }
 
     // Validate price
     if price_lamports == 0 {
         msg!("Price must be greater than zero");
-        return Err(CypherLinkProgramError::InvalidPrice.into());
+        return Err(ZyberLinkProgramError::InvalidPrice.into());
     }
 
     // Validate FHE configuration and dynamic pricing
@@ -100,12 +100,12 @@ pub fn process_create_job(
             // FHE job MUST have config
             let fhe_consensus_config = fhe_config
                 .as_ref()
-                .ok_or(CypherLinkProgramError::MissingFheConfig)?;
+                .ok_or(ZyberLinkProgramError::MissingFheConfig)?;
 
             // Validate consensus config
             fhe_consensus_config
                 .validate()
-                .map_err(|_| CypherLinkProgramError::InvalidFheConfig)?;
+                .map_err(|_| ZyberLinkProgramError::InvalidFheConfig)?;
 
             // Get dynamic cost configuration based on operation complexity
             let cost_config = fhe_op.get_cost_config();
@@ -126,7 +126,7 @@ pub fn process_create_job(
                     min_price_per_prover,
                     fhe_consensus_config.required_provers
                 );
-                return Err(CypherLinkProgramError::InvalidPrice.into());
+                return Err(ZyberLinkProgramError::InvalidPrice.into());
             }
 
             msg!(
@@ -140,7 +140,7 @@ pub fn process_create_job(
             // Non-FHE job should NOT have config
             if fhe_config.is_some() {
                 msg!("Non-FHE job should not have FHE config");
-                return Err(CypherLinkProgramError::UnexpectedFheConfig.into());
+                return Err(ZyberLinkProgramError::UnexpectedFheConfig.into());
             }
         }
     }

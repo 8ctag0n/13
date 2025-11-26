@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
-use cypherlink_sdk::MarketplaceSDK;
-use cypherlink_types::fhe::{FheConsensusConfig, FheOperation};
+use zyberlink_sdk::MarketplaceSDK;
+use zyberlink_types::fhe::{FheConsensusConfig, FheOperation};
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::{
     commitment_config::CommitmentConfig,
@@ -155,7 +155,8 @@ async fn main() -> Result<()> {
         };
 
         // Calculate total price (payment per prover * number of provers)
-        let total_price_lamports = cost_config.min_payment_lamports * (required_provers as u64);
+        // Use 2x minimum to ensure profitability for provers (covers 1.5x cost multiplier + 20% ROI)
+        let total_price_lamports = cost_config.min_payment_lamports * 2 * (required_provers as u64);
 
         // Get the next job ID from on-chain config
         let job_id = match sdk.get_next_job_id(&rpc_client) {

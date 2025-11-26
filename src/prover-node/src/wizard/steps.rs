@@ -389,7 +389,7 @@ pub async fn step_register_prover(
     }
 
     // Create marketplace client
-    let marketplace_client = cypherlink_sdk::MarketplaceClient::new_with_commitment(
+    let marketplace_client = zyberlink_sdk::MarketplaceClient::new_with_commitment(
         client.url(),
         *program_id,
         CommitmentConfig::confirmed(),

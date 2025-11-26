@@ -1,5 +1,5 @@
 use borsh::BorshDeserialize;
-use cypherlink_types::CircuitType;
+use zyberlink_types::CircuitType;
 use solana_program::{
     account_info::{next_account_info, AccountInfo},
     entrypoint::ProgramResult,
@@ -10,7 +10,7 @@ use solana_program::{
 };
 
 use crate::{
-    error::CypherLinkProgramError,
+    error::ZyberLinkProgramError,
     state::{JobAccount, MarketplaceConfig, ProverAccount},
 };
 
@@ -31,18 +31,23 @@ pub fn process_claim_job(program_id: &Pubkey, accounts: &[AccountInfo]) -> Progr
 
     // Verify config PDA
     let (config_pda, _) = Pubkey::find_program_address(&[b"config"], program_id);
+    msg!("DEBUG: Config PDA expected: {}", config_pda);
+    msg!("DEBUG: Config account received: {}", config_info.key);
+    msg!("DEBUG: Config account data len: {}", config_info.data.borrow().len());
     if config_info.key != &config_pda {
         msg!("Invalid config account");
-        return Err(CypherLinkProgramError::InvalidAccount.into());
+        return Err(ZyberLinkProgramError::InvalidAccount.into());
     }
 
     // Load marketplace config
+    msg!("DEBUG: Attempting to deserialize MarketplaceConfig");
     let config: MarketplaceConfig = borsh::from_slice(&config_info.data.borrow())?;
+    msg!("DEBUG: MarketplaceConfig deserialized successfully");
 
     // Check marketplace is not paused
     if config.is_paused {
         msg!("Marketplace is paused");
-        return Err(CypherLinkProgramError::MarketplacePaused.into());
+        return Err(ZyberLinkProgramError::MarketplacePaused.into());
     }
 
     // Verify prover PDA
@@ -51,7 +56,7 @@ pub fn process_claim_job(program_id: &Pubkey, accounts: &[AccountInfo]) -> Progr
 
     if prover_info.key != &prover_pda {
         msg!("Invalid prover account");
-        return Err(CypherLinkProgramError::InvalidAccount.into());
+        return Err(ZyberLinkProgramError::InvalidAccount.into());
     }
 
     // Load prover account
@@ -60,7 +65,7 @@ pub fn process_claim_job(program_id: &Pubkey, accounts: &[AccountInfo]) -> Progr
     // Verify prover is active
     if !prover.is_active {
         msg!("Prover is inactive");
-        return Err(CypherLinkProgramError::ProverInactive.into());
+        return Err(ZyberLinkProgramError::ProverInactive.into());
     }
 
     // Check prover meets reputation requirements
@@ -70,13 +75,13 @@ pub fn process_claim_job(program_id: &Pubkey, accounts: &[AccountInfo]) -> Progr
             prover.reputation_score,
             config.min_reputation_score
         );
-        return Err(CypherLinkProgramError::InsufficientReputation.into());
+        return Err(ZyberLinkProgramError::InsufficientReputation.into());
     }
 
     // Verify job account is owned by program
     if job_info.owner != program_id {
         msg!("Invalid job account owner");
-        return Err(CypherLinkProgramError::InvalidAccount.into());
+        return Err(ZyberLinkProgramError::InvalidAccount.into());
     }
 
     // Load job account
@@ -86,9 +91,9 @@ pub fn process_claim_job(program_id: &Pubkey, accounts: &[AccountInfo]) -> Progr
     };
 
     // Verify job is in Pending status
-    if job.status != cypherlink_types::JobStatus::Pending {
+    if job.status != zyberlink_types::JobStatus::Pending {
         msg!("Job is not in Pending status");
-        return Err(CypherLinkProgramError::JobNotPending.into());
+        return Err(ZyberLinkProgramError::JobNotPending.into());
     }
 
     // Get current time
@@ -102,18 +107,18 @@ pub fn process_claim_job(program_id: &Pubkey, accounts: &[AccountInfo]) -> Progr
             let config = job
                 .fhe_config
                 .as_ref()
-                .ok_or(CypherLinkProgramError::MissingFheConfig)?;
+                .ok_or(ZyberLinkProgramError::MissingFheConfig)?;
 
             // Check if job is already fully claimed
             if job.claimed_provers.len() >= config.required_provers as usize {
                 msg!("FHE job already fully claimed");
-                return Err(CypherLinkProgramError::FheJobFullyClaimed.into());
+                return Err(ZyberLinkProgramError::FheJobFullyClaimed.into());
             }
 
             // Check if this prover already claimed
             if job.claimed_provers.contains(prover_authority_info.key) {
                 msg!("Prover already claimed this FHE job");
-                return Err(CypherLinkProgramError::ProverAlreadyClaimed.into());
+                return Err(ZyberLinkProgramError::ProverAlreadyClaimed.into());
             }
 
             // Add prover to claimed list
@@ -121,7 +126,7 @@ pub fn process_claim_job(program_id: &Pubkey, accounts: &[AccountInfo]) -> Progr
 
             // If this was the last required prover, mark as Claimed
             if job.claimed_provers.len() == config.required_provers as usize {
-                job.status = cypherlink_types::JobStatus::Claimed;
+                job.status = zyberlink_types::JobStatus::Claimed;
                 job.claimed_at = Some(current_time);
                 msg!(
                     "FHE job fully claimed by {} provers",

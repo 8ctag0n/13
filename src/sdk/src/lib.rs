@@ -1,4 +1,4 @@
-// SDK for interacting with CypherLink marketplace
+// SDK for interacting with ZyberLink marketplace
 
 pub mod client;
 pub mod client_ext; // NEW: Wallet-friendly extensions (Layer 3)

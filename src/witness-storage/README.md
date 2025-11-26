@@ -1,4 +1,4 @@
-# CypherLink Witness Storage
+# ZyberLink Witness Storage
 
 Simple HTTP backend for storing encrypted witness data.
 

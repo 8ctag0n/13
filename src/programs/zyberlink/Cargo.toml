@@ -1,5 +1,5 @@
 [package]
-name = "cypherlink"
+name = "zyberlink"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -7,7 +7,7 @@ authors.workspace = true
 
 [lib]
 crate-type = ["cdylib", "lib"]
-name = "cypherlink"
+name = "zyberlink"
 
 [features]
 no-entrypoint = []
@@ -22,7 +22,7 @@ thiserror.workspace = true
 # light-sdk.workspace = true
 
 # Shared types
-cypherlink-types.workspace = true
+zyberlink-types.workspace = true
 
 [dev-dependencies]
 solana-program-test.workspace = true

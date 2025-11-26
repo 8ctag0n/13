@@ -14,12 +14,12 @@ log_ok() { echo -e "${GREEN}[OK]${NC} $1"; }
 
 # Check localnet is running
 if ! curl -s http://127.0.0.1:8080/health >/dev/null 2>&1; then
-    echo "ERROR: Localnet not running. Start with: ./start-localnet.sh"
+    echo "ERROR: Localnet not running. Start with: scripts/start-localnet.sh"
     exit 1
 fi
 
 # Load config
-export $(grep -v '^#' blink-server/.env | xargs)
+export $(grep -v '^#' src/blink-server/.env | xargs)
 
 echo ""
 echo "==========================================="
@@ -28,9 +28,9 @@ echo "==========================================="
 echo ""
 
 log_step "Building job-creator..."
-cd job-creator
+cd src/job-creator
 cargo build --release 2>&1 | tail -5
-cd ..
+cd ../..
 log_ok "Built successfully"
 
 log_step "Funding job creator wallet..."
@@ -75,4 +75,4 @@ RUST_LOG=info \
 SOLANA_RPC_URL=$SOLANA_RPC_URL \
 PROGRAM_ID=$PROGRAM_ID \
 USER_KEYPAIR=/tmp/job-creator-keypair.json \
-cargo run --manifest-path job-creator/Cargo.toml --release
+cargo run --manifest-path src/job-creator/Cargo.toml --release

@@ -1675,127 +1675,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cypherlink"
-version = "0.1.0"
-dependencies = [
- "borsh 1.5.7",
- "cypherlink-types",
- "solana-program",
- "solana-program-test",
- "solana-sdk",
- "thiserror 1.0.69",
- "tokio",
-]
-
-[[package]]
-name = "cypherlink-crypto"
-version = "0.1.0"
-dependencies = [
- "aes-gcm",
- "ml-kem",
- "rand 0.8.5",
- "sha3",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "cypherlink-prover"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bincode",
- "blake2",
- "blake2b_simd",
- "borsh 1.5.7",
- "chacha20poly1305",
- "chrono",
- "clap",
- "console",
- "crossterm 0.27.0",
- "cypherlink-sdk",
- "cypherlink-types",
- "dialoguer",
- "dirs 5.0.1",
- "env_logger 0.11.8",
- "ff",
- "group",
- "halo2_proofs",
- "hex",
- "indicatif",
- "log",
- "orchard",
- "pasta_curves",
- "qr2term",
- "rand 0.8.5",
- "ratatui",
- "reqwest 0.12.24",
- "serde",
- "serde_json",
- "sha3",
- "shellexpand",
- "solana-client",
- "solana-sdk",
- "tfhe",
- "tokio",
- "url",
- "urlencoding",
- "x25519-dalek",
- "zeroize",
-]
-
-[[package]]
-name = "cypherlink-sdk"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "blake2",
- "borsh 1.5.7",
- "chacha20poly1305",
- "cypherlink",
- "cypherlink-types",
- "hex",
- "rand 0.8.5",
- "reqwest 0.11.27",
- "serde",
- "serde_json",
- "solana-client",
- "solana-program-test",
- "solana-sdk",
- "thiserror 1.0.69",
- "tokio",
- "x25519-dalek",
-]
-
-[[package]]
-name = "cypherlink-types"
-version = "0.1.0"
-dependencies = [
- "borsh 1.5.7",
- "serde",
- "serde_json",
- "solana-program",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "cypherlink-witness-storage"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum",
- "blake2",
- "env_logger 0.11.8",
- "hex",
- "log",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tower",
- "tower-http 0.5.2",
-]
-
-[[package]]
 name = "darling"
 version = "0.21.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11131,6 +11010,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "zyberlink"
+version = "0.1.0"
+dependencies = [
+ "borsh 1.5.7",
+ "solana-program",
+ "thiserror 1.0.69",
+ "zyberlink-types",
+]
+
+[[package]]
 name = "zyberlink-blink-server"
 version = "0.1.0"
 dependencies = [
@@ -11143,8 +11032,6 @@ dependencies = [
  "borsh 1.5.7",
  "bs58",
  "chrono",
- "cypherlink-sdk",
- "cypherlink-types",
  "env_logger 0.11.8",
  "log",
  "reqwest 0.11.27",
@@ -11157,4 +11044,115 @@ dependencies = [
  "sqlx",
  "tfhe",
  "tokio",
+ "zyberlink-sdk",
+ "zyberlink-types",
+]
+
+[[package]]
+name = "zyberlink-crypto"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "ml-kem",
+ "rand 0.8.5",
+ "sha3",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "zyberlink-prover"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bincode",
+ "blake2",
+ "blake2b_simd",
+ "borsh 1.5.7",
+ "chacha20poly1305",
+ "chrono",
+ "clap",
+ "console",
+ "crossterm 0.27.0",
+ "dialoguer",
+ "dirs 5.0.1",
+ "env_logger 0.11.8",
+ "ff",
+ "group",
+ "halo2_proofs",
+ "hex",
+ "indicatif",
+ "log",
+ "orchard",
+ "pasta_curves",
+ "qr2term",
+ "rand 0.8.5",
+ "ratatui",
+ "reqwest 0.12.24",
+ "serde",
+ "serde_json",
+ "sha3",
+ "shellexpand",
+ "solana-client",
+ "solana-sdk",
+ "tfhe",
+ "tokio",
+ "url",
+ "urlencoding",
+ "x25519-dalek",
+ "zeroize",
+ "zyberlink-sdk",
+ "zyberlink-types",
+]
+
+[[package]]
+name = "zyberlink-sdk"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "blake2",
+ "borsh 1.5.7",
+ "chacha20poly1305",
+ "hex",
+ "rand 0.8.5",
+ "reqwest 0.11.27",
+ "serde",
+ "serde_json",
+ "solana-account-decoder",
+ "solana-client",
+ "solana-program-test",
+ "solana-sdk",
+ "thiserror 1.0.69",
+ "tokio",
+ "x25519-dalek",
+ "zyberlink",
+ "zyberlink-types",
+]
+
+[[package]]
+name = "zyberlink-types"
+version = "0.1.0"
+dependencies = [
+ "borsh 1.5.7",
+ "serde",
+ "serde_json",
+ "solana-program",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "zyberlink-witness-storage"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "blake2",
+ "env_logger 0.11.8",
+ "hex",
+ "log",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tower",
+ "tower-http 0.5.2",
 ]

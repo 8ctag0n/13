@@ -23,42 +23,42 @@ RESULTS_DIR="benchmark_results_$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$RESULTS_DIR"
 
 echo -e "${YELLOW}[1/6] Building in release mode...${NC}"
-cargo build --release --package cypherlink-prover
+cargo build --release --package zyberlink-prover
 echo -e "${GREEN}✓ Build complete${NC}"
 echo ""
 
 # Benchmark 1: Sum
 echo -e "${YELLOW}[2/6] Benchmarking Sum(100)...${NC}"
 echo "Target: < 5 seconds"
-cargo test --package cypherlink-prover --release test_sum_100_inputs_performance -- --ignored --nocapture > "$RESULTS_DIR/sum_benchmark.txt" 2>&1 || true
+cargo test --package zyberlink-prover --release test_sum_100_inputs_performance -- --ignored --nocapture > "$RESULTS_DIR/sum_benchmark.txt" 2>&1 || true
 echo -e "${GREEN}✓ Sum benchmark complete${NC}"
 echo ""
 
 # Benchmark 2: Average
 echo -e "${YELLOW}[3/6] Benchmarking Average(100)...${NC}"
 echo "Target: < 7 seconds"
-cargo test --package cypherlink-prover --release test_average_performance_100_values -- --ignored --nocapture > "$RESULTS_DIR/average_benchmark.txt" 2>&1 || true
+cargo test --package zyberlink-prover --release test_average_performance_100_values -- --ignored --nocapture > "$RESULTS_DIR/average_benchmark.txt" 2>&1 || true
 echo -e "${GREEN}✓ Average benchmark complete${NC}"
 echo ""
 
 # Benchmark 3: CountIf
 echo -e "${YELLOW}[4/6] Benchmarking CountIf(100)...${NC}"
 echo "Target: < 10 seconds"
-cargo test --package cypherlink-prover --release test_count_if_performance -- --ignored --nocapture > "$RESULTS_DIR/countif_benchmark.txt" 2>&1 || true
+cargo test --package zyberlink-prover --release test_count_if_performance -- --ignored --nocapture > "$RESULTS_DIR/countif_benchmark.txt" 2>&1 || true
 echo -e "${GREEN}✓ CountIf benchmark complete${NC}"
 echo ""
 
 # Benchmark 4: Histogram
 echo -e "${YELLOW}[5/6] Benchmarking Histogram(50, 4 bins)...${NC}"
 echo "Target: < 20 seconds"
-cargo test --package cypherlink-prover --release test_histogram_performance -- --ignored --nocapture > "$RESULTS_DIR/histogram_benchmark.txt" 2>&1 || true
+cargo test --package zyberlink-prover --release test_histogram_performance -- --ignored --nocapture > "$RESULTS_DIR/histogram_benchmark.txt" 2>&1 || true
 echo -e "${GREEN}✓ Histogram benchmark complete${NC}"
 echo ""
 
 # Benchmark 5: E2E Average Test
 echo -e "${YELLOW}[6/6] Running E2E Average(100) test...${NC}"
 echo "Target: < 10 seconds (total with encryption)"
-cargo test --package cypherlink-prover --release test_fhe_average_large_dataset -- --nocapture > "$RESULTS_DIR/e2e_average_benchmark.txt" 2>&1 || true
+cargo test --package zyberlink-prover --release test_fhe_average_large_dataset -- --nocapture > "$RESULTS_DIR/e2e_average_benchmark.txt" 2>&1 || true
 echo -e "${GREEN}✓ E2E benchmark complete${NC}"
 echo ""
 

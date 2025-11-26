@@ -50,8 +50,8 @@ sqlx = { version = "0.7", features = ["runtime-tokio-native-tls", "postgres", "c
 chrono = { version = "0.4", features = ["serde"] }
 
 # SDK and types
-cypherlink-sdk = { path = "../sdk" }
-cypherlink-types = { path = "../shared/types" }
+zyberlink-sdk = { path = "../sdk" }
+zyberlink-types = { path = "../shared/types" }
 borsh = { workspace = true }
 
 [dev-dependencies]

@@ -7,7 +7,7 @@ use solana_program::{
     pubkey::Pubkey,
 };
 
-use crate::{error::CypherLinkProgramError, state::JobAccount};
+use crate::{error::ZyberLinkProgramError, state::JobAccount};
 
 /// Process CancelJob instruction
 pub fn process_cancel_job(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResult {
@@ -26,7 +26,7 @@ pub fn process_cancel_job(program_id: &Pubkey, accounts: &[AccountInfo]) -> Prog
     // Verify job account is owned by program
     if job_info.owner != program_id {
         msg!("Invalid job account owner");
-        return Err(CypherLinkProgramError::InvalidAccount.into());
+        return Err(ZyberLinkProgramError::InvalidAccount.into());
     }
 
     // Load job account
@@ -38,13 +38,13 @@ pub fn process_cancel_job(program_id: &Pubkey, accounts: &[AccountInfo]) -> Prog
     // Verify job creator matches
     if job.creator != *job_creator_info.key {
         msg!("Only job creator can cancel the job");
-        return Err(CypherLinkProgramError::Unauthorized.into());
+        return Err(ZyberLinkProgramError::Unauthorized.into());
     }
 
     // Verify job is in Pending status (can only cancel unclaimed jobs)
-    if job.status != cypherlink_types::JobStatus::Pending {
+    if job.status != zyberlink_types::JobStatus::Pending {
         msg!("Can only cancel jobs in Pending status");
-        return Err(CypherLinkProgramError::JobNotPending.into());
+        return Err(ZyberLinkProgramError::JobNotPending.into());
     }
 
     // Verify escrow PDA
@@ -53,7 +53,7 @@ pub fn process_cancel_job(program_id: &Pubkey, accounts: &[AccountInfo]) -> Prog
 
     if escrow_info.key != &escrow_pda {
         msg!("Invalid escrow account");
-        return Err(CypherLinkProgramError::InvalidAccount.into());
+        return Err(ZyberLinkProgramError::InvalidAccount.into());
     }
 
     // Get escrow balance (should be price + rent)
@@ -66,7 +66,7 @@ pub fn process_cancel_job(program_id: &Pubkey, accounts: &[AccountInfo]) -> Prog
     **job_creator_info.lamports.borrow_mut() = job_creator_info
         .lamports()
         .checked_add(escrow_balance)
-        .ok_or(CypherLinkProgramError::Overflow)?;
+        .ok_or(ZyberLinkProgramError::Overflow)?;
 
     // Update job status
     job.cancel();

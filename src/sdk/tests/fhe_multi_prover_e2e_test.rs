@@ -9,8 +9,8 @@
 /// - Edge cases and failure scenarios
 use anyhow::Result;
 use borsh::BorshDeserialize;
-use cypherlink_sdk::{CircuitType, JobAccount, MarketplaceClient, ProverAccount};
-use cypherlink_types::{FheConsensusConfig, FheOperation, JobStatus as TypesJobStatus};
+use zyberlink_sdk::{CircuitType, JobAccount, MarketplaceClient, ProverAccount};
+use zyberlink_types::{FheConsensusConfig, FheOperation, JobStatus as TypesJobStatus};
 use solana_program_test::{processor, BanksClient, ProgramTest};
 use solana_sdk::{
     pubkey::Pubkey,
@@ -28,12 +28,12 @@ fn program_id() -> Pubkey {
     Pubkey::new_unique()
 }
 
-/// Setup program test environment with cypherlink processor
+/// Setup program test environment with zyberlink processor
 fn setup_program_test(program_id: Pubkey) -> ProgramTest {
     ProgramTest::new(
-        "cypherlink",
+        "zyberlink",
         program_id,
-        processor!(cypherlink::process_instruction),
+        processor!(zyberlink::process_instruction),
     )
 }
 

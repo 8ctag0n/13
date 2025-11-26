@@ -1,7 +1,22 @@
 {
+  "name": "zyberlink-e2e-tests",
+  "version": "1.0.0",
+  "description": "End-to-end tests for ZyberLink marketplace",
+  "scripts": {
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:debug": "playwright test --debug",
+    "test:e2e:api": "playwright test e2e-tests/api",
+    "test:e2e:integration": "playwright test e2e-tests/integration",
+    "test:e2e:report": "playwright show-report",
+    "test:e2e:headed": "playwright test --headed"
+  },
   "dependencies": {
     "@solana/wallet-standard": "^1.1.4",
     "@solana/web3.js": "^1.95.8",
     "@wallet-standard/core": "^1.1.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.1"
   }
 }

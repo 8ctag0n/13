@@ -13,24 +13,24 @@ log_info() {
 }
 
 # Check prerequisites
-if [ ! -f "blink-server/.env" ]; then
-    echo "ERROR: Run ./localnet-setup.sh first"
+if [ ! -f "src/blink-server/.env" ]; then
+    echo "ERROR: Run scripts/setup-localnet.sh first"
     exit 1
 fi
 
 # Load PROGRAM_ID from backend .env
-export $(grep PROGRAM_ID blink-server/.env | xargs)
-export $(grep SOLANA_RPC_URL blink-server/.env | xargs)
+export $(grep PROGRAM_ID src/blink-server/.env | xargs)
+export $(grep SOLANA_RPC_URL src/blink-server/.env | xargs)
 
 log_info "Starting 3 prover nodes..."
 log_info "Program ID: $PROGRAM_ID"
 log_info "RPC URL: $SOLANA_RPC_URL"
 
 # Find the prover binary (use absolute path)
-PROVER_BIN="/home/deploy/experimental/zyberlink-demo/target/release/cypherlink-prover"
+PROVER_BIN="/home/deploy/experimental/zyberlink-demo/target/release/zyberlink-prover"
 if [ ! -f "$PROVER_BIN" ]; then
     echo "ERROR: Prover binary not found at $PROVER_BIN"
-    echo "Build it first: cargo build --release --bin cypherlink-prover"
+    echo "Build it first: cargo build --release --bin zyberlink-prover"
     exit 1
 fi
 

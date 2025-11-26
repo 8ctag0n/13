@@ -1,6 +1,6 @@
 use anyhow::Result;
 use blake2::{Blake2s256, Digest};
-use cypherlink_types::{CircuitType, FheConsensusConfig};
+use zyberlink_types::{CircuitType, FheConsensusConfig};
 use solana_sdk::{
     instruction::{AccountMeta, Instruction},
     pubkey::Pubkey,
@@ -10,14 +10,14 @@ use std::str::FromStr;
 
 use crate::instruction::MarketplaceInstruction;
 
-/// Pure instruction builder for CypherLink marketplace
+/// Pure instruction builder for ZyberLink marketplace
 ///
 /// This builder creates wallet-compatible instructions without requiring keypairs.
 /// All methods accept Pubkey instead of &Keypair, making them safe for wallet integration.
 ///
 /// # Example
 /// ```no_run
-/// use cypherlink_sdk::instructions::InstructionBuilder;
+/// use zyberlink_sdk::instructions::InstructionBuilder;
 /// use solana_sdk::pubkey::Pubkey;
 ///
 /// let program_id = Pubkey::new_unique();

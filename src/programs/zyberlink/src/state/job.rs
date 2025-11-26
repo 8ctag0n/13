@@ -1,5 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use cypherlink_types::{CircuitType, FheConsensusConfig, FheJobResult, JobStatus};
+use zyberlink_types::{CircuitType, FheConsensusConfig, FheJobResult, JobStatus};
 use solana_program::pubkey::Pubkey;
 
 /// On-chain job account

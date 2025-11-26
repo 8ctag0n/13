@@ -1,5 +1,5 @@
 [package]
-name = "cypherlink-witness-storage"
+name = "zyberlink-witness-storage"
 version = "0.1.0"
 edition = "2021"
 

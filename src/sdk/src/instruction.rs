@@ -1,9 +1,9 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use cypherlink_types::{CircuitType, FheConsensusConfig};
+use zyberlink_types::{CircuitType, FheConsensusConfig};
 
-/// Instructions supported by the CypherLink marketplace program
+/// Instructions supported by the ZyberLink marketplace program
 ///
-/// NOTE: This is a duplicate of the enum in programs/cypherlink/src/instruction.rs
+/// NOTE: This is a duplicate of the enum in programs/zyberlink/src/instruction.rs
 /// We duplicate it here because the SDK cannot depend on solana_program crate.
 /// Any changes to the program's instruction enum MUST be replicated here.
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, PartialEq)]

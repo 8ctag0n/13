@@ -11,7 +11,7 @@ use solana_program::{
 };
 
 use crate::{
-    error::CypherLinkProgramError,
+    error::ZyberLinkProgramError,
     state::{MarketplaceConfig, ProverAccount},
 };
 
@@ -41,13 +41,13 @@ pub fn process_register_prover(
 
     if prover_info.key != &prover_pda {
         msg!("Invalid prover account");
-        return Err(CypherLinkProgramError::InvalidAccount.into());
+        return Err(ZyberLinkProgramError::InvalidAccount.into());
     }
 
     // Check if already initialized
     if !prover_info.data_is_empty() {
         msg!("Prover already registered");
-        return Err(CypherLinkProgramError::AlreadyInitialized.into());
+        return Err(ZyberLinkProgramError::AlreadyInitialized.into());
     }
 
     // Load and verify marketplace config
@@ -60,13 +60,13 @@ pub fn process_register_prover(
             stake_amount,
             config.min_stake_amount
         );
-        return Err(CypherLinkProgramError::InsufficientStake.into());
+        return Err(ZyberLinkProgramError::InsufficientStake.into());
     }
 
     // Validate encryption_pubkey is not all zeros
     if encryption_pubkey == [0u8; 32] {
         msg!("Invalid encryption_pubkey: cannot be all zeros");
-        return Err(CypherLinkProgramError::InvalidAccount.into());
+        return Err(ZyberLinkProgramError::InvalidAccount.into());
     }
 
     // Get current timestamp

@@ -1,8 +1,8 @@
-# FHE Integration for CypherLink Prover Node
+# FHE Integration for ZyberLink Prover Node
 
 ## Overview
 
-The CypherLink prover node now supports **Fully Homomorphic Encryption (FHE)** computations using [TFHE-rs (Concrete)](https://github.com/zama-ai/tfhe-rs), allowing provers to perform computations on encrypted data without ever decrypting it.
+The ZyberLink prover node now supports **Fully Homomorphic Encryption (FHE)** computations using [TFHE-rs (Concrete)](https://github.com/zama-ai/tfhe-rs), allowing provers to perform computations on encrypted data without ever decrypting it.
 
 ## Architecture
 
@@ -94,7 +94,7 @@ cargo run --bin generate-fhe-keys -- --output-dir ./keys --test-value 100
 Start prover with FHE support:
 
 ```bash
-cypherlink-prover \
+zyberlink-prover \
   --program-id <PROGRAM_ID> \
   --rpc-url <RPC_URL> \
   --fhe-server-key-path ./keys/fhe_server_key.bin \
@@ -106,8 +106,8 @@ cypherlink-prover \
 ### 3. Create FHE Job (Client Side)
 
 ```rust
-use cypherlink_sdk::CypherlinkClient;
-use cypherlink_types::{CircuitType, FheOperation};
+use zyberlink_sdk::CypherlinkClient;
+use zyberlink_types::{CircuitType, FheOperation};
 use tfhe::{prelude::*, FheUint8, ConfigBuilder, generate_keys};
 
 // 1. Generate keys
@@ -321,7 +321,7 @@ Store server keys in on-chain registry or IPFS.
 **Solution**: Generate keys and provide path:
 ```bash
 cargo run --bin generate-fhe-keys
-cypherlink-prover --fhe-server-key-path ./keys/fhe_server_key.bin ...
+zyberlink-prover --fhe-server-key-path ./keys/fhe_server_key.bin ...
 ```
 
 ### "Failed to deserialize input ciphertext"
@@ -376,7 +376,7 @@ assert_eq!(decrypted, 52);
 
 - [TFHE-rs Documentation](https://docs.zama.ai/tfhe-rs)
 - [Concrete Whitepaper](https://whitepaper.zama.ai/)
-- [CypherLink Architecture](../README.md)
+- [ZyberLink Architecture](../README.md)
 - [Spike Results](../../spike-fhe-prover/REPORT.md)
 
 ## Support

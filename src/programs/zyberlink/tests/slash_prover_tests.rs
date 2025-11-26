@@ -1,10 +1,10 @@
 mod common;
 
 use common::{initialize_marketplace, register_prover, setup_program_test};
-use cypherlink::{
+use zyberlink::{
     instruction::MarketplaceInstruction, state::MarketplaceConfig, state::ProverAccount,
 };
-use cypherlink_types::CircuitType;
+use zyberlink_types::CircuitType;
 use solana_program::pubkey::Pubkey;
 use solana_sdk::{
     signature::{Keypair, Signer},

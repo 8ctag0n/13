@@ -1,7 +1,7 @@
 mod common;
 
 use common::setup_program_test;
-use cypherlink::{instruction::MarketplaceInstruction, state::MarketplaceConfig};
+use zyberlink::{instruction::MarketplaceInstruction, state::MarketplaceConfig};
 use solana_program::pubkey::Pubkey;
 use solana_sdk::{signature::Signer, transaction::Transaction};
 

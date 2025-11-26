@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-cypherlink-sdk = { path = "../sdk" }
-cypherlink-types = { path = "../shared/types" }
+zyberlink-sdk = { path = "../sdk" }
+zyberlink-types = { path = "../shared/types" }
 solana-sdk = "2.3"
 solana-client = "2.3"
 tokio = { version = "1", features = ["full"] }

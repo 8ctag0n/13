@@ -39,7 +39,7 @@ cleanup() {
 }
 
 # Check if running from project root
-if [ ! -f "Cargo.toml" ] || [ ! -d "programs" ]; then
+if [ ! -f "Cargo.toml" ] || [ ! -d "src/programs" ]; then
     log_error "Must run from project root (/home/deploy/experimental/zyberlink-demo)"
     exit 1
 fi
@@ -135,16 +135,16 @@ log_info "Deployer balance: $BALANCE"
 
 # 2.4 Deploy program
 log_info "Deploying Solana program..."
-PROGRAM_PATH=programs/target/deploy/cypherlink.so
+PROGRAM_PATH=src/programs/target/deploy/zyberlink.so
 
 if [ ! -f "$PROGRAM_PATH" ]; then
     log_error "Program binary not found at $PROGRAM_PATH"
-    log_error "Run: cd programs && cargo build-sbf"
+    log_error "Run: cd src/programs && cargo build-sbf"
     exit 1
 fi
 
 # Deploy with program keypair
-PROGRAM_KEYPAIR=programs/target/deploy/cypherlink-keypair.json
+PROGRAM_KEYPAIR=src/programs/target/deploy/zyberlink-keypair.json
 
 if [ ! -f "$PROGRAM_KEYPAIR" ]; then
     log_error "Program keypair not found at $PROGRAM_KEYPAIR"
@@ -218,7 +218,7 @@ done
 log_step "STEP 4: Generate Environment Files"
 
 # Backend .env
-cat > blink-server/.env <<EOF
+cat > src/blink-server/.env <<EOF
 DATABASE_URL=postgresql://zyberlink:dev_password@localhost:5432/zyberlink
 SOLANA_RPC_URL=http://localhost:8899
 PROGRAM_ID=$PROGRAM_ID
@@ -227,45 +227,45 @@ HOST=127.0.0.1
 RUST_LOG=info
 EOF
 
-log_info "✓ Created blink-server/.env"
+log_info "✓ Created src/blink-server/.env"
 
 # Frontend .env
-cat > webapp/.env.local <<EOF
+cat > src/webapp/.env.local <<EOF
 VITE_SOLANA_RPC_URL=http://localhost:8899
 VITE_BACKEND_URL=http://127.0.0.1:8080
 VITE_PROGRAM_ID=$PROGRAM_ID
 EOF
 
-log_info "✓ Created webapp/.env.local"
+log_info "✓ Created src/webapp/.env.local"
 
 # ============================================================================
 # Summary
 # ============================================================================
 log_step "Setup Complete!"
 
-echo "📋 Infrastructure Ready:"
+echo " Infrastructure Ready:"
 echo "  • Validator:    http://localhost:8899"
 echo "  • Database:     postgresql://localhost:5432/zyberlink"
 echo "  • Program ID:   $PROGRAM_ID"
 echo ""
-echo "👥 Provers:"
+echo " Provers:"
 for i in 1 2 3; do
     echo "  • Prover $i:    ${PROVER_ADDRESSES[$i-1]}"
 done
 echo ""
-echo "📁 Configuration:"
-echo "  • Backend env:  blink-server/.env"
-echo "  • Frontend env: webapp/.env.local"
+echo " Configuration:"
+echo "  • Backend env:  src/blink-server/.env"
+echo "  • Frontend env: src/webapp/.env.local"
 echo ""
-echo "📝 Logs:"
+echo " Logs:"
 echo "  • Validator:    tail -f /tmp/solana-validator.log"
 echo ""
-echo "🚀 Next Steps:"
-echo "  1. Start backend:  cd blink-server && ./target/release/blink-server"
-echo "  2. Start frontend: cd webapp && npm run dev"
-echo "  3. Start provers:  Run ./localnet-start-provers.sh"
-echo "  4. Run tests:      Run ./localnet-test-api.sh"
+echo " Next Steps:"
+echo "  1. Start backend:  ./target/release/blink-server"
+echo "  2. Start frontend: cd src/webapp && npm run dev"
+echo "  3. Start provers:  Run scripts/localnet-start-provers.sh"
+echo "  4. Run tests:      Run scripts/localnet-test-api.sh"
 echo ""
-echo "💾 To save this session:"
+echo " To save this session:"
 echo "  export ZYBERLINK_PROGRAM_ID=$PROGRAM_ID"
 echo ""

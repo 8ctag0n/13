@@ -1,4 +1,4 @@
-use cypherlink_types::CircuitType;
+use zyberlink_types::CircuitType;
 use log::{info, warn};
 
 /// ROI calculation result for a job
@@ -186,7 +186,7 @@ impl ROICalculator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cypherlink_types::fhe::{FheOperation, HistogramBin};
+    use zyberlink_types::fhe::{FheOperation, HistogramBin};
 
     #[test]
     fn test_profitable_tier1_job() {

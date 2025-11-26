@@ -1,23 +1,22 @@
-# CypherLink / ZyberLink
+# ZyberLink
 
-**Decentralized ZK Compute Marketplace on Solana**
+**Decentralized ZK & FHE Compute Marketplace on Solana**
 
-> "Multi-prover consensus network for privacy-preserving computations"
+> Multi-prover consensus network for privacy-preserving computations
 
 ## Overview
 
-ZyberLink is a decentralized marketplace for ZK and FHE computations on Solana. Multiple independent provers compete to execute cryptographic computations, with on-chain consensus ensuring correctness. By distributing trust across a prover network, we enable censorship-resistant, privacy-preserving infrastructure for any application.
+ZyberLink is a decentralized marketplace for ZK and FHE computations on Solana. Multiple independent provers compete to execute cryptographic computations, with on-chain consensus ensuring correctness.
 
-**Current Focus:** Multi-prover consensus for FHE (Fully Homomorphic Encryption) computations with on-chain verification and automated payment distribution to honest provers.
+**Current Status:** Zypherpunk Hackathon (Nov 10 - Dec 1, 2025)
 
 ## Key Features
 
 - **Multi-Prover Consensus** - 2-of-3 or 3-of-5 consensus ensures computation correctness
 - **FHE Computations** - Fully homomorphic encryption support via TFHE-rs
 - **Privacy Preserved** - Encrypted witness data, provers never see plaintext
-- **Decentralized** - Permissionless prover network, no single point of failure
+- **Dynamic Pricing** - Market-based job pricing
 - **Automated Payments** - On-chain verification with trustless payment distribution
-- **Censorship Resistant** - No central authority can block jobs or provers
 
 ## Architecture
 
@@ -37,230 +36,140 @@ ZyberLink is a decentralized marketplace for ZK and FHE computations on Solana. 
 │           Prover Network                   │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐ │
 │  │ Prover A │  │ Prover B │  │ Prover C │ │
-│  │ (TFHE)   │  │ (TFHE)   │  │ (TFHE)   │ │
 │  └────┬─────┘  └────┬─────┘  └────┬─────┘ │
 └───────│─────────────│─────────────│────────┘
         │ 3. Claim    │             │
         │ 4. Compute  │ Compute     │ Compute
-        │    (async)  │ (async)     │ (async)
         ▼             ▼             ▼
 ┌────────────────────────────────────────────┐
 │   Result Submission + Consensus            │
-│   Prover A: hash_abc...                    │
-│   Prover B: hash_abc... ✓ (match)          │
-│   Prover C: hash_def... ✗ (mismatch)       │
+│   2/3 matching results = verified          │
 └────────────────┬───────────────────────────┘
-                 │ 5. 2/3 consensus reached
+                 │ 5. Payment distributed
                  ▼
 ┌────────────────────────────────────────────┐
 │   On-Chain Verification & Payment          │
-│   - Pay Prover A & B (matching results)    │
-│   - Penalize Prover C (dishonest)          │
-│   - Return result to client                │
+│   - Pay matching provers                   │
+│   - Penalize dishonest provers             │
 └────────────────────────────────────────────┘
 ```
 
-## Technology Stack
+## Quick Start
 
-- **Smart Contracts:** Solana (bare metal, no Anchor)
-- **Prover Node:** Rust + TFHE-rs (FHE engine) + Halo2 (ZK circuits)
-- **SDK:** Rust client library with 3-layer architecture
-- **Consensus:** On-chain hash-based result verification
-- **Encryption:** Post-quantum key exchange (ML-KEM)
-- **UI:** Terminal User Interface (TUI) with ratatui
+```bash
+# Full setup from scratch (recommended)
+make localnet-setup    # or: make l1 - Setup validator + db + deploy
+make localnet-init     # or: make l2 - Initialize marketplace
+make localnet-run      # or: make l3 - Start backend + provers + frontend
 
-## Quick Links
+# Optional: auto-generate test jobs
+make localnet-jobs     # or: make l4
 
-- [Strategy](docs/STRATEGY.md) - Hackathon strategy and go-to-market plan
-- [Approach](docs/APPROACH.md) - Why we chose wallet as demo
-- [Roadmap](docs/ROADMAP.md) - 21-day development timeline
-- [Pitch](docs/PITCH.md) - Hackathon pitch deck
-- [Demo Script](docs/DEMO_SCRIPT.md) - 3-minute demonstration flow
-- [Architecture](docs/ARCHITECTURE.md) - Technical deep dive
-- [Tech Stack](docs/TECH_STACK.md) - Technologies and versions
-- [Decision Log](docs/DECISION_LOG.md) - Key architectural decisions
+# Stop everything
+make localnet-stop     # or: make l0
 
-## Repository Structure
-
+# Check status
+make health
+make status
 ```
-zyberlink/
-├── programs/              # Solana smart contracts
-│   └── cypherlink/        # Main marketplace program
-├── sdk/                   # Client SDK (Rust)
-├── prover-node/           # Desktop prover daemon with TUI
-├── blink-server/          # Solana Actions/Blinks server
-├── shared/                # Shared types and utilities
-│   ├── types/             # State definitions
-│   └── crypto/            # Cryptographic utilities
-├── e2e-tests/             # End-to-end integration tests
-├── witness-storage/       # Encrypted witness storage server
-├── demo/                  # Demo scripts and orchestration
-├── scripts/               # Deployment and utility scripts
-└── docs/                  # Documentation
-```
-
-## Status
-
-**In Development** - Zypherpunk Hackathon (Nov 10 - Dec 1, 2025)
-
-**Current Features:**
-- [DONE]Multi-prover marketplace on Solana
-- [DONE]FHE computation engine (TFHE-rs)
-- [DONE]On-chain consensus algorithm
-- [DONE]Terminal UI for prover monitoring
-- [DONE]Interactive setup wizard
-- [DONE]FHE E2E tests (14/14 self-executing tests passing)
-
-See [ROADMAP.md](ROADMAP.md) for planned features and timeline.
-
-## Getting Started
 
 ### Prerequisites
 
 - Rust 1.75+
 - Solana CLI 2.1+
-- cargo (included with Rust)
+- Node.js 18+ (for frontend)
+- Podman or Docker (for PostgreSQL)
 
-### Quick Start
+## Project Structure
+
+```
+zyberlink/
+├── src/                    # All source code
+│   ├── programs/           # Solana smart contracts
+│   ├── sdk/                # Client SDK (Rust)
+│   ├── prover-node/        # Prover daemon
+│   ├── blink-server/       # Backend API
+│   ├── webapp/             # Frontend (Svelte)
+│   ├── shared/             # Shared types & crypto
+│   ├── witness-storage/    # Encrypted witness storage
+│   └── fhe-cli/            # FHE command line tools
+├── tests/                  # E2E tests
+├── docs/                   # Documentation
+│   ├── book/               # GitBook (public)
+│   └── private/            # Internal docs
+├── infra/                  # Infrastructure
+│   ├── docker/             # Docker compose files
+│   ├── demo/               # Demo scripts
+│   └── dev/                # Development tools
+├── scripts/                # Automation scripts
+├── Makefile                # Build & run commands
+└── Cargo.toml              # Workspace config
+```
+
+## Development
 
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/zyberlink.git
-cd zyberlink
-
-# Build all components
+# Build all
 cargo build --release
 
 # Run tests
 cargo test --all
+make test-e2e
 
-# Start local Solana validator (Terminal 1)
-solana-test-validator --reset
+# Check service health
+make health
 
-# Deploy program (Terminal 2)
-solana program deploy target/deploy/cypherlink.so
-
-# Run interactive prover setup wizard (Terminal 3)
-cd prover-node
-cargo run --release -- wizard
-
-# Or run demo with multiple provers (Terminal 3)
-cd demo
-./run-demo.sh
+# View logs
+make logs              # All logs
+make logs-backend      # Backend only
+make logs-provers      # Provers only
 ```
 
-See [demo/QUICKSTART.md](demo/QUICKSTART.md) for detailed demo instructions.
+### Make Commands
 
-## Development
+| Command | Alias | Description |
+|---------|-------|-------------|
+| `make localnet-setup` | `l1` | Setup validator + db + deploy program |
+| `make localnet-init` | `l2` | Initialize marketplace on-chain |
+| `make localnet-run` | `l3` | Start backend + provers + frontend |
+| `make localnet-jobs` | `l4` | Auto-generate test jobs |
+| `make localnet-stop` | `l0` | Stop all services |
+| `make health` | - | Check service status |
+| `make logs` | - | Tail all logs |
 
-### Running Tests
+Run `make help` for full list of commands.
 
-```bash
-# Unit tests
-cargo test
+## Technology Stack
 
-# Integration tests
-cargo test --test integration_tests
+- **Smart Contracts:** Solana (bare metal, no Anchor)
+- **Backend:** Rust + Axum + PostgreSQL
+- **Frontend:** Svelte + Vite
+- **Prover:** Rust + TFHE-rs (FHE) + Halo2 (ZK)
+- **SDK:** Rust client library
+- **Encryption:** Post-quantum key exchange (ML-KEM)
 
-# E2E tests (requires running validator + prover)
-./scripts/test-e2e.sh
-```
+## Status
 
-### Building for Production
+- E2E Tests: 55/56 passing (98%)
+- Backend API: 100% coverage
+- Security Audit: 6/6 checks passing
 
-```bash
-# Build optimized binaries
-cargo build --release --all
-
-# Build specific components
-cargo build --release -p cypherlink-sdk
-cargo build --release -p prover-node
-cargo build --release -p blink-server
-```
+See [ROADMAP.md](ROADMAP.md) for full status and planned features.
 
 ## Use Cases
 
-### FHE-Powered Privacy Applications
-- **Private DeFi:** Encrypted balance swaps without revealing amounts
+- **Private DeFi:** Encrypted swaps without revealing amounts
 - **Confidential DAOs:** Private voting with verifiable results
-- **Privacy-Preserving Analytics:** Compute on encrypted datasets
-- **Secure Multi-Party Computation:** Distributed computation without trust
-
-### ZK Proof Infrastructure
-- **Wallet Proving:** Offload mobile ZK proof generation to network
-- **Proof Aggregation:** Batch multiple proofs efficiently
-- **Circuit Marketplaces:** Provers advertise specialized circuit support
-- **Cross-Chain Privacy:** Bridge ZK proofs across L1s/L2s
-
-## Business Model
-
-- **10% platform fee** on all proving jobs
-- User pays ~$0.02 per proof
-- Prover earns ~$0.018 per proof
-- Platform earns ~$0.002 per proof
-
-**Example:** 10,000 proofs/day = $200 daily volume = $20 platform revenue
-
-## Roadmap
-
-### Phase 1: Multi-Prover Consensus (Current - Nov 2025)
-- [DONE]Solana marketplace program
-- [DONE]FHE computation engine (TFHE-rs)
-- [DONE]Terminal UI for prover monitoring
-- [DONE]Complete FHE E2E integration
-- [DONE]On-chain consensus finalization
-
-### Phase 2: Light Protocol Integration (Post-Hackathon)
-- 🔜 ZK Compression for state management
-- 🔜 Reduced on-chain storage costs
-- 🔜 Scalable job history
-
-### Phase 3: Advanced Features (Q1 2026)
-- 🔮 Hardware acceleration (GPU/FPGA support)
-- 🔮 Mobile wallet SDK integration
-- 🔮 Reputation-weighted prover selection (SAS)
-- 🔮 Dynamic pricing mechanisms
-- 🔮 Circuit marketplace
-
-### Phase 4: Production Deployment (Q2 2026)
-- 🔮 Security audit
-- 🔮 Mainnet deployment
-- 🔮 Developer grants program
-- 🔮 Enterprise API tier
-
-## Contributing
-
-This project is currently in hackathon development mode. After December 1, 2025, we will open for community contributions.
-
-For now, if you're interested in:
-- Running a prover node (beta testing)
-- Integration partnerships
-- Contributing to the codebase
-
-Please reach out via GitHub Discussions or open an issue.
-
-## Related Repositories
-
-- [zypherbunk_hack](../zypherbunk_hack/) - Research and planning documentation
-- Additional repos will be listed as project expands
+- **Wallet Proving:** Offload mobile ZK proof generation
+- **Privacy Analytics:** Compute on encrypted datasets
 
 ## License
 
 MIT OR Apache-2.0
 
-Licensed under either of:
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
-- MIT License ([LICENSE-MIT](LICENSE-MIT))
-
-at your option.
-
 ## Acknowledgments
 
-- **Solana Foundation** - For the high-performance blockchain layer
-- **ZAMA (TFHE-rs)** - For the FHE library powering encrypted computations
-- **Zcash Foundation** - For ZK proving research and Halo2 circuits
-- **Zypherpunk Hackathon** - For the catalyst to build this infrastructure
-
----
-
-Built with privacy, powered by decentralization.
+- **Solana Foundation** - High-performance blockchain
+- **ZAMA (TFHE-rs)** - FHE library
+- **Zcash Foundation** - Halo2 circuits
+- **Zypherpunk Hackathon** - Catalyst for this project

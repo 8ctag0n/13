@@ -1,4 +1,4 @@
-use cypherlink_types::{CircuitType, FheConsensusConfig};
+use zyberlink_types::{CircuitType, FheConsensusConfig};
 use solana_program::{
     account_info::{next_account_info, AccountInfo},
     entrypoint::ProgramResult,
@@ -20,7 +20,7 @@ const SPL_TOKEN_INITIALIZE_ACCOUNT: u8 = 1;
 const SPL_TOKEN_TRANSFER: u8 = 3;
 
 use crate::{
-    error::CypherLinkProgramError,
+    error::ZyberLinkProgramError,
     state::{JobAccount, MarketplaceConfig},
 };
 
@@ -65,20 +65,20 @@ pub fn process_create_job_with_token(
         msg!("Only wZEC token is accepted for payment");
         msg!("  Expected mint: {}", wzec_mint);
         msg!("  Provided mint: {}", token_mint_info.key);
-        return Err(CypherLinkProgramError::InvalidAccount.into());
+        return Err(ZyberLinkProgramError::InvalidAccount.into());
     }
 
     // Load and verify marketplace config
     let (config_pda, _) = Pubkey::find_program_address(&[b"config"], program_id);
     if config_info.key != &config_pda {
         msg!("Invalid config account");
-        return Err(CypherLinkProgramError::InvalidAccount.into());
+        return Err(ZyberLinkProgramError::InvalidAccount.into());
     }
 
     // Check marketplace is initialized
     if config_info.owner != program_id {
         msg!("Marketplace not initialized");
-        return Err(CypherLinkProgramError::MarketplaceNotInitialized.into());
+        return Err(ZyberLinkProgramError::MarketplaceNotInitialized.into());
     }
 
     // Deserialize config to get next job ID
@@ -87,7 +87,7 @@ pub fn process_create_job_with_token(
     // Check marketplace is not paused
     if config.is_paused {
         msg!("Marketplace is paused");
-        return Err(CypherLinkProgramError::MarketplacePaused.into());
+        return Err(ZyberLinkProgramError::MarketplacePaused.into());
     }
 
     // Get next job ID
@@ -102,13 +102,13 @@ pub fn process_create_job_with_token(
 
     if job_info.key != &job_pda {
         msg!("Invalid job account");
-        return Err(CypherLinkProgramError::InvalidAccount.into());
+        return Err(ZyberLinkProgramError::InvalidAccount.into());
     }
 
     // Validate price
     if price_token_amount == 0 {
         msg!("Price must be greater than zero");
-        return Err(CypherLinkProgramError::InvalidPrice.into());
+        return Err(ZyberLinkProgramError::InvalidPrice.into());
     }
 
     // Validate FHE configuration
@@ -117,18 +117,18 @@ pub fn process_create_job_with_token(
             // FHE job MUST have config
             let config = fhe_config
                 .as_ref()
-                .ok_or(CypherLinkProgramError::MissingFheConfig)?;
+                .ok_or(ZyberLinkProgramError::MissingFheConfig)?;
 
             // Validate config
             config
                 .validate()
-                .map_err(|_| CypherLinkProgramError::InvalidFheConfig)?;
+                .map_err(|_| ZyberLinkProgramError::InvalidFheConfig)?;
         }
         _ => {
             // Non-FHE job should NOT have config
             if fhe_config.is_some() {
                 msg!("Non-FHE job should not have FHE config");
-                return Err(CypherLinkProgramError::UnexpectedFheConfig.into());
+                return Err(ZyberLinkProgramError::UnexpectedFheConfig.into());
             }
         }
     }

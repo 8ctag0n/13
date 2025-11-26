@@ -13,6 +13,12 @@
   </head>
   <body>
     <div id="app"></div>
+    <!-- Polyfill Buffer ANTES de cargar main.js (requerido por Solana wallet adapters) -->
+    <script type="module">
+      import { Buffer } from 'buffer';
+      window.Buffer = Buffer;
+      window.global = window;
+    </script>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

@@ -2,10 +2,10 @@ mod common;
 
 use borsh::BorshDeserialize;
 use common::{initialize_marketplace, setup_program_test};
-use cypherlink::{
+use zyberlink::{
     instruction::MarketplaceInstruction, state::JobAccount, state::MarketplaceConfig,
 };
-use cypherlink_types::CircuitType;
+use zyberlink_types::CircuitType;
 use solana_program::pubkey::Pubkey;
 use solana_sdk::{signature::Signer, transaction::Transaction};
 
@@ -80,7 +80,7 @@ async fn test_create_job() {
     assert_eq!(job.creator, job_creator);
     assert_eq!(job.price_lamports, 1_000_000);
     assert_eq!(job.witness_size, 2048);
-    assert_eq!(job.status, cypherlink_types::JobStatus::Pending);
+    assert_eq!(job.status, zyberlink_types::JobStatus::Pending);
 
     let escrow_account = banks_client.get_account(escrow_pda).await.unwrap();
     assert!(escrow_account.is_some(), "Escrow account not created");
