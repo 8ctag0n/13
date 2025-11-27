@@ -242,6 +242,45 @@ impl WitnessQueries {
     }
 }
 
+/// Database operations for FHE result storage
+pub struct FheResultQueries;
+
+impl FheResultQueries {
+    /// Store FHE result data by commitment hash
+    pub async fn store_result(pool: &PgPool, commitment: &str, data: &[u8]) -> Result<()> {
+        sqlx::query(
+            r#"
+            INSERT INTO fhe_results (commitment, data)
+            VALUES ($1, $2)
+            ON CONFLICT (commitment) DO NOTHING
+            "#,
+        )
+        .bind(commitment)
+        .bind(data)
+        .execute(pool)
+        .await
+        .map_err(|e| anyhow!("Failed to store FHE result: {}", e))?;
+
+        Ok(())
+    }
+
+    /// Get FHE result data by commitment hash
+    pub async fn get_result(pool: &PgPool, commitment: &str) -> Result<Option<Vec<u8>>> {
+        let result: Option<(Vec<u8>,)> = sqlx::query_as(
+            r#"
+            SELECT data FROM fhe_results
+            WHERE commitment = $1
+            "#,
+        )
+        .bind(commitment)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| anyhow!("Failed to fetch FHE result: {}", e))?;
+
+        Ok(result.map(|(data,)| data))
+    }
+}
+
 #[cfg(test)]
 mod tests {
 

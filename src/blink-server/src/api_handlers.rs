@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use solana_sdk::{message::Message, transaction::Transaction};
 
-use crate::db::{InsertJobData, JobQueries, JobStatus, WitnessQueries};
+use crate::db::{FheResultQueries, InsertJobData, JobQueries, JobStatus, WitnessQueries};
 use crate::validators::{JobValidator, ValidateJobRequest};
 use crate::AppState;
 use blake2::{Blake2s256, Digest};
@@ -747,6 +747,82 @@ async fn get_witness(
 }
 
 // ============================================================================
+// FHE Result Storage Endpoints
+// ============================================================================
+
+/// POST /fhe-result
+///
+/// Upload FHE computation result.
+/// Returns the Blake2s256 commitment hash of the uploaded data.
+#[post("/fhe-result")]
+async fn upload_fhe_result(
+    data: web::Data<AppState>,
+    body: web::Bytes,
+) -> impl Responder {
+    log::info!("Received FHE result upload, size: {} bytes", body.len());
+
+    if body.is_empty() {
+        return HttpResponse::BadRequest().json(json!({
+            "error": "Empty FHE result data"
+        }));
+    }
+
+    // Compute Blake2s256 hash as commitment
+    let mut hasher = Blake2s256::new();
+    hasher.update(&body);
+    let hash = hasher.finalize();
+    let commitment = hex::encode(hash);
+
+    log::info!("FHE result commitment: {}", commitment);
+
+    // Store in database
+    match FheResultQueries::store_result(&data.db_pool, &commitment, &body).await {
+        Ok(_) => {
+            log::info!("FHE result stored successfully");
+            HttpResponse::Ok().json(json!({ "commitment": commitment }))
+        }
+        Err(e) => {
+            log::error!("Failed to store FHE result: {}", e);
+            HttpResponse::InternalServerError().json(json!({
+                "error": format!("Failed to store FHE result: {}", e)
+            }))
+        }
+    }
+}
+
+/// GET /fhe-result/{commitment}
+///
+/// Download FHE computation result by commitment hash.
+#[get("/fhe-result/{commitment}")]
+async fn get_fhe_result(
+    data: web::Data<AppState>,
+    commitment: web::Path<String>,
+) -> impl Responder {
+    log::info!("Fetching FHE result for commitment: {}", *commitment);
+
+    match FheResultQueries::get_result(&data.db_pool, &commitment).await {
+        Ok(Some(result_data)) => {
+            log::info!("FHE result found, returning {} bytes", result_data.len());
+            HttpResponse::Ok()
+                .content_type("application/octet-stream")
+                .body(result_data)
+        }
+        Ok(None) => {
+            log::warn!("FHE result not found: {}", *commitment);
+            HttpResponse::NotFound().json(json!({
+                "error": "FHE result not found"
+            }))
+        }
+        Err(e) => {
+            log::error!("Failed to fetch FHE result: {}", e);
+            HttpResponse::InternalServerError().json(json!({
+                "error": format!("Database error: {}", e)
+            }))
+        }
+    }
+}
+
+// ============================================================================
 // Route Configuration
 // ============================================================================
 
@@ -759,5 +835,7 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         .service(get_job_status)
         .service(delete_job_data)
         .service(upload_witness)
-        .service(get_witness);
+        .service(get_witness)
+        .service(upload_fhe_result)
+        .service(get_fhe_result);
 }
