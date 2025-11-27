@@ -4,10 +4,10 @@
   // TODO: Update these URLs when ZyberLink resources are ready
   const ZYBERLINK_URLS = {
     // Documentation & Resources
-    docs: null,              // → Add GitBook/Notion/GitHub Pages URL
-    fheGuide: null,          // → Add FHE tutorial/guide URL
-    apiReference: null,      // → Add API docs URL
-    github: null,            // → Add GitHub organization/repo URL
+    docs: 'https://www.gitbook.com',           // GitBook docs (placeholder)
+    fheGuide: 'https://github.com/8ctag0n/13', // FHE-Helper repo
+    apiReference: null,                         // → Add API docs URL
+    github: 'https://github.com/8ctag0n/13',   // FHE-Helper GitHub repo
 
     // Community
     discord: null,           // → Add Discord invite link

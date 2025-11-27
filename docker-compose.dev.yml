@@ -1,0 +1,98 @@
+# ZyberLink Development Stack (Single Port)
+# ==========================================
+# Todo en un solo puerto (3000) via nginx reverse proxy.
+# Frontend + Backend + PostgreSQL containerizados.
+#
+# Uso:
+#   podman-compose -f docker-compose.dev.yml up -d --build
+#   podman-compose -f docker-compose.dev.yml logs -f
+#   podman-compose -f docker-compose.dev.yml down
+#
+# O via Makefile:
+#   make dev-up
+#   make dev-down
+#   make dev-logs
+
+services:
+  # ─────────────────────────────────────────────────────────────────────────
+  # PostgreSQL Database
+  # ─────────────────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    container_name: zyberlink-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: zyberlink
+      POSTGRES_USER: zyberlink
+      POSTGRES_PASSWORD: dev_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zyberlink -d zyberlink"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - zyberlink-internal
+    # Puerto interno, no expuesto al host
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Backend API Server (Rust)
+  # ─────────────────────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.backend
+    container_name: zyberlink-backend
+    restart: unless-stopped
+    environment:
+      RUST_LOG: info
+      DATABASE_URL: postgresql://zyberlink:dev_password@postgres:5432/zyberlink
+      SOLANA_RPC_URL: ${SOLANA_RPC_URL:-http://host.docker.internal:8899}
+      PROGRAM_ID: ${PROGRAM_ID:-CypherLinkProgram11111111111111111111111111}
+      PORT: 8080
+      HOST: 0.0.0.0
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8080:8080"  # Backend API (provers/job-creator acceden aquí)
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - zyberlink-internal
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Frontend + Nginx Reverse Proxy
+  # ─────────────────────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./src/webapp
+      dockerfile: Dockerfile.prod
+    container_name: zyberlink-web
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-3000}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - zyberlink-internal
+    environment:
+      - API_URL=http://backend:8080
+      - SOLANA_RPC_URL=${SOLANA_RPC_URL:-http://localhost:8899}
+
+networks:
+  zyberlink-internal:
+    driver: bridge
+    name: zyberlink-dev-net
+
+volumes:
+  postgres_data:
+    name: zyberlink-dev-postgres

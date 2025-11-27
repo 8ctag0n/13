@@ -1,21 +1,37 @@
 <script>
   import { onMount } from 'svelte';
 
+  const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://127.0.0.1:8080';
+
   let stats = [
-    { label: 'ACTIVE_PROVERS', value: 0, target: 47, suffix: '', color: 'cyan', icon: '[>]' },
-    { label: 'JOBS_PROCESSED', value: 0, target: 1247, suffix: '', color: 'violet', icon: '[▓]' },
-    { label: 'DATA_ENCRYPTED', value: 0, target: 3.8, suffix: 'TB', color: 'success', icon: '[█]' },
+    { label: 'ACTIVE_PROVERS', value: 0, target: 0, suffix: '', color: 'cyan', icon: '[>]' },
+    { label: 'JOBS_PROCESSED', value: 0, target: 0, suffix: '', color: 'violet', icon: '[▓]' },
+    { label: 'DATA_ENCRYPTED', value: 0, target: 0, suffix: 'TB', color: 'success', icon: '[█]' },
     { label: 'NETWORK_UPTIME', value: 0, target: 99.97, suffix: '%', color: 'cyan', icon: '[●]' }
   ];
 
   let mounted = false;
+  let lastUpdate = new Date();
 
-  onMount(() => {
-    mounted = true;
+  async function loadNetworkStats() {
+    try {
+      const response = await fetch(`${API_BASE}/api/stats/network`);
+      if (response.ok) {
+        const data = await response.json();
+        stats[0].target = data.active_provers || 0;
+        stats[1].target = data.jobs_total || 0;
+        stats[2].target = parseFloat((data.data_encrypted_tb || 0).toFixed(2));
+        stats[3].target = data.uptime_percent || 99.97;
+        lastUpdate = new Date();
+      }
+    } catch (error) {
+      console.error('Failed to load network stats:', error);
+    }
+  }
 
-    // Animate each stat
+  function animateStats() {
     stats.forEach((stat, index) => {
-      const duration = 2000; // 2 seconds
+      const duration = 2000;
       const steps = 60;
       const increment = stat.target / steps;
       const stepDuration = duration / steps;
@@ -35,6 +51,19 @@
         }
       }, stepDuration);
     });
+  }
+
+  onMount(async () => {
+    mounted = true;
+    await loadNetworkStats();
+    animateStats();
+
+    // Refresh stats every 30 seconds
+    const refreshInterval = setInterval(async () => {
+      await loadNetworkStats();
+    }, 30000);
+
+    return () => clearInterval(refreshInterval);
   });
 
   function formatValue(value, target, suffix) {
@@ -109,7 +138,7 @@
       <div class="text-xs text-muted text-mono">
         <span class="text-success">[✓]</span> ALL_SYSTEMS_OPERATIONAL
         <span class="mx-3">|</span>
-        LAST_UPDATE: <span class="text-cyan">{new Date().toLocaleTimeString()}</span>
+        LAST_UPDATE: <span class="text-cyan">{lastUpdate.toLocaleTimeString()}</span>
       </div>
     </div>
   </div>

@@ -1,13 +1,16 @@
 <script>
   import { onMount } from 'svelte';
+  import { currentRoute, navigateTo } from '../stores/router';
 
-  // Define las secciones de la landing page
+  // Secciones de la landing page + rutas de la app
   const sections = [
-    { id: 'hero', label: 'INIT', icon: '⚡' },
-    { id: 'stats', label: 'STATS', icon: '📊' },
-    { id: 'how-it-works', label: 'FLOW', icon: '🔄' },
-    { id: 'timeline', label: 'CHRONICLE', icon: '📜' },
-    { id: 'footer', label: 'INFO', icon: '📡' }
+    { id: 'hero', label: 'INIT', icon: '>', type: 'scroll' },
+    { id: 'stats', label: 'STATS', icon: '#', type: 'scroll' },
+    { id: 'how-it-works', label: 'FLOW', icon: '~', type: 'scroll' },
+    { id: 'use-cases', label: 'CASES', icon: '*', type: 'scroll' },
+    { id: 'timeline', label: 'CHRONICLE', icon: '|', type: 'scroll' },
+    { id: 'footer', label: 'INFO', icon: 'i', type: 'scroll' },
+    { id: 'dashboard', label: 'APP', icon: '+', type: 'route' }
   ];
 
   let activeSection = 0;
@@ -69,17 +72,20 @@
     };
   });
 
-  function scrollToSection(index) {
+  function handleNavigation(index) {
     const section = sections[index];
-    const element = document.getElementById(section.id);
 
-    if (element) {
-      const offsetTop = element.offsetTop - 80; // Offset para header si existe
-
-      window.scrollTo({
-        top: offsetTop,
-        behavior: 'smooth'
-      });
+    if (section.type === 'route') {
+      navigateTo(section.id);
+    } else {
+      const element = document.getElementById(section.id);
+      if (element) {
+        const offsetTop = element.offsetTop - 80;
+        window.scrollTo({
+          top: offsetTop,
+          behavior: 'smooth'
+        });
+      }
     }
   }
 </script>
@@ -93,7 +99,7 @@
     <button
       class="nav-dot"
       class:active={activeSection === index}
-      on:click={() => scrollToSection(index)}
+      on:click={() => handleNavigation(index)}
       aria-label="Navigate to {section.label}"
       title={section.label}
     >

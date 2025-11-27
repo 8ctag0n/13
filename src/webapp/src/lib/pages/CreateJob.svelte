@@ -8,6 +8,10 @@
   import { Connection, clusterApiUrl } from '@solana/web3.js';
   import { toastStore } from '../stores/toast';
 
+  // API URLs - use relative path for nginx proxy, fallback for local dev
+  const API_BASE = import.meta.env.VITE_API_URL || '';
+  const RPC_URL = import.meta.env.VITE_SOLANA_RPC_URL || 'http://localhost:8899';
+
   let currentStep = 1;
   let isProcessing = false;
   let processingMessage = '';
@@ -55,7 +59,7 @@
   async function estimateCost() {
     isEstimating = true;
     try {
-      const response = await fetch('http://localhost:8080/api/estimate-cost', {
+      const response = await fetch(`${API_BASE}/api/estimate-cost`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -90,7 +94,7 @@
   async function fetchPriceRecommendation() {
     isFetchingPrice = true;
     try {
-      const response = await fetch('http://localhost:8080/api/price-recommendation', {
+      const response = await fetch(`${API_BASE}/api/price-recommendation`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -273,7 +277,7 @@
 
       // Step 3: Call validate-and-build endpoint
       processingMessage = 'Validating job with backend...';
-      const validateResponse = await fetch('http://localhost:8080/api/jobs/validate-and-build', {
+      const validateResponse = await fetch(`${API_BASE}/api/jobs/validate-and-build`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -307,7 +311,7 @@
       const tx = Transaction.from(txBytes);
 
       // Step 5: Get recent blockhash and set fee payer
-      const connection = new Connection('http://localhost:8899', 'confirmed');
+      const connection = new Connection(RPC_URL, 'confirmed');
       const { blockhash } = await connection.getLatestBlockhash('confirmed');
       tx.recentBlockhash = blockhash;
       tx.feePayer = $walletStore.publicKey;
@@ -331,7 +335,7 @@
 
       // Step 9: Confirm with backend
       processingMessage = 'Finalizing job creation...';
-      const confirmResponse = await fetch(`http://localhost:8080/api/jobs/${job_id}/confirm`, {
+      const confirmResponse = await fetch(`${API_BASE}/api/jobs/${job_id}/confirm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -436,7 +440,7 @@
               $ cargo run --bin fhe-encrypt
             </div>
             <button class="btn-copy text-mono text-sm" on:click={() => navigator.clipboard.writeText('cargo run --bin fhe-encrypt')}>
-              [📋 COPY]
+              [COPY]
             </button>
           </div>
 
@@ -536,7 +540,7 @@
 
           <div class="info-box-cyan">
             <div class="text-mono text-sm">
-              💡 WHY_LOCAL_ENCRYPTION?<br/>
+              [i] WHY_LOCAL_ENCRYPTION?<br/>
               This ensures your data is never exposed to our servers.<br/>
               Only YOU can decrypt the final result.
             </div>
@@ -790,14 +794,14 @@
           <!-- Warnings -->
           <div class="warning-box mb-4">
             <div class="text-mono text-sm">
-              <div class="mb-2">⚠️  YOUR_WALLET_WILL_BE_CHARGED_IMMEDIATELY</div>
+              <div class="mb-2">[!] YOUR_WALLET_WILL_BE_CHARGED_IMMEDIATELY</div>
               <div class="text-muted">Provers will be paid automatically upon completion</div>
             </div>
           </div>
 
           <div class="success-box">
             <div class="text-mono text-sm">
-              <div class="mb-2">✅  YOUR_DATA_REMAINS_ENCRYPTED_THROUGHOUT</div>
+              <div class="mb-2">[ok] YOUR_DATA_REMAINS_ENCRYPTED_THROUGHOUT</div>
               <div class="text-muted">No one can see your plaintext values</div>
             </div>
           </div>
@@ -827,7 +831,7 @@
             {:else}
               <!-- Wallet Signature State -->
               <div class="wallet-icon text-center mb-6">
-                <div class="text-6xl">👛</div>
+                <div class="text-4xl text-mono text-cyan">[WALLET]</div>
               </div>
 
               <div class="text-mono text-center mb-4">

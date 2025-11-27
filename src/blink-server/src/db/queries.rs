@@ -91,6 +91,29 @@ impl JobQueries {
         Ok(())
     }
 
+    /// Update job status and tx_signature (for confirmed transactions)
+    pub async fn confirm_job_with_signature(pool: &PgPool, job_id: i64, status: JobStatus, tx_signature: &str) -> Result<()> {
+        let result = sqlx::query(
+            r#"
+            UPDATE temp_job_data
+            SET status = $1, tx_signature = $2, updated_at = NOW()
+            WHERE job_id = $3
+            "#,
+        )
+        .bind(status.as_str())
+        .bind(tx_signature)
+        .bind(job_id)
+        .execute(pool)
+        .await
+        .map_err(|e| anyhow!("Failed to confirm job: {}", e))?;
+
+        if result.rows_affected() == 0 {
+            return Err(anyhow!("Job not found: {}", job_id));
+        }
+
+        Ok(())
+    }
+
     /// Get all jobs by status
     pub async fn get_jobs_by_status(pool: &PgPool, status: JobStatus) -> Result<Vec<TempJobData>> {
         let jobs = sqlx::query_as::<_, TempJobData>(

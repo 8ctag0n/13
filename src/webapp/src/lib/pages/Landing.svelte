@@ -1,13 +1,31 @@
 <script>
+  import { onMount } from 'svelte';
   import Logo from '../components/Logo.svelte';
   import WalletConnect from '../components/WalletConnect.svelte';
   import HeroBootSequence from '../components/HeroBootSequence.svelte';
   import FHEFlow from '../components/FHEFlow.svelte';
   import StatsBar from '../components/StatsBar.svelte';
   import Timeline from '../components/Timeline.svelte';
+  import UseCases from '../components/UseCases.svelte';
   import Footer from '../components/Footer.svelte';
   import GlobalNavigation from '../components/GlobalNavigation.svelte';
   import { navigateTo } from '../stores/router';
+
+  // API config - use relative path for nginx proxy
+  const API_BASE = import.meta.env.VITE_API_URL || '';
+  let activeProvers = 0;
+
+  onMount(async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/stats/network`);
+      if (response.ok) {
+        const data = await response.json();
+        activeProvers = data.active_provers || 0;
+      }
+    } catch (error) {
+      console.error('Failed to load network stats:', error);
+    }
+  });
 
   function skipToDemo() {
     navigateTo('dashboard');
@@ -69,7 +87,7 @@
             </div>
             <div class="status-item">
               <span class="text-muted">&gt; PROVERS.....:</span>
-              <span class="text-cyan">47_ACTIVE</span>
+              <span class="text-cyan">{activeProvers}_ACTIVE</span>
             </div>
           </div>
 
@@ -173,6 +191,11 @@
         </div>
       </div>
     </section>
+
+    <!-- Use Cases -->
+    <div id="use-cases">
+      <UseCases />
+    </div>
 
     <!-- Privacy Timeline -->
     <div id="timeline">

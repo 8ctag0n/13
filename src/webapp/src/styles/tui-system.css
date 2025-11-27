@@ -22,6 +22,12 @@
   --zyber-error: #EF4444;
   --zyber-info: #3B82F6;
 
+  /* Aliases for compatibility */
+  --zyber-cyan: var(--zyber-cyber-cyan);
+  --zyber-violet: var(--zyber-quantum-violet);
+  --zyber-bg-primary: var(--zyber-bg-base);
+  --radius-full: 9999px;
+
   /* Neutrals - Dark Mode */
   --zyber-bg-base: #0F172A;
   --zyber-bg-elevated: #1E293B;

@@ -12,7 +12,7 @@
       title: 'The First Lock',
       subtitle: 'RSA Algorithm',
       description: 'Ron Rivest, Adi Shamir, and Leonard Adleman invented RSA, the first practical public-key cryptosystem. For the first time, two parties could communicate securely without sharing a secret key beforehand. This breakthrough made the internet as we know it possible.',
-      icon: '🔐',
+      icon: '#',
       color: 'cyan',
       link: 'https://people.csail.mit.edu/rivest/Rsapaper.pdf',
       linkLabel: 'Read Original Paper'
@@ -22,7 +22,7 @@
       title: 'Cypherpunks Write Code',
       subtitle: 'PGP & The Privacy Movement',
       description: 'Phil Zimmermann released PGP (Pretty Good Privacy), bringing military-grade encryption to the masses. Eric Hughes declared: "Privacy is necessary for an open society." The cypherpunk movement was born—privacy as a fundamental human right, enforced by mathematics, not laws.',
-      icon: '✍️',
+      icon: '<>',
       color: 'violet',
       link: 'https://www.activism.net/cypherpunk/manifesto.html',
       linkLabel: 'Read Manifesto'
@@ -42,7 +42,7 @@
       title: 'Prove Without Revealing',
       subtitle: 'ZK-SNARKs Revolution',
       description: 'Zero-Knowledge Succinct Non-Interactive Arguments of Knowledge (ZK-SNARKs) went from theory to practice in Zcash. You could now prove the truth of a statement without revealing anything beyond its validity. Privacy and verification, together at last.',
-      icon: '🔬',
+      icon: 'zk',
       color: 'violet',
       link: 'https://zerocash-project.org/media/pdf/zerocash-extended-20140518.pdf',
       linkLabel: 'Read Zerocash Paper'
@@ -52,7 +52,7 @@
       title: 'Compute on Encrypted Data',
       subtitle: 'ZyberLink: FHE Meets DeFi',
       description: 'Fully Homomorphic Encryption (FHE) meets decentralized networks. ZyberLink enables computation on encrypted data without ever decrypting it. Your data remains private end-to-end, even from those processing it. The ultimate realization of the cypherpunk vision: computation without trust.',
-      icon: '⚡',
+      icon: '>>',
       color: 'cyan',
       link: null,
       linkLabel: 'Coming Soon'

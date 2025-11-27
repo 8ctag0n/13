@@ -1,4 +1,4 @@
-.PHONY: help demo-up demo-down demo-restart start stop status logs clean build build-all deploy init-marketplace check-provers start-provers stop-provers tunnel-help
+.PHONY: help demo-up demo-down demo-restart start stop status logs clean build build-all deploy init-marketplace check-provers start-provers stop-provers tunnel-help dev-up dev-down dev-logs dev-rebuild dev-status dev-shell-backend dev-shell-db serve
 
 # Colors
 GREEN  := \033[0;32m
@@ -111,7 +111,8 @@ stop-backend: ## Stop backend server
 
 start-frontend: ## Start frontend dev server
 	@echo "$(BLUE) Starting frontend...$(NC)"
-	@cd src/webapp && npm run dev > ~/zyberlink-logs/frontend.log 2>&1 &
+	@mkdir -p ~/zyberlink-logs
+	@cd src/webapp && VITE_API_URL=http://localhost:8080 npm run dev > ~/zyberlink-logs/frontend.log 2>&1 &
 	@echo "$(GREEN) Frontend started at http://localhost:5173$(NC)"
 
 stop-frontend: ## Stop frontend server
@@ -470,4 +471,45 @@ localnet-stop: stop ## Stop all localnet services
 l1: localnet-start ## Alias: make l1 = start localnet (validator + backend + provers)
 l2: localnet-init  ## Alias: make l2 = init marketplace
 l3: localnet-jobs  ## Alias: make l3 = start job creator
+l4: start-frontend ## Alias: make l4 = start frontend (webapp)
 l0: localnet-stop  ## Alias: make l0 = stop all
+
+# ============================================================================
+# Containerized Development (Single Port)
+# ============================================================================
+
+dev-up: ## Start containerized dev stack (postgres + backend + frontend/nginx on port 3000)
+	@echo "$(BLUE)Starting containerized dev environment...$(NC)"
+	@podman-compose -f docker-compose.dev.yml up -d --build
+	@echo ""
+	@echo "$(GREEN)Dev stack running!$(NC)"
+	@echo "  App:     http://localhost:3000"
+	@echo "  API:     http://localhost:3000/api/"
+	@echo "  Health:  http://localhost:3000/health"
+	@echo ""
+
+dev-down: ## Stop containerized dev stack
+	@echo "$(BLUE)Stopping containerized dev environment...$(NC)"
+	@podman-compose -f docker-compose.dev.yml down
+	@echo "$(GREEN)Dev stack stopped$(NC)"
+
+dev-logs: ## Show containerized dev logs
+	@podman-compose -f docker-compose.dev.yml logs -f
+
+dev-rebuild: ## Rebuild and restart dev containers
+	@echo "$(BLUE)Rebuilding dev containers...$(NC)"
+	@podman-compose -f docker-compose.dev.yml down
+	@podman-compose -f docker-compose.dev.yml up -d --build --force-recreate
+	@echo "$(GREEN)Dev stack rebuilt!$(NC)"
+
+dev-status: ## Show dev container status
+	@podman-compose -f docker-compose.dev.yml ps
+
+dev-shell-backend: ## Open shell in backend container
+	@podman exec -it zyberlink-backend /bin/bash
+
+dev-shell-db: ## Open psql shell in postgres container
+	@podman exec -it zyberlink-postgres psql -U zyberlink -d zyberlink
+
+# Quick alias
+serve: dev-up ## Alias: make serve = start containerized dev
