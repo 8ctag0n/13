@@ -1,0 +1,59 @@
+# Table of contents
+
+## Overview
+
+* [Welcome](README.md)
+* [E2E FHE Flow](e2e-fhe-flow.md)
+* [API Reference](API_REFERENCE.md)
+
+## Dynamic Pricing
+
+* [Overview](DYNAMIC_PRICING_README.md)
+* [Pricing Model](DYNAMIC_PRICING.md)
+* [Technical Details](DYNAMIC_PRICING_TECHNICAL.md)
+* [Usage Guide](DYNAMIC_PRICING_USAGE.md)
+
+## English 🇬🇧
+
+* [Home](en/README.md)
+* [Getting Started](en/getting-started/README.md)
+  * [Quickstart](en/getting-started/quickstart.md)
+  * [Demo](en/getting-started/demo.md)
+* [Architecture](en/architecture/README.md)
+  * [System Overview](en/architecture/overview.md)
+  * [FHE Design](en/architecture/fhe-design.md)
+  * [Tech Stack](en/architecture/tech-stack.md)
+  * [wZEC Architecture](en/architecture/wzec-architecture.md)
+* [Guides](en/guides/README.md)
+  * [SDK Integration](en/guides/sdk-integration.md)
+  * [API Reference](en/guides/api-reference.md)
+  * [Price Slider Integration](en/guides/price-slider-integration.md)
+  * [Examples](en/guides/examples.md)
+  * [Deployment](en/guides/deployment.md)
+  * [wZEC Payment Integration](en/guides/wzec-user-guide.md)
+    * [User Guide](en/guides/wzec-user-guide.md)
+    * [Developer Guide](en/guides/wzec-developer-guide.md)
+    * [API Reference](en/guides/wzec-api-reference.md)
+    * [Testing Guide](en/guides/wzec-testing-guide.md)
+
+## Español 🇪🇸
+
+* [Inicio](es/README.md)
+* [Primeros Pasos](es/primeros-pasos/README.md)
+  * [Inicio Rápido](es/primeros-pasos/inicio-rapido.md)
+  * [Demo](es/primeros-pasos/demo.md)
+* [Arquitectura](es/arquitectura/README.md)
+  * [Visión General](es/arquitectura/vision-general.md)
+  * [Diseño FHE](es/arquitectura/diseno-fhe.md)
+  * [Stack Tecnológico](es/arquitectura/stack-tecnologico.md)
+  * [Arquitectura wZEC](es/arquitectura/wzec-arquitectura.md)
+* [Guías](es/guias/README.md)
+  * [Integración del SDK](es/guias/integracion-sdk.md)
+  * [Referencia de API](es/guias/referencia-api.md)
+  * [Ejemplos](es/guias/ejemplos.md)
+  * [Despliegue](es/guias/despliegue.md)
+  * [Integración de Pagos wZEC](es/guias/wzec-README.md)
+    * [Guía de Usuario](es/guias/wzec-guia-usuario.md)
+    * [Guía de Desarrollador](es/guias/wzec-guia-desarrollador.md)
+    * [Referencia API](es/guias/wzec-referencia-api.md)
+    * [Guía de Testing](es/guias/wzec-guia-testing.md)
