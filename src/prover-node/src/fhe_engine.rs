@@ -42,6 +42,14 @@ impl FheEngine {
         Self { server_key }
     }
 
+    /// Set the server key in the current thread context
+    ///
+    /// TFHE uses thread-local storage for the server key, so this must be called
+    /// in each thread that performs FHE operations (e.g., inside spawn_blocking).
+    pub fn set_key_for_thread(&self) {
+        set_server_key(self.server_key.clone());
+    }
+
     /// Perform FHE addition operation
     ///
     /// Adds a constant to an encrypted value without decryption.

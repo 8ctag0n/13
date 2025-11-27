@@ -581,13 +581,13 @@ impl ProverNode {
             }
         }
 
-        // Step 2: Download and decrypt witness
+        // Step 2: Download witness from backend
         info!(
             "[Job {}] Downloading encrypted witness from backend...",
             job_id
         );
 
-        let encrypted_witness = witness_fetcher
+        let witness_bytes = witness_fetcher
             .download_witness(&witness_hash)
             .await
             .context("Failed to download witness from backend")?;
@@ -595,17 +595,8 @@ impl ProverNode {
         info!(
             "[Job {}] Downloaded encrypted witness ({} bytes)",
             job_id,
-            encrypted_witness.len()
+            witness_bytes.len()
         );
-
-        // Decrypt witness
-        info!("[Job {}] Decrypting witness data...", job_id);
-
-        let witness = witness_encryption
-            .decrypt_witness(&encrypted_witness)
-            .context("Failed to decrypt witness data")?;
-
-        info!("[Job {}] Witness decrypted successfully", job_id);
 
         // Step 3: Generate proof based on circuit type
         info!(
@@ -615,6 +606,13 @@ impl ProverNode {
 
         let proof_bytes = match circuit_type {
             CircuitType::ZcashOrchard => {
+                // Decrypt witness (only for ZK jobs - FHE uses raw data)
+                info!("[Job {}] Decrypting witness data...", job_id);
+                let witness = witness_encryption
+                    .decrypt_witness(&witness_bytes)
+                    .context("Failed to decrypt witness data")?;
+                info!("[Job {}] Witness decrypted successfully", job_id);
+
                 // Validate witness
                 witness.validate().context("Invalid witness data")?;
 
@@ -629,20 +627,51 @@ impl ProverNode {
             }
             CircuitType::FheComputation(ref operation) => {
                 // Handle FHE computation
-                let engine = fhe_engine
-                    .as_ref()
-                    .context("FHE engine not initialized - server key required for FHE jobs")?;
-
                 info!("[Job {}] Executing FHE operation: {:?}", job_id, operation);
 
-                // For FHE jobs, the encrypted witness should be used directly as input
-                // The witness for FHE is the serialized encrypted FheUint8 bytes
-                // For now, we'll use the encrypted witness bytes directly
-                let encrypted_input_bytes = &encrypted_witness;
+                // Parse witness format: [encrypted_data_len (4 bytes)] [encrypted_data] [server_key]
+                if witness_bytes.len() < 4 {
+                    return Err(anyhow::anyhow!("Witness too short to contain length prefix"));
+                }
 
-                // Perform FHE computation
+                let encrypted_data_len = u32::from_le_bytes([
+                    witness_bytes[0],
+                    witness_bytes[1],
+                    witness_bytes[2],
+                    witness_bytes[3],
+                ]) as usize;
+
+                let header_size = 4;
+                let encrypted_data_end = header_size + encrypted_data_len;
+
+                if witness_bytes.len() < encrypted_data_end {
+                    return Err(anyhow::anyhow!(
+                        "Witness too short: expected at least {} bytes, got {}",
+                        encrypted_data_end,
+                        witness_bytes.len()
+                    ));
+                }
+
+                let encrypted_data = &witness_bytes[header_size..encrypted_data_end];
+                let server_key_bytes = &witness_bytes[encrypted_data_end..];
+
+                info!(
+                    "[Job {}] Parsed witness: {} bytes encrypted data, {} bytes server key",
+                    job_id,
+                    encrypted_data.len(),
+                    server_key_bytes.len()
+                );
+
+                // Deserialize server key and create FHE engine
+                info!("[Job {}] Initializing FHE engine from witness...", job_id);
+                let server_key = fhe_engine::deserialize_server_key(server_key_bytes)
+                    .context("Failed to deserialize server key from witness")?;
+                let engine = Arc::new(FheEngine::new(server_key));
+                info!("[Job {}] FHE engine initialized", job_id);
+
+                // Perform FHE computation with extracted encrypted data
                 let result_bytes =
-                    Self::execute_fhe_computation(engine.clone(), encrypted_input_bytes, operation)
+                    Self::execute_fhe_computation(engine.clone(), encrypted_data, operation)
                         .await?;
 
                 // Hash result for consensus
@@ -857,6 +886,10 @@ impl ProverNode {
 
         // Run in blocking thread since FHE computation is CPU-intensive
         tokio::task::spawn_blocking(move || {
+            // IMPORTANT: Set server key in this thread's context
+            // TFHE uses thread-local storage, so we must call this in each thread
+            engine.set_key_for_thread();
+
             match operation {
                 FheOperation::Add(constant) => engine.compute_add(&input_bytes, constant),
                 FheOperation::Multiply(constant) => engine.compute_multiply(&input_bytes, constant),
