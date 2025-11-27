@@ -1,19 +1,6 @@
 # Table of contents
 
-## Overview
-
-* [Welcome](README.md)
-* [E2E FHE Flow](e2e-fhe-flow.md)
-* [API Reference](API_REFERENCE.md)
-
-## Dynamic Pricing
-
-* [Overview](DYNAMIC_PRICING_README.md)
-* [Pricing Model](DYNAMIC_PRICING.md)
-* [Technical Details](DYNAMIC_PRICING_TECHNICAL.md)
-* [Usage Guide](DYNAMIC_PRICING_USAGE.md)
-
-## English 🇬🇧
+## English
 
 * [Home](en/README.md)
 * [Getting Started](en/getting-started/README.md)
@@ -22,21 +9,30 @@
 * [Architecture](en/architecture/README.md)
   * [System Overview](en/architecture/overview.md)
   * [FHE Design](en/architecture/fhe-design.md)
+  * [E2E FHE Flow](en/architecture/e2e-fhe-flow.md)
+  * [Histogram FHE Optimization](en/architecture/histogram-fhe-optimization.md)
   * [Tech Stack](en/architecture/tech-stack.md)
   * [wZEC Architecture](en/architecture/wzec-architecture.md)
 * [Guides](en/guides/README.md)
   * [SDK Integration](en/guides/sdk-integration.md)
   * [API Reference](en/guides/api-reference.md)
+  * [Full API Reference](en/guides/api-reference-full.md)
+  * [Jobs API Endpoint](en/guides/api-jobs-endpoint.md)
   * [Price Slider Integration](en/guides/price-slider-integration.md)
   * [Examples](en/guides/examples.md)
   * [Deployment](en/guides/deployment.md)
+  * [Dynamic Pricing](en/guides/dynamic-pricing-overview.md)
+    * [Pricing Model](en/guides/dynamic-pricing-model.md)
+    * [Technical Details](en/guides/dynamic-pricing-technical.md)
+    * [Usage Guide](en/guides/dynamic-pricing-usage.md)
   * [wZEC Payment Integration](en/guides/wzec-user-guide.md)
     * [User Guide](en/guides/wzec-user-guide.md)
     * [Developer Guide](en/guides/wzec-developer-guide.md)
     * [API Reference](en/guides/wzec-api-reference.md)
+    * [wZEC API](en/guides/wzec-api.md)
     * [Testing Guide](en/guides/wzec-testing-guide.md)
 
-## Español 🇪🇸
+## Español
 
 * [Inicio](es/README.md)
 * [Primeros Pasos](es/primeros-pasos/README.md)
