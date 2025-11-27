@@ -11029,6 +11029,7 @@ dependencies = [
  "bs58",
  "chrono",
  "env_logger 0.11.8",
+ "hex",
  "log",
  "reqwest 0.11.27",
  "serde",

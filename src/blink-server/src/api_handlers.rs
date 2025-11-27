@@ -4,9 +4,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use solana_sdk::{message::Message, transaction::Transaction};
 
-use crate::db::{InsertJobData, JobQueries, JobStatus};
+use crate::db::{InsertJobData, JobQueries, JobStatus, WitnessQueries};
 use crate::validators::{JobValidator, ValidateJobRequest};
 use crate::AppState;
+use blake2::{Blake2s256, Digest};
 
 // ============================================================================
 // Response Types
@@ -64,6 +65,16 @@ pub struct EstimateCostResponse {
 #[derive(Debug, Deserialize)]
 pub struct ListJobsQuery {
     pub status: Option<String>, // Optional status filter: "pending_tx", "active", "completed", "failed"
+}
+
+#[derive(Debug, Serialize)]
+pub struct WitnessUploadResponse {
+    pub commitment: String, // hex-encoded Blake2s256 hash
+}
+
+#[derive(Debug, Serialize)]
+pub struct WitnessDataResponse {
+    pub data: String, // base64-encoded witness data
 }
 
 #[derive(Debug, Serialize)]
@@ -659,6 +670,83 @@ fn build_create_job_transaction(
 }
 
 // ============================================================================
+// Witness Storage Endpoints
+// ============================================================================
+
+/// POST /witness
+///
+/// Upload encrypted witness data.
+/// Returns the Blake2b commitment hash of the uploaded data.
+#[post("/witness")]
+async fn upload_witness(
+    data: web::Data<AppState>,
+    body: web::Bytes,
+) -> impl Responder {
+    log::info!("Received witness upload, size: {} bytes", body.len());
+
+    if body.is_empty() {
+        return HttpResponse::BadRequest().json(json!({
+            "error": "Empty witness data"
+        }));
+    }
+
+    // Compute Blake2s-256 hash as commitment (must match SDK's Blake2s256)
+    let mut hasher = Blake2s256::new();
+    hasher.update(&body);
+    let hash = hasher.finalize();
+    let commitment = hex::encode(hash);
+
+    log::info!("Witness commitment: {}", commitment);
+
+    // Store in database
+    match WitnessQueries::store_witness(&data.db_pool, &commitment, &body).await {
+        Ok(_) => {
+            log::info!("Witness stored successfully");
+            HttpResponse::Ok().json(WitnessUploadResponse { commitment })
+        }
+        Err(e) => {
+            log::error!("Failed to store witness: {}", e);
+            HttpResponse::InternalServerError().json(json!({
+                "error": format!("Failed to store witness: {}", e)
+            }))
+        }
+    }
+}
+
+/// GET /witness/{commitment}
+///
+/// Download encrypted witness data by commitment hash.
+#[get("/witness/{commitment}")]
+async fn get_witness(
+    data: web::Data<AppState>,
+    commitment: web::Path<String>,
+) -> impl Responder {
+    log::info!("Fetching witness for commitment: {}", *commitment);
+
+    match WitnessQueries::get_witness(&data.db_pool, &commitment).await {
+        Ok(Some(witness_data)) => {
+            log::info!("Witness found, returning {} bytes", witness_data.len());
+            // Return raw bytes with appropriate content type
+            HttpResponse::Ok()
+                .content_type("application/octet-stream")
+                .body(witness_data)
+        }
+        Ok(None) => {
+            log::warn!("Witness not found: {}", *commitment);
+            HttpResponse::NotFound().json(json!({
+                "error": "Witness not found"
+            }))
+        }
+        Err(e) => {
+            log::error!("Failed to fetch witness: {}", e);
+            HttpResponse::InternalServerError().json(json!({
+                "error": format!("Database error: {}", e)
+            }))
+        }
+    }
+}
+
+// ============================================================================
 // Route Configuration
 // ============================================================================
 
@@ -669,5 +757,7 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         .service(get_compute_data)
         .service(confirm_job_transaction)
         .service(get_job_status)
-        .service(delete_job_data);
+        .service(delete_job_data)
+        .service(upload_witness)
+        .service(get_witness);
 }

@@ -127,7 +127,7 @@ mod tests {
     #[tokio::test]
     #[ignore] // Requires witness-storage backend running
     async fn test_upload_download_roundtrip() {
-        let fetcher = WitnessFetcher::new("http://localhost:3030".to_string());
+        let fetcher = WitnessFetcher::new("http://localhost:8080".to_string());
 
         // Upload
         let witness_data = b"test encrypted witness data";
@@ -148,7 +148,7 @@ mod tests {
     #[tokio::test]
     #[ignore] // Requires witness-storage backend running
     async fn test_download_nonexistent() {
-        let fetcher = WitnessFetcher::new("http://localhost:3030".to_string());
+        let fetcher = WitnessFetcher::new("http://localhost:8080".to_string());
 
         let fake_commitment = [0u8; 32];
         let result = fetcher.download_witness(&fake_commitment).await;
@@ -163,7 +163,7 @@ mod tests {
     #[tokio::test]
     #[ignore] // Requires witness-storage backend running
     async fn test_health_check() {
-        let fetcher = WitnessFetcher::new("http://localhost:3030".to_string());
+        let fetcher = WitnessFetcher::new("http://localhost:8080".to_string());
 
         let health = fetcher.health_check().await.expect("Health check failed");
 

@@ -44,6 +44,7 @@ tfhe = { version = "0.10", default-features = false, features = ["integer", "x86
 # Hashing
 sha3 = "0.10"
 blake2 = "0.10"
+hex = "0.4"
 
 # Database
 sqlx = { version = "0.7", features = ["runtime-tokio-native-tls", "postgres", "chrono", "migrate"] }

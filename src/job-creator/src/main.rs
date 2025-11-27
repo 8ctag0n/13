@@ -9,6 +9,13 @@ use solana_sdk::{
 };
 use std::time::Duration;
 use tfhe::{prelude::*, ConfigBuilder, FheUint8, generate_keys};
+use blake2::{Blake2s256, Digest};
+use serde::Deserialize;
+
+#[derive(Debug, Deserialize)]
+struct WitnessUploadResponse {
+    commitment: String,
+}
 
 /// Job Creator - Continuously creates FHE jobs to test the full system
 ///
@@ -28,6 +35,8 @@ async fn main() -> Result<()> {
         .context("PROGRAM_ID env var required")?
         .parse()
         .context("Invalid PROGRAM_ID")?;
+    let backend_url = std::env::var("BACKEND_URL")
+        .unwrap_or_else(|_| "http://localhost:8080".to_string());
 
     // Load or create user keypair
     let keypair_path = std::env::var("USER_KEYPAIR")
@@ -48,7 +57,11 @@ async fn main() -> Result<()> {
     log::info!("Job Creator starting...");
     log::info!("RPC URL: {}", rpc_url);
     log::info!("Program ID: {}", program_id);
+    log::info!("Backend URL: {}", backend_url);
     log::info!("User: {}", user_keypair.pubkey());
+
+    // Create HTTP client for backend
+    let http_client = reqwest::Client::new();
 
     // Connect to RPC
     let rpc_client = RpcClient::new_with_commitment(
@@ -146,6 +159,59 @@ async fn main() -> Result<()> {
         encrypted_input.extend_from_slice(&(encrypted_data.len() as u32).to_le_bytes());
         encrypted_input.extend_from_slice(&encrypted_data);
         encrypted_input.extend_from_slice(&server_key);
+
+        // Upload witness to backend
+        log::info!("Uploading witness to backend ({} bytes)...", encrypted_input.len());
+
+        // Compute local commitment for verification (must match SDK's Blake2s256)
+        let mut hasher = Blake2s256::new();
+        hasher.update(&encrypted_input);
+        let local_commitment = hex::encode(hasher.finalize());
+
+        let upload_url = format!("{}/witness", backend_url);
+        let upload_result = http_client
+            .post(&upload_url)
+            .body(encrypted_input.clone())
+            .header("Content-Type", "application/octet-stream")
+            .send()
+            .await;
+
+        let backend_commitment = match upload_result {
+            Ok(response) => {
+                if response.status().is_success() {
+                    match response.json::<WitnessUploadResponse>().await {
+                        Ok(resp) => {
+                            log::info!("Witness uploaded, commitment: {}", resp.commitment);
+                            resp.commitment
+                        }
+                        Err(e) => {
+                            log::error!("Failed to parse upload response: {}", e);
+                            tokio::time::sleep(Duration::from_secs(10)).await;
+                            continue;
+                        }
+                    }
+                } else {
+                    log::error!("Backend returned error: {}", response.status());
+                    tokio::time::sleep(Duration::from_secs(10)).await;
+                    continue;
+                }
+            }
+            Err(e) => {
+                log::error!("Failed to upload witness: {}", e);
+                tokio::time::sleep(Duration::from_secs(10)).await;
+                continue;
+            }
+        };
+
+        // Verify commitment matches
+        if backend_commitment != local_commitment {
+            log::error!("Commitment mismatch! Local: {}, Backend: {}",
+                local_commitment, backend_commitment);
+            tokio::time::sleep(Duration::from_secs(10)).await;
+            continue;
+        }
+
+        log::info!("Commitment verified: {}", local_commitment);
 
         let fhe_config = FheConsensusConfig {
             required_provers,

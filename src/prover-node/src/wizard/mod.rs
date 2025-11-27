@@ -71,7 +71,7 @@ impl SetupWizard {
             prover_pda,
             encryption_pubkey,
             self.stake_amount,
-            "http://localhost:3030".to_string(), // Default witness backend
+            "http://localhost:8080".to_string(), // Default witness backend
         );
 
         // Save configuration

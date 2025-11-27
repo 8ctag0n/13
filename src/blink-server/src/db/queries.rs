@@ -203,6 +203,45 @@ impl NonceQueries {
     }
 }
 
+/// Database operations for witness storage
+pub struct WitnessQueries;
+
+impl WitnessQueries {
+    /// Store witness data and return its commitment hash
+    pub async fn store_witness(pool: &PgPool, commitment: &str, data: &[u8]) -> Result<()> {
+        sqlx::query(
+            r#"
+            INSERT INTO witnesses (commitment, data)
+            VALUES ($1, $2)
+            ON CONFLICT (commitment) DO NOTHING
+            "#,
+        )
+        .bind(commitment)
+        .bind(data)
+        .execute(pool)
+        .await
+        .map_err(|e| anyhow!("Failed to store witness: {}", e))?;
+
+        Ok(())
+    }
+
+    /// Get witness data by commitment hash
+    pub async fn get_witness(pool: &PgPool, commitment: &str) -> Result<Option<Vec<u8>>> {
+        let result: Option<(Vec<u8>,)> = sqlx::query_as(
+            r#"
+            SELECT data FROM witnesses
+            WHERE commitment = $1
+            "#,
+        )
+        .bind(commitment)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| anyhow!("Failed to fetch witness: {}", e))?;
+
+        Ok(result.map(|(data,)| data))
+    }
+}
+
 #[cfg(test)]
 mod tests {
 

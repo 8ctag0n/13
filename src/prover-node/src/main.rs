@@ -148,7 +148,7 @@ struct Args {
     max_concurrent_jobs: usize,
 
     /// Witness storage backend URL
-    #[arg(long, default_value = "http://localhost:3030")]
+    #[arg(long, default_value = "http://localhost:8080")]
     witness_backend_url: String,
 
     /// FHE server key file path (required for FHE jobs)
@@ -503,11 +503,22 @@ impl ProverNode {
     ) -> Result<()> {
         info!("[Job {}] Starting processing", job_id);
 
-        // Step 1: Claim the job
+        // Step 1: Claim the job (different instruction for FHE vs ZK)
         info!("[Job {}] Claiming job...", job_id);
-        let claim_ix = client
-            .claim_job_instruction(&keypair.pubkey(), &job_pda)
-            .context("Failed to build claim instruction")?;
+        let claim_ix = match &circuit_type {
+            CircuitType::FheComputation(_) => {
+                // FHE multi-prover jobs use claim_fhe_job_instruction
+                client
+                    .claim_fhe_job_instruction(&keypair.pubkey(), &job_pda, job_id)
+                    .context("Failed to build FHE claim instruction")?
+            }
+            _ => {
+                // ZK single-prover jobs use claim_job_instruction
+                client
+                    .claim_job_instruction(&keypair.pubkey(), &job_pda)
+                    .context("Failed to build claim instruction")?
+            }
+        };
 
         match client.send_and_confirm_transaction(&[claim_ix], &[&*keypair]) {
             Ok(sig) => {
@@ -728,7 +739,7 @@ impl ProverNode {
                 );
 
                 let witness_backend_url = std::env::var("WITNESS_BACKEND_URL")
-                    .unwrap_or_else(|_| "http://localhost:3030".to_string());
+                    .unwrap_or_else(|_| "http://localhost:8080".to_string());
 
                 let upload_url = format!("{}/fhe-result", witness_backend_url);
 
