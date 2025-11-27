@@ -112,8 +112,8 @@ async fn main() -> Result<()> {
                 FheOperation::Multiply(7)
             }
             2 => {
-                log::info!("Creating Tier 2 job: Sum (100 items)");
-                FheOperation::Sum { expected_count: 100 }
+                log::info!("Creating Tier 2 job: Sum (5 items)");
+                FheOperation::Sum { expected_count: 5 }
             }
             3 => {
                 log::info!("Creating Tier 3 job: Threshold(50)");
@@ -123,8 +123,8 @@ async fn main() -> Result<()> {
                 }
             }
             4 => {
-                log::info!("Creating Tier 4 job: Average (100 items)");
-                FheOperation::Average { expected_count: 100 }
+                log::info!("Creating Tier 4 job: Average (5 items)");
+                FheOperation::Average { expected_count: 5 }
             }
             _ => unreachable!(),
         };
@@ -270,19 +270,39 @@ async fn main() -> Result<()> {
 }
 
 /// Create FHE encrypted data for testing
-fn create_fhe_data(_operation: &FheOperation) -> Result<(Vec<u8>, Vec<u8>)> {
+fn create_fhe_data(operation: &FheOperation) -> Result<(Vec<u8>, Vec<u8>)> {
     // Generate FHE keys (in production, these would be cached/reused)
     let config = ConfigBuilder::default().build();
     let (client_key, server_key) = generate_keys(config);
 
-    // Create sample encrypted input
-    // For testing, we'll encrypt a simple value
-    let value = 10u8;
-    let encrypted = FheUint8::encrypt(value, &client_key);
+    // Create encrypted data based on operation type
+    let encrypted_bytes = match operation {
+        // For Sum/Average, create multiple encrypted values as Vec<Vec<u8>>
+        FheOperation::Sum { expected_count } | FheOperation::Average { expected_count } => {
+            let count = *expected_count as usize;
+            let mut encrypted_values: Vec<Vec<u8>> = Vec::with_capacity(count);
 
-    // Serialize encrypted data
-    let encrypted_bytes = bincode::serialize(&encrypted)
-        .context("Failed to serialize encrypted data")?;
+            for i in 0..count {
+                // Create varied test values (1-10 range for reasonable sums)
+                let value = ((i % 10) + 1) as u8;
+                let encrypted = FheUint8::encrypt(value, &client_key);
+                let enc_bytes = bincode::serialize(&encrypted)
+                    .context("Failed to serialize encrypted value")?;
+                encrypted_values.push(enc_bytes);
+            }
+
+            // Serialize the vector of encrypted values
+            bincode::serialize(&encrypted_values)
+                .context("Failed to serialize encrypted values vector")?
+        }
+        // For single-value operations (Add, Multiply, Threshold)
+        _ => {
+            let value = 10u8;
+            let encrypted = FheUint8::encrypt(value, &client_key);
+            bincode::serialize(&encrypted)
+                .context("Failed to serialize encrypted data")?
+        }
+    };
 
     // Serialize server key
     let server_key_bytes = bincode::serialize(&server_key)
