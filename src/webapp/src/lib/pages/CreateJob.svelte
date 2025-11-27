@@ -2,6 +2,7 @@
   import { navigateTo } from '../stores/router';
   import { walletStore } from '../stores/wallet';
   import PaymentMethodSelector from '../components/PaymentMethodSelector.svelte';
+  import PriceSlider from '../components/PriceSlider.svelte';
   import Loading from '../components/Loading.svelte';
   import { ensureTokenAccount, WZEC_MINT } from '../utils/tokenAccountManager';
   import { Connection, clusterApiUrl } from '@solana/web3.js';
@@ -30,6 +31,10 @@
   // Dynamic pricing estimation
   let estimatedCost = null;
   let isEstimating = false;
+
+  // Price recommendation for slider
+  let priceRecommendation = null;
+  let isFetchingPrice = false;
 
   // Form validation errors
   let operationValueError = '';
@@ -79,6 +84,59 @@
     } finally {
       isEstimating = false;
     }
+  }
+
+  // Fetch price recommendation for slider
+  async function fetchPriceRecommendation() {
+    isFetchingPrice = true;
+    try {
+      const response = await fetch('http://localhost:8080/api/price-recommendation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          operation: jobData.operation.toLowerCase(),
+          operation_value: jobData.operationValue,
+          expected_count: 10,
+          bins: 5,
+          required_provers: jobData.requiredProvers
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to get price recommendation: ${response.statusText}`);
+      }
+
+      priceRecommendation = await response.json();
+
+      // Set initial price to recommended
+      if (!jobData.priceLamports || jobData.priceLamports < priceRecommendation.recommended_price_lamports) {
+        jobData.priceLamports = priceRecommendation.recommended_price_lamports;
+      }
+
+      console.log('Price recommendation:', priceRecommendation);
+    } catch (error) {
+      console.error('Failed to get price recommendation:', error);
+      // Fall back to defaults
+      priceRecommendation = {
+        min_price_lamports: 3000000,
+        recommended_price_lamports: 5400000,
+        max_suggested_lamports: 10800000,
+        slider_step: 100000
+      };
+    } finally {
+      isFetchingPrice = false;
+    }
+  }
+
+  // Fetch price recommendation when operation/provers change
+  $: {
+    if (jobData.operation && jobData.requiredProvers) {
+      fetchPriceRecommendation();
+    }
+  }
+
+  function handlePriceChange(event) {
+    jobData.priceLamports = event.detail.price;
   }
 
   function handleDragOver(e) {
@@ -590,11 +648,28 @@
               </label>
             </div>
             <div class="text-xs text-muted mt-3">
-              💡 Higher consensus = more reliable results
+              Higher consensus = more reliable results
             </div>
           </div>
 
           <div class="divider-section"></div>
+
+          <!-- Price Selection Slider -->
+          {#if priceRecommendation}
+            <div class="config-section mb-6">
+              <PriceSlider
+                minPrice={priceRecommendation.min_price_lamports}
+                recommendedPrice={priceRecommendation.recommended_price_lamports}
+                maxPrice={priceRecommendation.max_suggested_lamports}
+                currentPrice={jobData.priceLamports}
+                step={priceRecommendation.slider_step}
+                isLoading={isFetchingPrice}
+                on:change={handlePriceChange}
+              />
+            </div>
+
+            <div class="divider-section"></div>
+          {/if}
 
           <!-- Cost Breakdown - Enhanced Visibility -->
           <div class="cost-breakdown tui-box-cyan" data-testid="cost-breakdown">

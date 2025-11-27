@@ -63,6 +63,49 @@ pub struct EstimateCostResponse {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct PriceRecommendationRequest {
+    pub operation: String,           // "add", "multiply", "sum", etc.
+    pub operation_value: Option<u8>, // Constant for Add/Multiply/Threshold
+    pub expected_count: Option<u16>, // For Sum, Average, CountIf
+    pub bins: Option<u8>,            // For Histogram
+    pub required_provers: u8,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PriceRecommendationResponse {
+    pub operation: String,
+    pub complexity_tier: u8,
+    pub required_provers: u8,
+
+    // Minimum (theoretical floor)
+    pub min_price_lamports: u64,
+    pub min_price_sol: f64,
+
+    // Recommended (for ~95% prover acceptance)
+    pub recommended_price_lamports: u64,
+    pub recommended_price_sol: f64,
+
+    // Maximum suggested (premium for faster processing)
+    pub max_suggested_lamports: u64,
+    pub max_suggested_sol: f64,
+
+    // Acceptance estimates
+    pub acceptance_at_min: String,      // "low" (~20%)
+    pub acceptance_at_recommended: String, // "high" (~95%)
+
+    // For slider UI
+    pub slider_min: u64,
+    pub slider_max: u64,
+    pub slider_recommended: u64,
+    pub slider_step: u64,
+
+    // Extra info
+    pub estimated_time_seconds: i64,
+    pub prover_overhead_multiplier: f64,
+    pub prover_min_roi_percent: f64,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct ListJobsQuery {
     pub status: Option<String>, // Optional status filter: "pending_tx", "active", "completed", "failed"
 }
@@ -544,6 +587,125 @@ async fn estimate_operation_cost(req: web::Json<EstimateCostRequest>) -> impl Re
     })
 }
 
+/// POST /api/price-recommendation
+///
+/// Get price recommendation for FHE operations with slider parameters.
+/// Returns min/recommended/max prices based on prover economics.
+#[post("/api/price-recommendation")]
+async fn get_price_recommendation(req: web::Json<PriceRecommendationRequest>) -> impl Responder {
+    use zyberlink_types::fhe::{FheOperation, HistogramBin};
+
+    log::info!("Price recommendation for operation: {}", req.operation);
+
+    // Parse operation (same as estimate-cost)
+    let operation = match req.operation.to_lowercase().as_str() {
+        "add" => FheOperation::Add(req.operation_value.unwrap_or(1)),
+        "multiply" => FheOperation::Multiply(req.operation_value.unwrap_or(1)),
+        "sum" => FheOperation::Sum {
+            expected_count: req.expected_count.unwrap_or(10),
+        },
+        "threshold" => FheOperation::Threshold {
+            threshold: req.operation_value.unwrap_or(50),
+            greater_or_equal: true,
+        },
+        "rangecheck" => FheOperation::RangeCheck {
+            min: 0,
+            max: req.operation_value.unwrap_or(100),
+        },
+        "average" => FheOperation::Average {
+            expected_count: req.expected_count.unwrap_or(10),
+        },
+        "countif" => FheOperation::CountIf {
+            expected_count: req.expected_count.unwrap_or(10),
+            predicate: zyberlink_types::fhe::FhePredicate::GreaterThan(
+                req.operation_value.unwrap_or(50)
+            ),
+        },
+        "histogram" => {
+            let num_bins = req.bins.unwrap_or(5) as usize;
+            let bins: Vec<HistogramBin> = (0..num_bins)
+                .map(|i| HistogramBin::new(i as u8 * 10, (i as u8 + 1) * 10 - 1, format!("Bin {}", i + 1)))
+                .collect();
+            FheOperation::Histogram { bins }
+        }
+        _ => {
+            return HttpResponse::BadRequest().json(json!({
+                "error": format!("Unknown operation: {}", req.operation)
+            }));
+        }
+    };
+
+    // Prover economics constants
+    const PROVER_OVERHEAD_MULTIPLIER: f64 = 1.5;  // 50% operational overhead
+    const PROVER_MIN_ROI_PERCENT: f64 = 20.0;     // Minimum 20% ROI required
+    const LAMPORTS_PER_SOL: f64 = 1_000_000_000.0;
+
+    // Get base cost from operation
+    let cost_config = operation.get_cost_config();
+    let base_cost_per_prover = cost_config.min_payment_lamports;
+    let provers = req.required_provers as u64;
+
+    // Calculate prices per prover
+    // Min: theoretical floor (base cost)
+    let min_per_prover = base_cost_per_prover;
+
+    // Recommended: covers overhead + minimum ROI
+    // Formula: base_cost × overhead × (1 + ROI/100)
+    let recommended_per_prover = (base_cost_per_prover as f64
+        * PROVER_OVERHEAD_MULTIPLIER
+        * (1.0 + PROVER_MIN_ROI_PERCENT / 100.0)) as u64;
+
+    // Max suggested: premium pricing for priority (2x recommended)
+    let max_per_prover = recommended_per_prover * 2;
+
+    // Total prices (per prover × number of provers)
+    let min_total = min_per_prover * provers;
+    let recommended_total = recommended_per_prover * provers;
+    let max_total = max_per_prover * provers;
+
+    // Slider parameters
+    let slider_step = if min_total < 10_000_000 {
+        100_000  // 0.0001 SOL steps for small amounts
+    } else {
+        1_000_000  // 0.001 SOL steps for larger amounts
+    };
+
+    log::info!(
+        "Price recommendation for {}: min={}, recommended={}, max={} lamports",
+        operation.name(),
+        min_total,
+        recommended_total,
+        max_total
+    );
+
+    HttpResponse::Ok().json(PriceRecommendationResponse {
+        operation: operation.name().to_string(),
+        complexity_tier: cost_config.complexity_tier,
+        required_provers: req.required_provers,
+
+        min_price_lamports: min_total,
+        min_price_sol: min_total as f64 / LAMPORTS_PER_SOL,
+
+        recommended_price_lamports: recommended_total,
+        recommended_price_sol: recommended_total as f64 / LAMPORTS_PER_SOL,
+
+        max_suggested_lamports: max_total,
+        max_suggested_sol: max_total as f64 / LAMPORTS_PER_SOL,
+
+        acceptance_at_min: "low".to_string(),
+        acceptance_at_recommended: "high".to_string(),
+
+        slider_min: min_total,
+        slider_max: max_total,
+        slider_recommended: recommended_total,
+        slider_step,
+
+        estimated_time_seconds: cost_config.timeout_seconds,
+        prover_overhead_multiplier: PROVER_OVERHEAD_MULTIPLIER,
+        prover_min_roi_percent: PROVER_MIN_ROI_PERCENT,
+    })
+}
+
 // ============================================================================
 // Helper Functions
 // ============================================================================
@@ -830,6 +992,7 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(list_jobs)
         .service(validate_and_build_job)
         .service(estimate_operation_cost)
+        .service(get_price_recommendation)
         .service(get_compute_data)
         .service(confirm_job_transaction)
         .service(get_job_status)
