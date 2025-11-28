@@ -151,6 +151,22 @@ impl JobQueries {
         Ok(result.rows_affected())
     }
 
+    /// Delete temp jobs that have been synced to blockchain_jobs
+    /// This prevents duplicates in the UNION query
+    pub async fn delete_synced_jobs(pool: &PgPool) -> Result<u64> {
+        let result = sqlx::query(
+            r#"
+            DELETE FROM temp_job_data
+            WHERE job_id IN (SELECT job_id FROM blockchain_jobs)
+            "#,
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| anyhow!("Failed to delete synced jobs: {}", e))?;
+
+        Ok(result.rows_affected())
+    }
+
     /// Delete job by job_id
     pub async fn delete_job(pool: &PgPool, job_id: i64) -> Result<()> {
         let result = sqlx::query(

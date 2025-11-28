@@ -38,8 +38,16 @@ impl CleanupService {
                 log::error!("Failed to cleanup expired jobs: {}", e);
             }
 
+            if let Err(e) = self.cleanup_synced_jobs().await {
+                log::error!("Failed to cleanup synced jobs: {}", e);
+            }
+
             if let Err(e) = self.cleanup_old_nonces().await {
                 log::error!("Failed to cleanup old nonces: {}", e);
+            }
+
+            if let Err(e) = self.cleanup_old_witnesses().await {
+                log::error!("Failed to cleanup old witnesses: {}", e);
             }
         }
     }
@@ -57,6 +65,19 @@ impl CleanupService {
         Ok(())
     }
 
+    /// Delete jobs from temp_job_data that are already synced to blockchain_jobs
+    async fn cleanup_synced_jobs(&self) -> Result<(), sqlx::Error> {
+        let count = JobQueries::delete_synced_jobs(&self.pool)
+            .await
+            .map_err(|e| sqlx::Error::Protocol(format!("Cleanup failed: {}", e)))?;
+
+        if count > 0 {
+            log::info!("Cleaned up {} synced jobs from temp_job_data", count);
+        }
+
+        Ok(())
+    }
+
     /// Delete old nonces (older than 1 day)
     async fn cleanup_old_nonces(&self) -> Result<(), sqlx::Error> {
         const ONE_DAY_SECS: i64 = 86400;
@@ -67,6 +88,27 @@ impl CleanupService {
 
         if count > 0 {
             log::info!("Cleaned up {} old nonces", count);
+        }
+
+        Ok(())
+    }
+
+    /// Delete old witnesses (older than 24 hours) to save disk space
+    /// FHE witnesses are ~123 MB each, so this prevents disk from filling up
+    /// Note: Users retain their keys locally and can re-submit if needed
+    async fn cleanup_old_witnesses(&self) -> Result<(), sqlx::Error> {
+        let result = sqlx::query!(
+            r#"
+            DELETE FROM witnesses
+            WHERE created_at < NOW() - INTERVAL '24 hours'
+            "#
+        )
+        .execute(&self.pool)
+        .await?;
+
+        let count = result.rows_affected();
+        if count > 0 {
+            log::info!("Cleaned up {} old witnesses (~{}MB freed)", count, count * 123);
         }
 
         Ok(())
