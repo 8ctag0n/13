@@ -178,6 +178,49 @@ impl FheEngine {
         output
     }
 
+    /// Generate deterministic commitment for FHE consensus
+    ///
+    /// # DESIGN NOTE - FHE Non-Determinism Issue
+    ///
+    /// TFHE-rs operations are NOT deterministic across processes due to internal
+    /// CSPRNG state used in bootstrapping operations. Different prover processes
+    /// produce different ciphertext bytes even with identical inputs, though all
+    /// results decrypt to the same plaintext value.
+    ///
+    /// This is a known limitation that requires one of these production solutions:
+    /// 1. Verifiable FHE with ZK proofs (e.g., Zama Concrete, Fhenix)
+    /// 2. Threshold FHE where provers share key fragments
+    /// 3. Client-side verification by decrypting multiple results
+    ///
+    /// For this PoC, we use a deterministic commitment based on inputs:
+    /// - All provers working on the same job produce identical commitment
+    /// - This proves they processed the same data, not that computation is correct
+    /// - Production systems MUST implement proper verification
+    ///
+    /// # Arguments
+    /// * `witness_hash` - Hash of witness data (from blockchain job)
+    /// * `operation` - FHE operation name
+    /// * `job_id` - Job identifier
+    ///
+    /// # Returns
+    /// SHA3-256 deterministic commitment (32 bytes)
+    pub fn deterministic_commitment(
+        witness_hash: &[u8; 32],
+        operation: &str,
+        job_id: u64,
+    ) -> [u8; 32] {
+        let mut hasher = Sha3_256::new();
+        hasher.update(b"ZYBERLINK_FHE_COMMITMENT_V1:");
+        hasher.update(witness_hash);
+        hasher.update(operation.as_bytes());
+        hasher.update(&job_id.to_le_bytes());
+        let hash = hasher.finalize();
+
+        let mut output = [0u8; 32];
+        output.copy_from_slice(&hash);
+        output
+    }
+
     /// Get reference to server key
     pub fn server_key(&self) -> &ServerKey {
         &self.server_key

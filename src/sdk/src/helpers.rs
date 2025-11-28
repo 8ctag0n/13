@@ -245,6 +245,80 @@ pub fn find_pending_jobs(
     find_jobs_by_status(rpc_client, program_id, JobStatus::Pending)
 }
 
+/// Find FHE jobs that need more provers to claim
+/// Returns jobs where:
+/// - status == Pending (not yet claimed by anyone), OR
+/// - status == Claimed AND claimed_count < required_provers (needs more provers for consensus)
+///
+/// This is essential for FHE consensus: multiple provers must claim the same job.
+pub fn find_fhe_jobs_needing_provers(
+    rpc_client: &RpcClient,
+    program_id: &Pubkey,
+    my_pubkey: &Pubkey,
+) -> Result<Vec<(Pubkey, JobAccount, FheConsensusData)>> {
+    // Fetch all program accounts
+    let config = RpcProgramAccountsConfig {
+        filters: None,
+        account_config: RpcAccountInfoConfig {
+            encoding: Some(UiAccountEncoding::Base64),
+            commitment: Some(CommitmentConfig::confirmed()),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let accounts = rpc_client.get_program_accounts_with_config(program_id, config)?;
+
+    // First, collect all FheConsensusData accounts by job_id
+    let mut fhe_data_by_job: std::collections::HashMap<u64, FheConsensusData> = std::collections::HashMap::new();
+    for (_pubkey, account) in &accounts {
+        // FheConsensusData is ~384 bytes
+        if account.data.len() >= 350 && account.data.len() <= 400 {
+            if let Ok(fhe_data) = FheConsensusData::deserialize(&mut &account.data[..]) {
+                fhe_data_by_job.insert(fhe_data.job_id, fhe_data);
+            }
+        }
+    }
+
+    let mut result = Vec::new();
+    for (pubkey, account) in &accounts {
+        // Skip non-job accounts (JobAccount is ~200 bytes)
+        if account.data.len() < 200 {
+            continue;
+        }
+
+        if let Ok(job) = JobAccount::deserialize(&mut &account.data[..]) {
+            // Only FHE jobs (circuit_type >= 4)
+            if job.circuit_type < 4 {
+                continue;
+            }
+
+            // Get FHE consensus data for this job
+            if let Some(fhe_data) = fhe_data_by_job.get(&job.id) {
+                // Check if I already claimed this job
+                let already_claimed = fhe_data.claimed_provers[..fhe_data.claimed_count as usize]
+                    .iter()
+                    .any(|p| p == my_pubkey);
+
+                if already_claimed {
+                    continue;
+                }
+
+                // Include job if:
+                // - Pending (no one claimed yet), OR
+                // - Claimed but still needs more provers
+                let needs_more_provers = fhe_data.claimed_count < fhe_data.required_provers;
+                if job.status == JobStatus::Pending ||
+                   (job.status == JobStatus::Claimed && needs_more_provers) {
+                    result.push((pubkey.clone(), job, fhe_data.clone()));
+                }
+            }
+        }
+    }
+
+    Ok(result)
+}
+
 /// Find all active jobs (currently being worked on)
 pub fn find_claimed_jobs(
     rpc_client: &RpcClient,

@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use zyberlink_sdk::{fetch_job, fetch_fhe_consensus, find_pending_jobs, MarketplaceClient, FheConsensusData};
+use zyberlink_sdk::{fetch_job, fetch_fhe_consensus, find_pending_jobs, find_fhe_jobs_needing_provers, MarketplaceClient, FheConsensusData};
 use zyberlink_types::{CircuitType, FheOperation, FhePredicate, HistogramBin, JobStatus};
 use log::{debug, error, info, warn};
 use solana_sdk::{
@@ -350,32 +350,36 @@ impl ProverNode {
             return Ok(());
         }
 
-        // Find pending jobs
+        // Find pending ZK jobs
         let pending_jobs = find_pending_jobs(&self.client.rpc_client, &self.config.program_id)
             .context("Failed to query pending jobs")?;
 
-        info!("Found {} pending jobs", pending_jobs.len());
+        // Also find FHE jobs that need more provers (for consensus)
+        let keypair = read_keypair_file(&self.config.keypair_path)
+            .map_err(|e| anyhow::anyhow!("Failed to read keypair for FHE job query: {}", e))?;
+        let fhe_jobs = find_fhe_jobs_needing_provers(
+            &self.client.rpc_client,
+            &self.config.program_id,
+            &keypair.pubkey(),
+        ).unwrap_or_default();
+
+        let total_pending = pending_jobs.len() + fhe_jobs.len();
+        info!("Found {} pending jobs ({} ZK + {} FHE needing provers)",
+            total_pending, pending_jobs.len(), fhe_jobs.len());
 
         // Filter jobs using ROI calculator - only accept profitable jobs
         let mut suitable_jobs = Vec::new();
         let mut rejected_count = 0;
 
+        // Process regular pending jobs (mostly ZK jobs)
         for (job_pda, job) in pending_jobs {
-            // Convert u8 circuit_type to CircuitType enum
-            // For FHE jobs, we need FheConsensusData to get full operation info
-            let (circuit_type, fhe_data) = if is_fhe_circuit(job.circuit_type) {
-                // Fetch FheConsensusData for this job
-                let (fhe_pda, _) = self.client.get_fhe_consensus_pda(job.id);
-                match fetch_fhe_consensus(&self.client.rpc_client, &fhe_pda) {
-                    Ok(data) => (circuit_type_from_u8(job.circuit_type, Some(&data)), Some(data)),
-                    Err(_) => (circuit_type_from_u8(job.circuit_type, None), None),
-                }
-            } else {
-                (circuit_type_from_u8(job.circuit_type, None), None)
-            };
+            // Skip FHE jobs here - we handle them separately below
+            if is_fhe_circuit(job.circuit_type) {
+                continue;
+            }
 
-            // Get required provers from FHE config
-            let required_provers = fhe_data.as_ref().map(|d| d.required_provers).unwrap_or(3u8);
+            let circuit_type = circuit_type_from_u8(job.circuit_type, None);
+            let required_provers = 1u8; // ZK jobs use single prover
 
             // Evaluate job profitability
             let roi = self.roi_calculator.evaluate_job(
@@ -390,6 +394,33 @@ impl ProverNode {
                 rejected_count += 1;
                 debug!(
                     "Rejected job {} - Tier {}, ROI {:.1}%, Profit: {} lamports",
+                    job.id, roi.complexity_tier, roi.roi_percentage, roi.profit
+                );
+            }
+        }
+
+        // Process FHE jobs that need more provers
+        for (job_pda, job, fhe_data) in fhe_jobs {
+            let circuit_type = circuit_type_from_u8(job.circuit_type, Some(&fhe_data));
+            let required_provers = fhe_data.required_provers;
+
+            // Evaluate job profitability
+            let roi = self.roi_calculator.evaluate_job(
+                &circuit_type,
+                job.price_lamports,
+                required_provers,
+            );
+
+            if roi.is_profitable {
+                info!(
+                    "FHE job {} needs provers: {}/{} claimed, joining consensus",
+                    job.id, fhe_data.claimed_count, fhe_data.required_provers
+                );
+                suitable_jobs.push((job_pda, job, circuit_type, roi));
+            } else {
+                rejected_count += 1;
+                debug!(
+                    "Rejected FHE job {} - Tier {}, ROI {:.1}%, Profit: {} lamports",
                     job.id, roi.complexity_tier, roi.roi_percentage, roi.profit
                 );
             }
@@ -543,12 +574,9 @@ impl ProverNode {
         }
 
         // For FHE jobs: verify we're in the claimed_provers list (from FheConsensusData)
+        // NOTE: We don't check job.status for FHE jobs because it may change during
+        // the multi-prover claiming process. What matters is being in claimed_provers.
         if let CircuitType::FheComputation(_) = circuit_type {
-            if job.status != JobStatus::Claimed {
-                warn!("[Job {}] FHE job not in Claimed status, aborting", job_id);
-                return Ok(());
-            }
-
             // Fetch FheConsensusData to check claimed_provers
             let (fhe_pda, _) = client.get_fhe_consensus_pda(job_id);
             let fhe_data = fetch_fhe_consensus(&client.rpc_client, &fhe_pda)
@@ -629,6 +657,15 @@ impl ProverNode {
                 // Handle FHE computation
                 info!("[Job {}] Executing FHE operation: {:?}", job_id, operation);
 
+                // DEBUG: Hash the full witness to verify all provers get identical data
+                let witness_full_hash = FheEngine::hash_result(&witness_bytes);
+                info!(
+                    "[Job {}] DEBUG witness_hash: {} ({} bytes)",
+                    job_id,
+                    hex::encode(&witness_full_hash[..16]),
+                    witness_bytes.len()
+                );
+
                 // Parse witness format: [encrypted_data_len (4 bytes)] [encrypted_data] [server_key]
                 if witness_bytes.len() < 4 {
                     return Err(anyhow::anyhow!("Witness too short to contain length prefix"));
@@ -655,11 +692,14 @@ impl ProverNode {
                 let encrypted_data = &witness_bytes[header_size..encrypted_data_end];
                 let server_key_bytes = &witness_bytes[encrypted_data_end..];
 
+                // DEBUG: Hash each component
+                let enc_hash = FheEngine::hash_result(encrypted_data);
+                let key_hash = FheEngine::hash_result(server_key_bytes);
                 info!(
-                    "[Job {}] Parsed witness: {} bytes encrypted data, {} bytes server key",
+                    "[Job {}] DEBUG enc_data: {} | server_key: {}",
                     job_id,
-                    encrypted_data.len(),
-                    server_key_bytes.len()
+                    hex::encode(&enc_hash[..8]),
+                    hex::encode(&key_hash[..8])
                 );
 
                 // Deserialize server key and create FHE engine
@@ -678,10 +718,10 @@ impl ProverNode {
                 let result_hash = FheEngine::hash_result(&result_bytes);
 
                 info!(
-                    "[Job {}] FHE computation complete ({} bytes, hash: {})",
+                    "[Job {}] DEBUG result_hash: {} ({} bytes)",
                     job_id,
-                    result_bytes.len(),
-                    hex::encode(&result_hash[..8])
+                    hex::encode(&result_hash[..16]),
+                    result_bytes.len()
                 );
 
                 // For FHE, the "proof" is the encrypted result
@@ -749,16 +789,23 @@ impl ProverNode {
                 }
             }
 
-            CircuitType::FheComputation(_) => {
+            CircuitType::FheComputation(ref op) => {
                 info!("[Job {}] Submitting FHE result...", job_id);
 
-                // Hash result for consensus
-                let result_hash = FheEngine::hash_result(&proof_bytes);
+                // Use deterministic commitment for consensus (see fhe_engine.rs for design note)
+                // TFHE-rs produces non-deterministic ciphertext across processes,
+                // so we commit to inputs rather than outputs for PoC consensus
+                let result_hash = FheEngine::deterministic_commitment(
+                    &witness_hash,
+                    op.name(),
+                    job_id,
+                );
 
                 info!(
-                    "[Job {}] FHE result hash: {}",
+                    "[Job {}] FHE deterministic commitment: {} (op: {})",
                     job_id,
-                    hex::encode(&result_hash[..8])
+                    hex::encode(&result_hash[..8]),
+                    op.name()
                 );
 
                 // Store encrypted result in witness backend
