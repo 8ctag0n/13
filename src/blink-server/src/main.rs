@@ -3,6 +3,8 @@ mod api_handlers;
 mod chain_sync;
 mod cleanup;
 mod db;
+mod job_finalizer;
+mod prover_sync;
 mod tx_builder;
 mod validators;
 
@@ -10,9 +12,11 @@ use actix_cors::Cors;
 use actix_web::{get, middleware, web, App, HttpResponse, HttpServer, Responder};
 use zyberlink_sdk::instructions::InstructionBuilder;
 use solana_sdk::pubkey::Pubkey;
+use solana_sdk::signer::Signer;
 use sqlx::PgPool;
 use std::env;
 use std::str::FromStr;
+use std::sync::Arc;
 
 /// Application state shared across handlers
 pub struct AppState {
@@ -126,6 +130,32 @@ async fn main() -> std::io::Result<()> {
     chain_sync::start_chain_sync(rpc_url.clone(), program_id, pool.clone());
     log::info!("Blockchain sync task started");
 
+    log::info!("Starting prover sync task...");
+    prover_sync::start_prover_sync(rpc_url.clone(), program_id, pool.clone());
+    log::info!("Prover sync task started");
+
+    // Job finalizer (requires server keypair to sign finalize transactions)
+    let server_keypair_path = env::var("SERVER_KEYPAIR_PATH")
+        .unwrap_or_else(|_| "~/.config/solana/id.json".to_string());
+
+    match job_finalizer::load_server_keypair(&server_keypair_path) {
+        Ok(keypair) => {
+            log::info!("Starting job finalizer task...");
+            log::info!("  Finalizer pubkey: {}", keypair.pubkey());
+            job_finalizer::start_job_finalizer(
+                rpc_url.clone(),
+                program_id,
+                pool.clone(),
+                Arc::new(keypair),
+            );
+            log::info!("Job finalizer task started");
+        }
+        Err(e) => {
+            log::warn!("Job finalizer disabled: {}", e);
+            log::warn!("Set SERVER_KEYPAIR_PATH to enable automatic FHE job finalization");
+        }
+    }
+
     // ========================================================================
     // Server Configuration
     // ========================================================================
@@ -145,6 +175,7 @@ async fn main() -> std::io::Result<()> {
     log::info!("  GET    /api/jobs/{{job_id}}/compute-data");
     log::info!("  POST   /api/jobs/{{job_id}}/confirm");
     log::info!("  GET    /api/jobs/{{job_id}}/status");
+    log::info!("  GET    /api/jobs/{{job_id}}              (full job details)");
     log::info!("  DELETE /api/jobs/{{job_id}}");
     log::info!("");
     log::info!("Legacy Blinks:");
