@@ -139,6 +139,49 @@ pub struct JobListItem {
     pub tx_signature: Option<String>,
 }
 
+/// Full job details response (for /api/jobs/{job_id})
+#[derive(Debug, Serialize)]
+pub struct JobDetailsResponse {
+    pub job_id: i64,
+    pub creator_pubkey: String,
+    pub operation: String,
+    pub operation_value: i16,
+    pub price_lamports: i64,
+    pub required_provers: i16,
+    pub consensus_threshold: i16,
+    pub status: String,
+    pub payment_method: String,
+    pub payment_token_mint: Option<String>,
+    pub tx_signature: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub claimed_at: Option<String>,
+    pub completed_at: Option<String>,
+    pub prover_pubkey: Option<String>,
+    pub has_result: bool,
+}
+
+/// DB row for combined job details query
+#[derive(Debug, sqlx::FromRow)]
+struct JobDetailsRow {
+    job_id: i64,
+    creator_pubkey: String,
+    operation: String,
+    operation_value: i16,
+    price_lamports: i64,
+    required_provers: i16,
+    consensus_threshold: i16,
+    status: String,
+    payment_method: String,
+    payment_token_mint: Option<String>,
+    tx_signature: Option<String>,
+    created_at: String,
+    updated_at: String,
+    claimed_at: Option<String>,
+    completed_at: Option<String>,
+    prover_pubkey: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct ListJobsResponse {
     pub jobs: Vec<JobListItem>,
@@ -158,6 +201,53 @@ pub struct NetworkStatsResponse {
     pub network_start_time: Option<String>,
     pub uptime_seconds: i64,
     pub uptime_percent: f64,
+}
+
+// ============================================================================
+// Metrics Response Types
+// ============================================================================
+
+#[derive(Debug, Serialize)]
+pub struct MetricsNetworkInfo {
+    pub uptime_seconds: i64,
+    pub uptime_formatted: String,
+    pub active_provers: i64,
+    pub total_provers: i64,
+    pub offline_provers: i64,
+    pub data_processed_tb: f64,
+    pub data_processed_24h_tb: f64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MetricsJobsInfo {
+    pub completed_24h: i64,
+    pub completed_total: i64,
+    pub active_current: i64,
+    pub pending_current: i64,
+    pub expired_total: i64,
+    pub avg_job_time_mins: f64,
+    pub success_rate: f64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OperationBreakdown {
+    pub operation: String,
+    pub count: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct TimelinePoint {
+    pub timestamp: String,
+    pub count: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MetricsResponse {
+    pub network: MetricsNetworkInfo,
+    pub jobs: MetricsJobsInfo,
+    pub operations: Vec<OperationBreakdown>,
+    pub timeline: Vec<TimelinePoint>,
+    pub provers_history: Vec<i64>,
 }
 
 // ============================================================================
@@ -373,6 +463,125 @@ async fn get_job_status(data: web::Data<AppState>, job_id: web::Path<i64>) -> im
     }
 }
 
+/// GET /api/jobs/{job_id}
+///
+/// Get full details of a specific job (without encrypted data).
+/// Combines data from temp_job_data and blockchain_jobs tables.
+#[get("/api/jobs/{job_id}")]
+async fn get_job_details(data: web::Data<AppState>, job_id: web::Path<i64>) -> impl Responder {
+    log::info!("Fetching full details for job_id: {}", *job_id);
+
+    // Query that combines temp_job_data and blockchain_jobs
+    let job_query = sqlx::query_as::<_, JobDetailsRow>(
+        r#"
+        SELECT * FROM (
+            -- From temp_job_data (frontend-created jobs)
+            SELECT
+                t.job_id,
+                t.creator_pubkey,
+                t.operation,
+                t.operation_value,
+                t.price_lamports,
+                t.required_provers,
+                t.consensus_threshold,
+                t.status,
+                COALESCE(t.payment_method, 'SOL') as payment_method,
+                t.payment_token_mint,
+                t.tx_signature,
+                to_char(t.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at,
+                to_char(t.updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at,
+                NULL::text as claimed_at,
+                NULL::text as completed_at,
+                NULL::text as prover_pubkey
+            FROM temp_job_data t
+            WHERE t.job_id = $1
+
+            UNION ALL
+
+            -- From blockchain_jobs (synced from chain)
+            SELECT
+                b.job_id,
+                b.creator_pubkey,
+                COALESCE(b.fhe_operation, b.circuit_type) as operation,
+                0::smallint as operation_value,
+                b.price_lamports,
+                COALESCE(b.required_provers, 1::smallint) as required_provers,
+                COALESCE(b.consensus_threshold, 1::smallint) as consensus_threshold,
+                CASE
+                    WHEN b.timeout_at < NOW() AND b.status NOT IN ('completed', 'failed') THEN 'expired'
+                    ELSE b.status
+                END as status,
+                'SOL' as payment_method,
+                NULL::text as payment_token_mint,
+                b.tx_signature,
+                to_char(b.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at,
+                to_char(COALESCE(b.synced_at, b.created_at), 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at,
+                CASE WHEN b.claimed_at IS NOT NULL
+                    THEN to_char(b.claimed_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+                    ELSE NULL
+                END as claimed_at,
+                CASE WHEN b.completed_at IS NOT NULL
+                    THEN to_char(b.completed_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+                    ELSE NULL
+                END as completed_at,
+                b.prover_pubkey
+            FROM blockchain_jobs b
+            WHERE b.job_id = $1
+            AND NOT EXISTS (SELECT 1 FROM temp_job_data t2 WHERE t2.job_id = b.job_id)
+        ) combined
+        LIMIT 1
+        "#
+    )
+    .bind(*job_id)
+    .fetch_optional(&data.db_pool)
+    .await;
+
+    match job_query {
+        Ok(Some(job)) => {
+            // Check if there's a result for this job
+            let has_result = sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS(SELECT 1 FROM fhe_results WHERE job_id = $1)"
+            )
+            .bind(*job_id)
+            .fetch_one(&data.db_pool)
+            .await
+            .unwrap_or(false);
+
+            HttpResponse::Ok().json(JobDetailsResponse {
+                job_id: job.job_id,
+                creator_pubkey: job.creator_pubkey,
+                operation: job.operation,
+                operation_value: job.operation_value,
+                price_lamports: job.price_lamports,
+                required_provers: job.required_provers,
+                consensus_threshold: job.consensus_threshold,
+                status: job.status,
+                payment_method: job.payment_method,
+                payment_token_mint: job.payment_token_mint,
+                tx_signature: job.tx_signature,
+                created_at: job.created_at,
+                updated_at: job.updated_at,
+                claimed_at: job.claimed_at,
+                completed_at: job.completed_at,
+                prover_pubkey: job.prover_pubkey,
+                has_result,
+            })
+        }
+        Ok(None) => {
+            log::warn!("Job not found: {}", *job_id);
+            HttpResponse::NotFound().json(json!({
+                "error": "Job not found"
+            }))
+        }
+        Err(e) => {
+            log::error!("Database error fetching job {}: {}", *job_id, e);
+            HttpResponse::InternalServerError().json(json!({
+                "error": format!("Database error: {}", e)
+            }))
+        }
+    }
+}
+
 /// DELETE /api/jobs/{job_id}
 ///
 /// Delete job data (cleanup).
@@ -442,6 +651,7 @@ async fn list_jobs(data: web::Data<AppState>, query: web::Query<ListJobsQuery>) 
 
     // Combined query from both temp_job_data and blockchain_jobs
     // This ensures jobs created from frontend appear immediately
+    // Shows ALL historical jobs (including expired) for full visibility
     let jobs_query = sqlx::query_as::<_, JobListItem>(
         r#"
         SELECT * FROM (
@@ -470,7 +680,10 @@ async fn list_jobs(data: web::Data<AppState>, query: web::Query<ListJobsQuery>) 
                 price_lamports,
                 COALESCE(required_provers, 1::smallint) as required_provers,
                 COALESCE(consensus_threshold, 1::smallint) as consensus_threshold,
-                status,
+                CASE
+                    WHEN timeout_at < NOW() AND status != 'completed' THEN 'expired'
+                    ELSE status
+                END as status,
                 'SOL' as payment_method,
                 to_char(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at,
                 tx_signature
@@ -546,9 +759,9 @@ async fn list_jobs(data: web::Data<AppState>, query: web::Query<ListJobsQuery>) 
 async fn get_network_stats(data: web::Data<AppState>) -> impl Responder {
     log::info!("Fetching network statistics");
 
-    // Query 1: Count distinct active provers
+    // Query 1: Count active provers from provers table (synced from blockchain)
     let active_provers: i64 = sqlx::query_scalar!(
-        r#"SELECT COUNT(DISTINCT prover_pubkey) as "count!" FROM blockchain_jobs WHERE prover_pubkey IS NOT NULL"#
+        r#"SELECT COUNT(*) as "count!" FROM provers WHERE is_active = true"#
     )
     .fetch_one(&data.db_pool)
     .await
@@ -562,13 +775,16 @@ async fn get_network_stats(data: web::Data<AppState>) -> impl Responder {
     .await
     .unwrap_or(0);
 
-    // Query 3: Count total processed jobs (completed + failed)
-    let jobs_total: i64 = sqlx::query_scalar!(
-        r#"SELECT COUNT(*) as "count!" FROM blockchain_jobs"#
+    // Query 3: Count active jobs (not expired)
+    let jobs_active: i64 = sqlx::query_scalar!(
+        r#"SELECT COUNT(*) as "count!" FROM blockchain_jobs WHERE timeout_at >= NOW() AND status IN ('pending', 'claimed')"#
     )
     .fetch_one(&data.db_pool)
     .await
     .unwrap_or(0);
+
+    // Total = completed + active
+    let jobs_total: i64 = jobs_completed + jobs_active;
 
     // Query 4: Get network start time (first job created)
     let network_start: Option<chrono::NaiveDateTime> = sqlx::query_scalar!(
@@ -600,6 +816,194 @@ async fn get_network_stats(data: web::Data<AppState>) -> impl Responder {
         network_start_time: network_start_str,
         uptime_seconds,
         uptime_percent: 99.97, // Simplified - in production track actual downtime
+    })
+}
+
+/// GET /api/metrics
+///
+/// Get comprehensive network metrics for the dashboard.
+/// Includes historical data, 24h stats, operation breakdowns, and timeline.
+#[get("/api/metrics")]
+async fn get_metrics(data: web::Data<AppState>) -> impl Responder {
+    log::info!("Fetching comprehensive metrics");
+
+    // Query 1: Active provers
+    let active_provers: i64 = sqlx::query_scalar!(
+        r#"SELECT COUNT(*) as "count!" FROM provers WHERE is_active = true"#
+    )
+    .fetch_one(&data.db_pool)
+    .await
+    .unwrap_or(0);
+
+    // Query 2: Total provers
+    let total_provers: i64 = sqlx::query_scalar!(
+        r#"SELECT COUNT(*) as "count!" FROM provers"#
+    )
+    .fetch_one(&data.db_pool)
+    .await
+    .unwrap_or(0);
+
+    let offline_provers = total_provers - active_provers;
+
+    // Query 3: Jobs completed (all time)
+    let completed_total: i64 = sqlx::query_scalar!(
+        r#"SELECT COUNT(*) as "count!" FROM blockchain_jobs WHERE status = 'completed'"#
+    )
+    .fetch_one(&data.db_pool)
+    .await
+    .unwrap_or(0);
+
+    // Query 4: Jobs completed in last 24h
+    let completed_24h: i64 = sqlx::query_scalar!(
+        r#"SELECT COUNT(*) as "count!" FROM blockchain_jobs WHERE status = 'completed' AND created_at >= NOW() - INTERVAL '24 hours'"#
+    )
+    .fetch_one(&data.db_pool)
+    .await
+    .unwrap_or(0);
+
+    // Query 5: Active jobs (not expired, pending/claimed)
+    let active_current: i64 = sqlx::query_scalar!(
+        r#"SELECT COUNT(*) as "count!" FROM blockchain_jobs WHERE timeout_at >= NOW() AND status IN ('pending', 'claimed')"#
+    )
+    .fetch_one(&data.db_pool)
+    .await
+    .unwrap_or(0);
+
+    // Query 6: Pending jobs
+    let pending_current: i64 = sqlx::query_scalar!(
+        r#"SELECT COUNT(*) as "count!" FROM blockchain_jobs WHERE timeout_at >= NOW() AND status = 'pending'"#
+    )
+    .fetch_one(&data.db_pool)
+    .await
+    .unwrap_or(0);
+
+    // Query 7: Expired jobs
+    let expired_total: i64 = sqlx::query_scalar!(
+        r#"SELECT COUNT(*) as "count!" FROM blockchain_jobs WHERE timeout_at < NOW() AND status != 'completed'"#
+    )
+    .fetch_one(&data.db_pool)
+    .await
+    .unwrap_or(0);
+
+    // Query 8: Network start time
+    let network_start: Option<chrono::NaiveDateTime> = sqlx::query_scalar!(
+        r#"SELECT MIN(created_at) FROM blockchain_jobs"#
+    )
+    .fetch_one(&data.db_pool)
+    .await
+    .unwrap_or(None);
+
+    let now = chrono::Utc::now().naive_utc();
+    let uptime_seconds = if let Some(start) = network_start {
+        now.signed_duration_since(start).num_seconds()
+    } else {
+        0
+    };
+
+    // Format uptime as "Xd Yh Zm"
+    let days = uptime_seconds / 86400;
+    let hours = (uptime_seconds % 86400) / 3600;
+    let mins = (uptime_seconds % 3600) / 60;
+    let uptime_formatted = format!("{}d {}h {}m", days, hours, mins);
+
+    // Query 9: Operations breakdown
+    #[derive(sqlx::FromRow)]
+    struct OpCount {
+        operation: Option<String>,
+        count: i64,
+    }
+
+    let operations_raw: Vec<OpCount> = sqlx::query_as(
+        r#"SELECT COALESCE(fhe_operation, circuit_type) as operation, COUNT(*) as count
+           FROM blockchain_jobs
+           GROUP BY COALESCE(fhe_operation, circuit_type)
+           ORDER BY count DESC
+           LIMIT 10"#
+    )
+    .fetch_all(&data.db_pool)
+    .await
+    .unwrap_or_default();
+
+    let operations: Vec<OperationBreakdown> = operations_raw
+        .into_iter()
+        .map(|o| OperationBreakdown {
+            operation: o.operation.unwrap_or_else(|| "unknown".to_string()),
+            count: o.count,
+        })
+        .collect();
+
+    // Query 10: Timeline (jobs per hour for last 24h)
+    #[derive(sqlx::FromRow)]
+    struct TimelineRow {
+        hour: Option<chrono::NaiveDateTime>,
+        count: i64,
+    }
+
+    let timeline_raw: Vec<TimelineRow> = sqlx::query_as(
+        r#"SELECT date_trunc('hour', created_at) as hour, COUNT(*) as count
+           FROM blockchain_jobs
+           WHERE created_at >= NOW() - INTERVAL '24 hours'
+           GROUP BY date_trunc('hour', created_at)
+           ORDER BY hour ASC"#
+    )
+    .fetch_all(&data.db_pool)
+    .await
+    .unwrap_or_default();
+
+    let timeline: Vec<TimelinePoint> = timeline_raw
+        .into_iter()
+        .map(|t| TimelinePoint {
+            timestamp: t.hour.map(|h| h.format("%H:%M").to_string()).unwrap_or_default(),
+            count: t.count,
+        })
+        .collect();
+
+    // Calculate metrics
+    let total_jobs = completed_total + active_current + pending_current + expired_total;
+    let success_rate = if total_jobs > 0 {
+        (completed_total as f64 / total_jobs as f64) * 100.0
+    } else {
+        0.0
+    };
+
+    // Estimate data processed (1KB per job)
+    let data_processed_tb = (total_jobs * 1024) as f64 / (1024.0 * 1024.0 * 1024.0 * 1024.0);
+    let data_processed_24h_tb = ((completed_24h + active_current) * 1024) as f64 / (1024.0 * 1024.0 * 1024.0 * 1024.0);
+
+    // Mock provers history (in production, track this in a separate table)
+    let provers_history: Vec<i64> = vec![
+        active_provers.saturating_sub(2),
+        active_provers.saturating_sub(1),
+        active_provers,
+        active_provers,
+        active_provers.saturating_add(1),
+        active_provers,
+        active_provers.saturating_sub(1),
+        active_provers,
+    ];
+
+    HttpResponse::Ok().json(MetricsResponse {
+        network: MetricsNetworkInfo {
+            uptime_seconds,
+            uptime_formatted,
+            active_provers,
+            total_provers,
+            offline_provers,
+            data_processed_tb,
+            data_processed_24h_tb,
+        },
+        jobs: MetricsJobsInfo {
+            completed_24h,
+            completed_total,
+            active_current,
+            pending_current,
+            expired_total,
+            avg_job_time_mins: 2.5, // Mock - in production calculate from actual job durations
+            success_rate,
+        },
+        operations,
+        timeline,
+        provers_history,
     })
 }
 
@@ -1100,12 +1504,14 @@ async fn get_fhe_result(
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(list_jobs)
         .service(get_network_stats)
+        .service(get_metrics)
         .service(validate_and_build_job)
         .service(estimate_operation_cost)
         .service(get_price_recommendation)
         .service(get_compute_data)
         .service(confirm_job_transaction)
         .service(get_job_status)
+        .service(get_job_details) // GET /api/jobs/{job_id} - full job details
         .service(delete_job_data)
         .service(upload_witness)
         .service(get_witness)
