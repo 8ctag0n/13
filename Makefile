@@ -203,6 +203,11 @@ db-reset: ## Reset database (drop and recreate)
 	@podman exec zyberlink-postgres psql -U zyberlink -d postgres -c "CREATE DATABASE zyberlink;"
 	@echo "$(GREEN) Database reset$(NC)"
 
+db-clean-jobs: ## Clean jobs, provers, witnesses and FHE results (frees disk space)
+	@echo "$(YELLOW)  Cleaning all job-related data...$(NC)"
+	@podman exec zyberlink-postgres psql -U zyberlink -d zyberlink -c "TRUNCATE blockchain_jobs, temp_job_data, provers, witnesses, fhe_results CASCADE;" 2>/dev/null || true
+	@echo "$(GREEN) Cleaned: blockchain_jobs, temp_job_data, provers, witnesses, fhe_results$(NC)"
+
 # ============================================================================
 # Testing Commands
 # ============================================================================
@@ -472,7 +477,10 @@ l1: localnet-start ## Alias: make l1 = start localnet (validator + backend + pro
 l2: localnet-init  ## Alias: make l2 = init marketplace
 l3: localnet-jobs  ## Alias: make l3 = start job creator
 l4: start-frontend ## Alias: make l4 = start frontend (webapp)
-l0: localnet-stop  ## Alias: make l0 = stop all
+l0: localnet-stop db-clean-jobs clean-ledger ## Alias: make l0 = stop all + clean jobs + reset validator ledger
+	@echo "$(YELLOW)Resetting Solana validator ledger...$(NC)"
+	@rm -rf $$HOME/.zyberlink-localnet-ledger 2>/dev/null || true
+	@echo "$(GREEN)Ready for fresh start with 'make l1'$(NC)"
 
 # ============================================================================
 # Containerized Development (Single Port)
