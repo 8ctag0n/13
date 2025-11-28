@@ -1,5 +1,6 @@
 <script>
   import { walletStore } from '../stores/wallet';
+  import { navigateTo } from '../stores/router';
 
   export let job;
   export let isMyJob = false;
@@ -7,13 +8,29 @@
   // Determine if this is user's job
   $: isOwner = isMyJob || ($walletStore.connected && $walletStore.publicKey?.toString() === job.creator_pubkey);
 
-  // Expanded state (only for owner's jobs)
+  // Expanded state (still used for quick preview, but click goes to full page)
   let expanded = false;
+  let provers = []; // Initialized once, not reactive
 
-  // Mock prover progress data
-  $: provers = generateMockProvers(job);
+  // Seeded random for consistent addresses
+  function seededRandom(seed) {
+    const x = Math.sin(seed) * 10000;
+    return x - Math.floor(x);
+  }
 
-  function generateMockProvers(job) {
+  function generateProverAddress(jobId, index) {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz123456789';
+    let addr = '';
+    for (let i = 0; i < 8; i++) {
+      const seed = (jobId * 1000) + (index * 100) + i;
+      const charIndex = Math.floor(seededRandom(seed) * chars.length);
+      addr += chars.charAt(charIndex);
+    }
+    return addr;
+  }
+
+  // Initialize provers once based on job state (not reactive to avoid re-renders)
+  function initProvers() {
     if (!job || job.status === 'pending' || job.status === 'pending_tx') {
       return [];
     }
@@ -23,19 +40,15 @@
     const isFailed = job.status === 'failed';
 
     return Array(count).fill(null).map((_, i) => ({
-      address: generateMockAddress(),
-      progress: isCompleted ? 100 : isFailed ? Math.random() * 50 : Math.floor(Math.random() * 60 + 30),
+      address: generateProverAddress(job.job_id, i),
+      progress: isCompleted ? 100 : isFailed ? 25 + (i * 10) : 40 + (i * 20),
       status: isCompleted ? 'verified' : isFailed && i === 0 ? 'failed' : 'computing'
     }));
   }
 
-  function generateMockAddress() {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz123456789';
-    let addr = '';
-    for (let i = 0; i < 8; i++) {
-      addr += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return addr;
+  // Only update provers when job.job_id changes, not on every prop update
+  $: if (job?.job_id) {
+    provers = initProvers();
   }
 
   // Status styles
@@ -95,23 +108,53 @@
     return `${Math.floor(diff / 86400)}d ago`;
   }
 
-  // Toggle expand
-  function toggleExpand() {
-    if (isOwner) {
-      expanded = !expanded;
+  // Navigate to job details page
+  function goToDetails() {
+    navigateTo(`job-${job.job_id}`);
+  }
+
+  // Toggle expand for quick preview (optional, secondary action)
+  function toggleExpand(event) {
+    event.stopPropagation();
+    expanded = !expanded;
+  }
+
+  // Get explorer URL for transaction
+  function getExplorerUrl(signature, type = 'tx') {
+    // Use localnet explorer if localhost, otherwise devnet
+    const cluster = 'custom&customUrl=http%3A%2F%2Flocalhost%3A8899';
+    if (type === 'tx') {
+      return `https://explorer.solana.com/tx/${signature}?cluster=${cluster}`;
+    }
+    return `https://explorer.solana.com/address/${signature}?cluster=${cluster}`;
+  }
+
+  // Copy to clipboard
+  async function copyToClipboard(text, label) {
+    try {
+      await navigator.clipboard.writeText(text);
+      // Could add a toast notification here
+    } catch (err) {
+      console.error('Failed to copy:', err);
     }
   }
 </script>
 
-<div class="job-card glass-card {getStatusClass(job.status)}" class:expanded class:is-owner={isOwner}>
+<div class="job-card glass-card {getStatusClass(job.status)}" class:expanded on:click={goToDetails} on:keypress={goToDetails} role="button" tabindex="0">
   <!-- Header -->
-  <div class="job-header" on:click={toggleExpand} on:keypress={toggleExpand} role="button" tabindex="0">
+  <div class="job-header">
     <div class="job-id text-mono">
       <span class="text-muted">{'>'}</span> JOB_#{job.job_id}
+      {#if isOwner}
+        <span class="owner-badge text-xs">[MINE]</span>
+      {/if}
     </div>
     <div class="job-status text-mono">
       <span class="status-icon">{getStatusIcon(job.status)}</span>
       <span class="status-text">{job.status.toUpperCase()}</span>
+      <button class="expand-btn" on:click={toggleExpand} title="Quick preview">
+        {expanded ? '[-]' : '[+]'}
+      </button>
     </div>
   </div>
 
@@ -135,15 +178,44 @@
     </div>
   </div>
 
-  <!-- Expanded Content (only for owner's jobs) -->
-  {#if isOwner && expanded}
+  <!-- Click hint -->
+  <div class="click-hint text-mono text-xs text-muted">
+    CLICK_FOR_DETAILS →
+  </div>
+
+  <!-- Expanded Content (visible to everyone) -->
+  {#if expanded}
     <div class="job-expanded">
       <div class="divider"></div>
 
-      <!-- Prover Progress -->
-      {#if provers.length > 0}
+      <!-- On-Chain Data Section -->
+      <div class="onchain-section">
+        <div class="section-header text-mono text-xs text-muted">ON_CHAIN_DATA:</div>
+        <div class="data-grid">
+          <div class="data-row">
+            <span class="data-label text-muted">CREATOR:</span>
+            <span class="data-value text-mono">
+              {job.creator_pubkey.slice(0, 6)}...{job.creator_pubkey.slice(-4)}
+              <button class="btn-copy" on:click|stopPropagation={() => copyToClipboard(job.creator_pubkey)} title="Copy">
+                [C]
+              </button>
+            </span>
+          </div>
+          <div class="data-row">
+            <span class="data-label text-muted">PROVERS:</span>
+            <span class="data-value">{job.consensus_threshold}/{job.required_provers} required for consensus</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label text-muted">PAYMENT:</span>
+            <span class="data-value text-cyan">{job.payment_method || 'Prepaid'}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Prover Progress (for active/computing jobs) -->
+      {#if provers.length > 0 && (job.status === 'claimed' || job.status === 'active' || job.status === 'completed')}
         <div class="prover-section">
-          <div class="section-header text-mono text-xs text-muted">PROVER_PROGRESS:</div>
+          <div class="section-header text-mono text-xs text-muted">PROVER_CONSENSUS:</div>
           <div class="prover-list">
             {#each provers as prover, i}
               <div class="prover-row">
@@ -151,7 +223,7 @@
                   <span class="prover-icon" class:verified={prover.status === 'verified'} class:failed={prover.status === 'failed'}>
                     {prover.status === 'verified' ? 'ok' : prover.status === 'failed' ? '!!' : '>>'}
                   </span>
-                  <span class="prover-address text-mono">Prover_{prover.address}</span>
+                  <span class="prover-address text-mono">P{i + 1}_{prover.address}</span>
                 </div>
                 <div class="prover-progress">
                   <div class="progress-bar">
@@ -177,36 +249,51 @@
         </div>
       {/if}
 
-      <!-- TX Info -->
-      {#if job.tx_signature}
-        <div class="tx-section">
-          <div class="section-header text-mono text-xs text-muted">BLOCKCHAIN:</div>
-          <div class="tx-info">
-            <span class="text-mono text-sm">TX: {job.tx_signature.slice(0, 8)}...{job.tx_signature.slice(-6)}</span>
-            <button class="btn-link text-mono text-xs" on:click|stopPropagation={openExplorer}>
-              [VIEW_ON_SOLSCAN]
-            </button>
-          </div>
+      <!-- Blockchain Transactions -->
+      <div class="tx-section">
+        <div class="section-header text-mono text-xs text-muted">BLOCKCHAIN_TRANSACTIONS:</div>
+        <div class="tx-list">
+          {#if job.tx_signature}
+            <div class="tx-row">
+              <span class="tx-label text-muted">CREATE_JOB_TX:</span>
+              <a
+                href={getExplorerUrl(job.tx_signature)}
+                target="_blank"
+                rel="noopener noreferrer"
+                class="tx-link text-mono text-cyan"
+                on:click|stopPropagation
+              >
+                {job.tx_signature.slice(0, 8)}...{job.tx_signature.slice(-6)} [EXPLORER]
+              </a>
+            </div>
+          {:else}
+            <div class="tx-row text-muted">
+              <span>No transaction signature available yet</span>
+            </div>
+          {/if}
         </div>
-      {/if}
+      </div>
 
       <!-- Actions -->
       <div class="job-actions">
-        {#if job.status === 'completed'}
+        {#if isOwner && job.status === 'completed'}
           <button class="btn btn-sm btn-primary">[DOWNLOAD_RESULT]</button>
         {/if}
-        {#if job.status === 'pending_tx' || job.status === 'active'}
-          <button class="btn btn-sm btn-ghost text-error">[CANCEL_JOB]</button>
+        {#if isOwner && (job.status === 'pending_tx' || job.status === 'pending')}
+          <button class="btn btn-sm btn-ghost text-error">[CANCEL]</button>
         {/if}
-        <button class="btn btn-sm btn-ghost">[REFRESH]</button>
+        {#if job.tx_signature}
+          <a
+            href={getExplorerUrl(job.tx_signature)}
+            target="_blank"
+            rel="noopener noreferrer"
+            class="btn btn-sm btn-ghost"
+            on:click|stopPropagation
+          >
+            [VIEW_ON_EXPLORER]
+          </a>
+        {/if}
       </div>
-    </div>
-  {/if}
-
-  <!-- Expand indicator for owner's jobs -->
-  {#if isOwner && !expanded}
-    <div class="expand-hint text-mono text-xs text-muted">
-      [CLICK_TO_EXPAND]
     </div>
   {/if}
 </div>
@@ -220,20 +307,41 @@
     padding: var(--space-4);
     margin-bottom: var(--space-4);
     transition: all 0.3s ease;
-  }
-
-  .job-card.is-owner {
     cursor: pointer;
-    border-color: var(--zyber-border-primary);
   }
 
-  .job-card.is-owner:hover {
+  .job-card:hover {
     border-color: var(--zyber-cyber-cyan);
-    box-shadow: 0 0 20px rgba(6, 182, 212, 0.2);
+    box-shadow: 0 0 15px rgba(6, 182, 212, 0.15);
   }
 
   .job-card.expanded {
-    background: rgba(15, 23, 42, 0.8);
+    background: rgba(15, 23, 42, 0.85);
+    border-color: var(--zyber-cyber-cyan);
+  }
+
+  .owner-badge {
+    color: var(--zyber-quantum-violet);
+    margin-left: var(--space-2);
+  }
+
+  .expand-btn {
+    background: transparent;
+    border: 1px solid var(--zyber-border-muted);
+    color: var(--zyber-text-muted);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    padding: 2px 8px;
+    margin-left: var(--space-2);
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+    transition: all 0.2s ease;
+  }
+
+  .expand-btn:hover {
+    border-color: var(--zyber-cyber-cyan);
+    color: var(--zyber-cyber-cyan);
+    background: rgba(6, 182, 212, 0.1);
   }
 
   /* Status colors */
@@ -405,9 +513,85 @@
     text-align: right;
   }
 
+  /* On-Chain Data Section */
+  .onchain-section {
+    margin-bottom: var(--space-4);
+  }
+
+  .data-grid {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .data-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--text-sm);
+  }
+
+  .data-label {
+    min-width: 80px;
+    font-family: var(--font-mono);
+  }
+
+  .data-value {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--text-sm);
+  }
+
+  .btn-copy {
+    background: transparent;
+    border: 1px solid var(--zyber-border-muted);
+    color: var(--zyber-text-muted);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    padding: 2px 6px;
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+    transition: all 0.2s ease;
+  }
+
+  .btn-copy:hover {
+    border-color: var(--zyber-cyber-cyan);
+    color: var(--zyber-cyber-cyan);
+    background: rgba(6, 182, 212, 0.1);
+  }
+
   /* TX Section */
   .tx-section {
     margin-bottom: var(--space-4);
+  }
+
+  .tx-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .tx-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--text-sm);
+  }
+
+  .tx-label {
+    min-width: 120px;
+    font-family: var(--font-mono);
+  }
+
+  .tx-link {
+    text-decoration: none;
+    transition: all 0.2s ease;
+  }
+
+  .tx-link:hover {
+    color: var(--zyber-text-primary);
+    text-shadow: 0 0 10px rgba(6, 182, 212, 0.5);
   }
 
   .tx-info {
@@ -471,12 +655,19 @@
     background: rgba(139, 92, 246, 0.1);
   }
 
-  /* Expand hint */
-  .expand-hint {
-    text-align: center;
+  /* Click hint */
+  .click-hint {
+    text-align: right;
     margin-top: var(--space-3);
     padding-top: var(--space-2);
     border-top: 1px dashed var(--zyber-border-muted);
+    opacity: 0.6;
+    transition: opacity 0.2s ease;
+  }
+
+  .job-card:hover .click-hint {
+    opacity: 1;
+    color: var(--zyber-cyber-cyan);
   }
 
   /* Utilities */

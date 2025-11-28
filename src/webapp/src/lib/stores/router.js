@@ -1,11 +1,49 @@
-import { writable } from 'svelte/store';
+import { writable, derived } from 'svelte/store';
 
 // Whitelist of valid routes (security: prevent arbitrary hash navigation)
-const VALID_ROUTES = ['landing', 'dashboard', 'create-job'];
+const VALID_ROUTES = ['landing', 'dashboard', 'create-job', 'metrics', 'my-jobs'];
 
-// Validate route against whitelist
+// Pattern routes (routes with parameters)
+const PATTERN_ROUTES = [
+  { pattern: /^job-(\d+)$/, name: 'job-details' }
+];
+
+// Validate route against whitelist or patterns
 function validateRoute(route) {
-  return VALID_ROUTES.includes(route) ? route : 'landing';
+  // Check static routes
+  if (VALID_ROUTES.includes(route)) return route;
+
+  // Check pattern routes
+  for (const patternRoute of PATTERN_ROUTES) {
+    if (patternRoute.pattern.test(route)) {
+      return route; // Return the full route with parameter
+    }
+  }
+
+  return 'landing';
+}
+
+// Extract route params (e.g., job-123 -> { jobId: '123' })
+export function getRouteParams(route) {
+  for (const patternRoute of PATTERN_ROUTES) {
+    const match = route.match(patternRoute.pattern);
+    if (match) {
+      if (patternRoute.name === 'job-details') {
+        return { jobId: match[1] };
+      }
+    }
+  }
+  return {};
+}
+
+// Check if route matches a pattern
+export function isPatternRoute(route, patternName) {
+  for (const patternRoute of PATTERN_ROUTES) {
+    if (patternRoute.name === patternName && patternRoute.pattern.test(route)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 // Get initial route from hash or default to landing
