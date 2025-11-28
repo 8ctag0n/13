@@ -1,6 +1,6 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
-  import { Connection, PublicKey } from '@solana/web3.js';
+  import { createSolanaRpc, address } from '@solana/kit';
   import { walletStore } from '../stores/wallet';
   import { navigateTo } from '../stores/router';
   import NetworkCommandPanel from '../components/NetworkCommandPanel.svelte';
@@ -30,11 +30,62 @@
 
   // Wallet
   let walletBalance = 0;
+  let availableWallets = [];
+  let detectingWallets = true;
+  let showWalletModal = false;
+
+  // Detect available wallets
+  function detectWallets() {
+    const wallets = [];
+    if (typeof window !== 'undefined') {
+      if (window.solana && window.solana.isPhantom) {
+        wallets.push({ name: 'Phantom', provider: window.solana, icon: '<◊>' });
+      }
+      if (window.solflare && window.solflare.isSolflare) {
+        wallets.push({ name: 'Solflare', provider: window.solflare, icon: '[*]' });
+      }
+    }
+    availableWallets = wallets;
+    detectingWallets = false;
+  }
+
+  async function connectWallet(wallet) {
+    try {
+      const response = await wallet.provider.connect();
+      walletStore.set({
+        connected: true,
+        publicKey: response.publicKey.toString(),
+        provider: wallet.provider,
+        name: wallet.name
+      });
+      showWalletModal = false;
+    } catch (err) {
+      console.error('Failed to connect wallet:', err);
+    }
+  }
+
+  function disconnectWallet() {
+    walletStore.set({
+      connected: false,
+      publicKey: null,
+      provider: null,
+      name: null
+    });
+  }
+
+  function openWalletModal() {
+    showWalletModal = true;
+  }
+
+  function closeWalletModal() {
+    showWalletModal = false;
+  }
 
   // Refresh interval
   let refreshInterval;
 
   onMount(async () => {
+    detectWallets();
     await loadJobs();
 
     // Live polling every 5 seconds
@@ -155,10 +206,10 @@
   async function loadWalletBalance() {
     if ($walletStore.connected && $walletStore.publicKey) {
       try {
-        const connection = new Connection(RPC_URL, 'confirmed');
-        const pubkey = new PublicKey($walletStore.publicKey);
-        const balance = await connection.getBalance(pubkey);
-        walletBalance = balance / 1_000_000_000;
+        const rpc = createSolanaRpc(RPC_URL);
+        const walletAddress = address($walletStore.publicKey);
+        const result = await rpc.getBalance(walletAddress).send();
+        walletBalance = Number(result.value) / 1_000_000_000;
       } catch (error) {
         console.error('Failed to load wallet balance:', error);
       }
@@ -211,11 +262,18 @@
 
         <div class="header-right">
           {#if walletInfo.connected}
-            <div class="wallet-info text-mono">
-              <span class="text-muted">WALLET:</span>
+            <div class="wallet-connected text-mono">
+              <span class="wallet-dot connected"></span>
               <span class="text-cyan">{walletInfo.publicKey.slice(0, 4)}...{walletInfo.publicKey.slice(-4)}</span>
               <span class="badge badge-success">{walletBalance.toFixed(3)}_SOL</span>
+              <button class="btn-disconnect" on:click={disconnectWallet} title="Disconnect wallet">
+                [X]
+              </button>
             </div>
+          {:else}
+            <button class="btn-wallet-connect text-mono" on:click={openWalletModal}>
+              [CONNECT_WALLET]
+            </button>
           {/if}
         </div>
       </div>
@@ -368,6 +426,57 @@
   </main>
 </div>
 
+<!-- Wallet Connect Modal -->
+{#if showWalletModal}
+  <div class="modal-overlay" on:click={closeWalletModal}>
+    <div class="modal-content" on:click|stopPropagation>
+      <div class="modal-header">
+        <h3 class="text-mono">{'>'} SELECT_WALLET</h3>
+        <button class="modal-close" on:click={closeWalletModal}>[X]</button>
+      </div>
+
+      <div class="modal-body">
+        {#if detectingWallets}
+          <div class="modal-loading text-mono text-muted">
+            [..] DETECTING_WALLETS...
+          </div>
+        {:else if availableWallets.length > 0}
+          <div class="wallet-options">
+            {#each availableWallets as wallet}
+              <button
+                class="wallet-option"
+                on:click={() => connectWallet(wallet)}
+              >
+                <span class="wallet-option-icon">{wallet.icon}</span>
+                <span class="wallet-option-name text-mono">{wallet.name.toUpperCase()}</span>
+                <span class="wallet-option-arrow text-mono text-muted">{'>'}</span>
+              </button>
+            {/each}
+          </div>
+        {:else}
+          <div class="no-wallets-found">
+            <div class="text-mono text-muted mb-4">[!] NO_WALLETS_DETECTED</div>
+            <div class="wallet-install-links">
+              <a href="https://phantom.app" target="_blank" rel="noopener" class="install-link">
+                <span class="install-icon text-mono text-cyan">&lt;◊&gt;</span>
+                <span class="text-mono">INSTALL_PHANTOM</span>
+              </a>
+              <a href="https://solflare.com" target="_blank" rel="noopener" class="install-link">
+                <span class="install-icon text-mono text-cyan">[*]</span>
+                <span class="text-mono">INSTALL_SOLFLARE</span>
+              </a>
+            </div>
+          </div>
+        {/if}
+      </div>
+
+      <div class="modal-footer text-mono text-xs text-muted">
+        CONNECT_TO_INTERACT_WITH_SOLANA_NETWORK
+      </div>
+    </div>
+  </div>
+{/if}
+
 <style>
   .dashboard {
     min-height: 100vh;
@@ -497,15 +606,255 @@
     border-bottom-color: transparent;
   }
 
-  .wallet-info {
+  .wallet-connected {
     display: flex;
     align-items: center;
     gap: var(--space-2);
     padding: var(--space-2) var(--space-3);
-    background: rgba(6, 182, 212, 0.1);
-    border: 1px solid var(--zyber-border-secondary);
+    background: rgba(16, 185, 129, 0.1);
+    border: 1px solid var(--zyber-success);
     border-radius: var(--radius-md);
     font-size: var(--text-sm);
+  }
+
+  .wallet-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--zyber-success);
+    box-shadow: 0 0 8px var(--zyber-success);
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  .btn-disconnect {
+    background: transparent;
+    border: none;
+    color: var(--zyber-text-muted);
+    cursor: pointer;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    padding: 2px 4px;
+    transition: color 0.2s ease;
+  }
+
+  .btn-disconnect:hover {
+    color: var(--zyber-error);
+  }
+
+  .wallet-connect-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .btn-connect {
+    background: rgba(6, 182, 212, 0.1);
+    border: 1px solid var(--zyber-cyber-cyan);
+    color: var(--zyber-cyber-cyan);
+    padding: var(--space-2) var(--space-3);
+    font-size: var(--text-sm);
+    cursor: pointer;
+    border-radius: var(--radius-md);
+    transition: all 0.2s ease;
+  }
+
+  .btn-connect:hover {
+    background: rgba(6, 182, 212, 0.2);
+    box-shadow: 0 0 15px rgba(6, 182, 212, 0.3);
+  }
+
+  .btn-install {
+    color: var(--zyber-quantum-violet);
+    text-decoration: none;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--zyber-quantum-violet);
+    border-radius: var(--radius-md);
+    font-size: var(--text-sm);
+    transition: all 0.2s ease;
+  }
+
+  .btn-wallet-connect {
+    background: rgba(6, 182, 212, 0.1);
+    border: 1px solid var(--zyber-cyber-cyan);
+    color: var(--zyber-cyber-cyan);
+    padding: var(--space-2) var(--space-4);
+    font-size: var(--text-sm);
+    cursor: pointer;
+    border-radius: var(--radius-md);
+    transition: all 0.2s ease;
+  }
+
+  .btn-wallet-connect:hover {
+    background: rgba(6, 182, 212, 0.2);
+    box-shadow: 0 0 20px rgba(6, 182, 212, 0.4);
+    transform: translateY(-1px);
+  }
+
+  /* Modal Styles */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    animation: fadeIn 0.2s ease;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  .modal-content {
+    background: rgba(15, 23, 42, 0.98);
+    border: 1px solid var(--zyber-cyber-cyan);
+    border-radius: var(--radius-lg);
+    width: 90%;
+    max-width: 400px;
+    box-shadow:
+      0 0 30px rgba(6, 182, 212, 0.3),
+      0 25px 50px rgba(0, 0, 0, 0.5);
+    animation: slideUp 0.3s ease;
+  }
+
+  @keyframes slideUp {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--space-4) var(--space-5);
+    border-bottom: 1px solid var(--zyber-border-muted);
+  }
+
+  .modal-header h3 {
+    margin: 0;
+    font-size: var(--text-lg);
+    color: var(--zyber-cyber-cyan);
+  }
+
+  .modal-close {
+    background: transparent;
+    border: none;
+    color: var(--zyber-text-muted);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    cursor: pointer;
+    padding: var(--space-1) var(--space-2);
+    transition: color 0.2s ease;
+  }
+
+  .modal-close:hover {
+    color: var(--zyber-error);
+  }
+
+  .modal-body {
+    padding: var(--space-5);
+  }
+
+  .modal-loading {
+    text-align: center;
+    padding: var(--space-6);
+  }
+
+  .wallet-options {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .wallet-option {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    padding: var(--space-4);
+    background: rgba(6, 182, 212, 0.05);
+    border: 1px solid var(--zyber-border-muted);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    width: 100%;
+    text-align: left;
+  }
+
+  .wallet-option:hover {
+    background: rgba(6, 182, 212, 0.15);
+    border-color: var(--zyber-cyber-cyan);
+    box-shadow: 0 0 15px rgba(6, 182, 212, 0.2);
+    transform: translateX(4px);
+  }
+
+  .wallet-option-icon {
+    font-size: var(--text-2xl);
+    width: 40px;
+    text-align: center;
+  }
+
+  .wallet-option-name {
+    flex: 1;
+    font-size: var(--text-base);
+    color: var(--zyber-text-primary);
+  }
+
+  .wallet-option-arrow {
+    font-size: var(--text-lg);
+    transition: transform 0.2s ease;
+  }
+
+  .wallet-option:hover .wallet-option-arrow {
+    transform: translateX(4px);
+    color: var(--zyber-cyber-cyan);
+  }
+
+  .no-wallets-found {
+    text-align: center;
+    padding: var(--space-4);
+  }
+
+  .wallet-install-links {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .install-link {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    background: rgba(139, 92, 246, 0.1);
+    border: 1px solid var(--zyber-quantum-violet);
+    border-radius: var(--radius-md);
+    color: var(--zyber-quantum-violet);
+    text-decoration: none;
+    transition: all 0.2s ease;
+  }
+
+  .install-link:hover {
+    background: rgba(139, 92, 246, 0.2);
+    box-shadow: 0 0 15px rgba(139, 92, 246, 0.3);
+  }
+
+  .install-icon {
+    font-size: var(--text-xl);
+  }
+
+  .modal-footer {
+    padding: var(--space-3) var(--space-5);
+    border-top: 1px solid var(--zyber-border-muted);
+    text-align: center;
   }
 
   .dashboard-main {

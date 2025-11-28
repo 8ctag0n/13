@@ -5,7 +5,7 @@
   import PriceSlider from '../components/PriceSlider.svelte';
   import Loading from '../components/Loading.svelte';
   import { ensureTokenAccount, WZEC_MINT } from '../utils/tokenAccountManager';
-  import { Connection, clusterApiUrl } from '@solana/web3.js';
+  import { createSolanaRpc } from '@solana/kit';
   import { toastStore } from '../stores/toast';
 
   // API URLs - use relative path for nginx proxy, fallback for local dev
@@ -228,12 +228,10 @@
     try {
       // If paying with wZEC, ensure token account exists
       if (jobData.paymentMethod === 'wzec') {
-        const connection = new Connection(clusterApiUrl('devnet'), 'confirmed');
-
         processingMessage = 'Checking wZEC token account...';
 
-        const tokenAccount = await ensureTokenAccount(
-          connection,
+        const tokenResult = await ensureTokenAccount(
+          RPC_URL,
           $walletStore,
           WZEC_MINT,
           (progress) => {
@@ -241,12 +239,17 @@
             console.log(`Token account progress: ${progress.step} - ${progress.message}`);
 
             if (progress.step === 'creating') {
-              toastStore.add('Creating wZEC token account...', 'info');
-            } else if (progress.step === 'success') {
+              toastStore.add('Preparing wZEC token account...', 'info');
+            } else if (progress.step === 'ready') {
               toastStore.add('wZEC token account ready!', 'success');
             }
           }
         );
+
+        // If needs creation, the instruction will be included in the job transaction
+        if (tokenResult.needsCreation) {
+          console.log('Token account needs creation, instruction prepared');
+        }
       }
 
       // Step 1: Read encrypted files
@@ -310,10 +313,10 @@
       const txBytes = Uint8Array.from(atob(transaction), c => c.charCodeAt(0));
       const tx = Transaction.from(txBytes);
 
-      // Step 5: Get recent blockhash and set fee payer
-      const connection = new Connection(RPC_URL, 'confirmed');
-      const { blockhash } = await connection.getLatestBlockhash('confirmed');
-      tx.recentBlockhash = blockhash;
+      // Step 5: Get recent blockhash and set fee payer (using kit RPC)
+      const rpc = createSolanaRpc(RPC_URL);
+      const { value: latestBlockhash } = await rpc.getLatestBlockhash({ commitment: 'confirmed' }).send();
+      tx.recentBlockhash = latestBlockhash.blockhash;
       tx.feePayer = $walletStore.publicKey;
 
       // Step 6: Sign transaction with wallet
@@ -321,16 +324,29 @@
       toastStore.add('Please sign the transaction in your wallet', 'info');
       const signedTx = await $walletStore.signTransaction(tx);
 
-      // Step 7: Send transaction to Solana network
+      // Step 7: Send transaction to Solana network (using kit RPC)
       processingMessage = 'Sending transaction to Solana...';
-      const signature = await connection.sendRawTransaction(signedTx.serialize(), {
+      const txBase64 = btoa(String.fromCharCode(...signedTx.serialize()));
+      const sendResult = await rpc.sendTransaction(txBase64, {
+        encoding: 'base64',
         skipPreflight: false,
         preflightCommitment: 'confirmed'
-      });
+      }).send();
+      const signature = sendResult;
 
       // Step 8: Wait for confirmation
       processingMessage = 'Confirming transaction...';
-      await connection.confirmTransaction(signature, 'confirmed');
+      // Poll for confirmation
+      let confirmed = false;
+      for (let i = 0; i < 30 && !confirmed; i++) {
+        await new Promise(r => setTimeout(r, 1000));
+        const statusResult = await rpc.getSignatureStatuses([signature]).send();
+        if (statusResult.value[0]?.confirmationStatus === 'confirmed' ||
+            statusResult.value[0]?.confirmationStatus === 'finalized') {
+          confirmed = true;
+        }
+      }
+      if (!confirmed) throw new Error('Transaction confirmation timeout');
       console.log('Transaction confirmed:', signature);
 
       // Step 9: Confirm with backend

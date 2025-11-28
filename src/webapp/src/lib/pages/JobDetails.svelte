@@ -2,7 +2,6 @@
   import { onMount, onDestroy } from 'svelte';
   import { currentRoute, navigateTo } from '../stores/router';
   import { walletStore } from '../stores/wallet';
-  import GlobalNavigation from '../components/GlobalNavigation.svelte';
 
   export let jobId;
 
@@ -183,8 +182,6 @@
     if (pollInterval) clearInterval(pollInterval);
   });
 </script>
-
-<GlobalNavigation />
 
 <div class="job-details-page">
   <div class="container">

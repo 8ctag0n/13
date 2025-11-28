@@ -6,12 +6,13 @@
   let stats = [
     { id: 'provers', icon: '[#]', label: 'ACTIVE_PROVERS', value: 0, target: 0, color: 'cyan' },
     { id: 'jobs', icon: '[>]', label: 'JOBS_TOTAL', value: 0, target: 0, color: 'violet' },
-    { id: 'data', icon: '[=]', label: 'DATA_ENCRYPTED', value: 0, target: 0, suffix: ' TB', color: 'cyan' },
+    { id: 'data', icon: '[=]', label: 'DATA_ENCRYPTED', value: '0 B', color: 'cyan', isString: true },
     { id: 'uptime', icon: '[*]', label: 'NETWORK_UPTIME', value: 0, target: 99.97, suffix: '%', color: 'success' }
   ];
 
   // Animate counter
   function animateValue(stat, target, duration = 1000) {
+    if (stat.isString) return; // Don't animate string values
     const start = stat.value;
     const change = target - start;
     const startTime = performance.now();
@@ -45,15 +46,18 @@
         // Update targets
         stats[0].target = data.active_provers || 0;
         stats[1].target = data.jobs_total || 0;
-        stats[2].target = data.data_encrypted_tb || 0;
+        // Data uses pre-formatted string from backend (adaptive MB/GB/TB)
+        stats[2].value = data.data_encrypted_formatted || '0 B';
         stats[3].target = data.uptime_percent || 99.97;
 
-        // Animate to new values
+        // Animate numeric values
         stats.forEach(stat => {
-          if (stat.value !== stat.target) {
+          if (!stat.isString && stat.value !== stat.target) {
             animateValue(stat, stat.target);
           }
         });
+
+        stats = stats; // Trigger reactivity for string values
       }
     } catch (error) {
       console.error('Failed to fetch stats:', error);
@@ -62,7 +66,10 @@
 
   // Format value for display
   function formatValue(stat) {
-    if (stat.id === 'data' || stat.id === 'uptime') {
+    if (stat.isString) {
+      return stat.value; // Already formatted by backend
+    }
+    if (stat.id === 'uptime') {
       return stat.value.toFixed(2);
     }
     return Math.floor(stat.value).toLocaleString();

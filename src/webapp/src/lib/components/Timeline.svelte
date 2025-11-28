@@ -6,9 +6,12 @@
   let levelElements = [];
   let decryptedLevels = new Set(); // Track which levels have been decrypted
   let isVisible = false; // Lazy load - only render when visible
+  let timelineInitialized = false;
   let containerRef;
   let visibilityObserver;
-  let activeIntervals = []; // Track all intervals for cleanup
+  const activeIntervals = new Set(); // Track all intervals for cleanup without triggering reactivity
+  let levelsColumnRef;
+  let detailsColumnRef;
 
   const cypherChars = '⟁⧖⟟⍦⌧01xX|\\/*';
 
@@ -89,18 +92,18 @@
       if (i > text.length) {
         clearInterval(interval);
         // Remove from tracked intervals
-        activeIntervals = activeIntervals.filter(id => id !== interval);
+        activeIntervals.delete(interval);
         el.textContent = text;
       }
     }, speed);
     // Track interval for cleanup
-    activeIntervals.push(interval);
+    activeIntervals.add(interval);
   }
 
   // Clear all active intervals
   function clearAllIntervals() {
     activeIntervals.forEach(id => clearInterval(id));
-    activeIntervals = [];
+    activeIntervals.clear();
   }
 
   function decryptTitle(el, text) {
@@ -112,11 +115,11 @@
     activeLevel = index;
 
     // Clear panel
-    if (decryptBox) {
-      decryptBox.innerHTML = '';
+      if (decryptBox) {
+        decryptBox.innerHTML = '';
 
-      const panelLines = [
-        `> mount /levels/${level.file}`,
+        const panelLines = [
+          `> mount /levels/${level.file}`,
         `> status: SCANNING...`,
         `> decrypt: OK`,
         `> year: ${level.year}`,
@@ -133,7 +136,7 @@
       const panelInterval = setInterval(() => {
         if (lineIndex >= panelLines.length) {
           clearInterval(panelInterval);
-          activeIntervals = activeIntervals.filter(id => id !== panelInterval);
+          activeIntervals.delete(panelInterval);
           // Add clickable link at the end
           if (level.link) {
             setTimeout(() => {
@@ -161,7 +164,7 @@
         decryptBox.appendChild(line);
         lineIndex++;
       }, 180);
-      activeIntervals.push(panelInterval);
+      activeIntervals.add(panelInterval);
     }
 
     // Decrypt the level title (only if not already decrypted)
@@ -184,9 +187,10 @@
   }
 
   let levelObserver;
+  let levelsResizeObserver;
 
   function initializeTimeline() {
-    if (!isVisible) return;
+    if (!isVisible || timelineInitialized) return;
 
     // Initialize all titles with scrambled text (only once)
     levelElements.forEach((el, i) => {
@@ -207,6 +211,7 @@
           if (entry.isIntersecting) {
             const index = parseInt(entry.target.dataset.index);
             showDecryptPanel(levels[index], index);
+            levelObserver.unobserve(entry.target);
           }
         });
       },
@@ -219,6 +224,9 @@
         levelObserver.observe(el);
       }
     });
+
+    timelineInitialized = true;
+    syncColumnHeight();
   }
 
   onMount(() => {
@@ -230,6 +238,9 @@
             isVisible = true;
             // Small delay to ensure DOM is ready
             setTimeout(initializeTimeline, 100);
+            if (containerRef) {
+              visibilityObserver.unobserve(containerRef);
+            }
           }
         });
       },
@@ -239,6 +250,14 @@
     if (containerRef) {
       visibilityObserver.observe(containerRef);
     }
+
+    // Keep details column height in sync with levels
+    if (typeof ResizeObserver !== 'undefined' && levelsColumnRef) {
+      levelsResizeObserver = new ResizeObserver(syncColumnHeight);
+      levelsResizeObserver.observe(levelsColumnRef);
+    }
+
+    window.addEventListener('resize', syncColumnHeight);
   });
 
   onDestroy(() => {
@@ -247,7 +266,33 @@
     // Disconnect observers
     if (visibilityObserver) visibilityObserver.disconnect();
     if (levelObserver) levelObserver.disconnect();
+    if (levelsResizeObserver) levelsResizeObserver.disconnect();
+    window.removeEventListener('resize', syncColumnHeight);
   });
+
+  // Keep right column height matched to levels column and clamp decrypt panel height
+  function syncColumnHeight() {
+    if (!levelsColumnRef || !detailsColumnRef) return;
+    const levelsHeight = levelsColumnRef.getBoundingClientRect().height;
+    if (levelsHeight > 0) {
+      detailsColumnRef.style.minHeight = `${levelsHeight}px`;
+      detailsColumnRef.style.height = `${levelsHeight}px`;
+    }
+
+    if (decryptBox && detailsColumnRef) {
+      const headerEl = detailsColumnRef.querySelector('.details-header');
+      const cursorEl = detailsColumnRef.querySelector('.terminal-cursor');
+      const styles = getComputedStyle(detailsColumnRef);
+      const padding =
+        parseFloat(styles.paddingTop || '0') + parseFloat(styles.paddingBottom || '0');
+      const headerHeight = headerEl?.getBoundingClientRect().height || 0;
+      const cursorHeight = cursorEl?.getBoundingClientRect().height || 0;
+      const available = Math.max(200, levelsHeight - padding - headerHeight - cursorHeight - 20);
+      decryptBox.style.minHeight = `${available}px`;
+      decryptBox.style.maxHeight = `${available}px`;
+      decryptBox.style.overflowY = 'auto';
+    }
+  }
 </script>
 
 <section id="timeline" class="timeline-section" bind:this={containerRef}>
@@ -263,7 +308,7 @@
   {#if isVisible}
     <div class="timeline-container">
       <!-- Left Column: Levels -->
-      <div class="levels-column">
+      <div class="levels-column" bind:this={levelsColumnRef}>
         {#each levels as level, index}
           <button
             class="level tui-box"
@@ -279,7 +324,7 @@
       </div>
 
       <!-- Right Column: Decrypt Info -->
-      <div class="details-column tui-box">
+      <div class="details-column tui-box" bind:this={detailsColumnRef}>
         <div class="details-header text-mono text-xs text-muted mb-4">
           > DECRYPT_OUTPUT
         </div>
@@ -384,7 +429,7 @@
   .details-column {
     position: sticky;
     top: 100px;
-    height: fit-content;
+    height: 100%;
     min-height: 400px;
     padding: var(--space-6);
     background: rgba(0, 10, 20, 0.8);
@@ -401,6 +446,10 @@
     line-height: 1.8;
     white-space: pre-wrap;
     color: var(--zyber-cyber-cyan);
+    overflow: hidden;
+    width: 100%;
+    max-width: 100%;
+    word-break: break-word;
   }
 
   :global(.decrypt-line) {

@@ -1,38 +1,44 @@
 /**
  * Token Account Manager
  * Handles SPL Token Account operations for wZEC payments
+ * Using @solana/kit + @solana-program/token
  */
 
-import { PublicKey, Transaction, SystemProgram } from '@solana/web3.js';
+import { createSolanaRpc, address } from '@solana/kit';
 import {
-  TOKEN_PROGRAM_ID,
-  ASSOCIATED_TOKEN_PROGRAM_ID,
-  getAssociatedTokenAddress,
-  createAssociatedTokenAccountInstruction,
-} from '@solana/spl-token';
+  findAssociatedTokenPda,
+  getCreateAssociatedTokenIdempotentInstructionAsync,
+  TOKEN_PROGRAM_ADDRESS,
+} from '@solana-program/token';
+
+// wZEC mint address
+export const WZEC_MINT = address('sXpG9BWgA6hxz9BTVLNTqWSHpbbQKa2LqKH6qD2fCAZ');
 
 /**
  * Check if a token account exists for the given owner and mint
- * @param {Connection} connection - Solana connection
- * @param {PublicKey} owner - Owner's public key
- * @param {PublicKey} mint - Token mint public key
- * @returns {Promise<{exists: boolean, address: PublicKey|null}>}
+ * @param {string} rpcUrl - RPC URL
+ * @param {string} ownerAddress - Owner's public key string
+ * @param {Address} mint - Token mint address
+ * @returns {Promise<{exists: boolean, address: string|null}>}
  */
-export async function checkTokenAccount(connection, owner, mint) {
+export async function checkTokenAccount(rpcUrl, ownerAddress, mint) {
   try {
-    const associatedTokenAddress = await getAssociatedTokenAddress(
+    const rpc = createSolanaRpc(rpcUrl);
+    const owner = address(ownerAddress);
+
+    // Find the associated token address using PDA
+    const [ataAddress] = await findAssociatedTokenPda({
       mint,
       owner,
-      false, // allowOwnerOffCurve
-      TOKEN_PROGRAM_ID,
-      ASSOCIATED_TOKEN_PROGRAM_ID
-    );
+      tokenProgram: TOKEN_PROGRAM_ADDRESS,
+    });
 
-    const accountInfo = await connection.getAccountInfo(associatedTokenAddress);
+    // Check if account exists
+    const accountInfo = await rpc.getAccountInfo(ataAddress, { encoding: 'base64' }).send();
 
     return {
-      exists: accountInfo !== null,
-      address: accountInfo !== null ? associatedTokenAddress : null
+      exists: accountInfo.value !== null,
+      address: accountInfo.value !== null ? ataAddress : null
     };
   } catch (error) {
     console.error('Error checking token account:', error);
@@ -45,47 +51,37 @@ export async function checkTokenAccount(connection, owner, mint) {
 }
 
 /**
- * Create instruction to create an associated token account
- * @param {PublicKey} payer - Payer's public key (fee payer)
- * @param {PublicKey} owner - Owner's public key
- * @param {PublicKey} mint - Token mint public key
- * @returns {Promise<TransactionInstruction>}
+ * Get the associated token address for an owner and mint
+ * @param {string} ownerAddress - Owner's public key string
+ * @param {Address} mint - Token mint address
+ * @returns {Promise<Address>}
  */
-export async function createTokenAccountInstruction(payer, owner, mint) {
-  const associatedTokenAddress = await getAssociatedTokenAddress(
+export async function getTokenAddress(ownerAddress, mint) {
+  const owner = address(ownerAddress);
+  const [ataAddress] = await findAssociatedTokenPda({
     mint,
     owner,
-    false,
-    TOKEN_PROGRAM_ID,
-    ASSOCIATED_TOKEN_PROGRAM_ID
-  );
-
-  return createAssociatedTokenAccountInstruction(
-    payer,
-    associatedTokenAddress,
-    owner,
-    mint,
-    TOKEN_PROGRAM_ID,
-    ASSOCIATED_TOKEN_PROGRAM_ID
-  );
+    tokenProgram: TOKEN_PROGRAM_ADDRESS,
+  });
+  return ataAddress;
 }
 
 /**
  * Ensure token account exists, create if not
- * @param {Connection} connection - Solana connection
- * @param {Object} wallet - Wallet adapter object
- * @param {PublicKey} mint - Token mint public key
+ * Note: This returns the instruction to create, actual signing happens in the caller
+ * @param {string} rpcUrl - RPC URL
+ * @param {Object} wallet - Wallet object with publicKey
+ * @param {Address} mint - Token mint address
  * @param {Function} onProgress - Progress callback
- * @returns {Promise<PublicKey>} - Associated token address
+ * @returns {Promise<{address: Address, needsCreation: boolean, instruction?: any}>}
  */
-export async function ensureTokenAccount(connection, wallet, mint, onProgress = null) {
+export async function ensureTokenAccount(rpcUrl, wallet, mint, onProgress = null) {
   if (!wallet || !wallet.publicKey) {
     throw new Error('Wallet not connected');
   }
 
-  const owner = wallet.publicKey;
+  const ownerAddress = wallet.publicKey.toString();
 
-  // Report progress
   const reportProgress = (step, message) => {
     if (onProgress) onProgress({ step, message });
     console.log(`[Token Account Manager] ${step}: ${message}`);
@@ -94,70 +90,44 @@ export async function ensureTokenAccount(connection, wallet, mint, onProgress = 
   reportProgress('checking', 'Checking for existing token account...');
 
   // Check if account exists
-  const { exists, address } = await checkTokenAccount(connection, owner, mint);
+  const { exists, address: existingAddress } = await checkTokenAccount(rpcUrl, ownerAddress, mint);
 
   if (exists) {
-    reportProgress('exists', `Token account found: ${address.toString()}`);
-    return address;
+    reportProgress('exists', `Token account found: ${existingAddress}`);
+    return { address: existingAddress, needsCreation: false };
   }
 
-  reportProgress('creating', 'Creating new token account...');
+  reportProgress('creating', 'Preparing token account creation...');
 
-  try {
-    // Create instruction
-    const instruction = await createTokenAccountInstruction(owner, owner, mint);
+  // Get the ATA address
+  const ataAddress = await getTokenAddress(ownerAddress, mint);
 
-    // Build transaction
-    const transaction = new Transaction().add(instruction);
-    transaction.feePayer = owner;
+  // Create instruction for creating the ATA (idempotent - safe if already exists)
+  const owner = address(ownerAddress);
+  const instruction = await getCreateAssociatedTokenIdempotentInstructionAsync({
+    mint,
+    owner,
+    payer: owner,
+  });
 
-    // Get recent blockhash
-    const { blockhash } = await connection.getLatestBlockhash();
-    transaction.recentBlockhash = blockhash;
+  reportProgress('ready', `Token account instruction ready: ${ataAddress}`);
 
-    reportProgress('signing', 'Waiting for wallet signature...');
-
-    // Sign and send transaction
-    const signed = await wallet.signTransaction(transaction);
-    const signature = await connection.sendRawTransaction(signed.serialize());
-
-    reportProgress('confirming', 'Confirming transaction...');
-
-    // Confirm transaction
-    await connection.confirmTransaction(signature, 'confirmed');
-
-    // Get the created token account address
-    const tokenAccountAddress = await getAssociatedTokenAddress(
-      mint,
-      owner,
-      false,
-      TOKEN_PROGRAM_ID,
-      ASSOCIATED_TOKEN_PROGRAM_ID
-    );
-
-    reportProgress('success', `Token account created: ${tokenAccountAddress.toString()}`);
-
-    return tokenAccountAddress;
-  } catch (error) {
-    reportProgress('error', `Failed to create token account: ${error.message}`);
-    throw error;
-  }
+  return {
+    address: ataAddress,
+    needsCreation: true,
+    instruction
+  };
 }
 
 /**
- * Get associated token address (without checking if it exists)
- * @param {PublicKey} owner - Owner's public key
- * @param {PublicKey} mint - Token mint public key
- * @returns {Promise<PublicKey>}
+ * Helper to check if wallet has wZEC token account
+ * @param {string} rpcUrl - RPC URL
+ * @param {string} walletPublicKey - Wallet public key string
+ * @returns {Promise<boolean>}
  */
-export async function getTokenAddress(owner, mint) {
-  return await getAssociatedTokenAddress(
-    mint,
-    owner,
-    false,
-    TOKEN_PROGRAM_ID,
-    ASSOCIATED_TOKEN_PROGRAM_ID
-  );
+export async function hasWzecAccount(rpcUrl, walletPublicKey) {
+  const { exists } = await checkTokenAccount(rpcUrl, walletPublicKey, WZEC_MINT);
+  return exists;
 }
 
 /**
@@ -180,20 +150,4 @@ export function formatTokenAccountInfo(accountInfo) {
     address: accountInfo.address?.toString(),
     requiresCreation: false
   };
-}
-
-/**
- * Constants
- */
-export const WZEC_MINT = new PublicKey('sXpG9BWgA6hxz9BTVLNTqWSHpbbQKa2LqKH6qD2fCAZ');
-
-/**
- * Helper to check if wallet has wZEC token account
- * @param {Connection} connection
- * @param {PublicKey} walletPublicKey
- * @returns {Promise<boolean>}
- */
-export async function hasWzecAccount(connection, walletPublicKey) {
-  const { exists } = await checkTokenAccount(connection, walletPublicKey, WZEC_MINT);
-  return exists;
 }

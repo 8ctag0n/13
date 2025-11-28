@@ -3,14 +3,15 @@
   import { currentRoute, navigateTo } from '../stores/router';
 
   // Secciones de la landing page + rutas de la app
+  // APP está en el medio con forma de octágono para destacar
   const sections = [
     { id: 'hero', label: 'INIT', icon: '>', type: 'scroll' },
     { id: 'stats', label: 'STATS', icon: '#', type: 'scroll' },
     { id: 'how-it-works', label: 'FLOW', icon: '~', type: 'scroll' },
+    { id: 'dashboard', label: 'APP', icon: '◈', type: 'route', isApp: true },
     { id: 'use-cases', label: 'CASES', icon: '*', type: 'scroll' },
     { id: 'timeline', label: 'CHRONICLE', icon: '|', type: 'scroll' },
-    { id: 'footer', label: 'INFO', icon: 'i', type: 'scroll' },
-    { id: 'dashboard', label: 'APP', icon: '+', type: 'route' }
+    { id: 'footer', label: 'INFO', icon: 'i', type: 'scroll' }
   ];
 
   let activeSection = 0;
@@ -103,9 +104,9 @@
       aria-label="Navigate to {section.label}"
       title={section.label}
     >
-      <!-- Dot Square -->
-      <div class="dot-square">
-        <div class="dot-pulse"></div>
+      <!-- Dot Shape (Square or Octagon for APP) -->
+      <div class="dot-shape" class:dot-octagon={section.isApp}>
+        <div class="dot-pulse" class:octagon-pulse={section.isApp}></div>
         <div class="dot-icon text-mono">{section.icon}</div>
       </div>
 
@@ -154,7 +155,7 @@
     opacity: 0.4;
   }
 
-  /* --- SQUARE ITEM --- */
+  /* --- NAV ITEM --- */
   .nav-dot {
     position: relative;
     background: none;
@@ -168,7 +169,7 @@
     transition: all var(--transition-base);
   }
 
-  .dot-square {
+  .dot-shape {
     position: relative;
     width: 36px;
     height: 36px;
@@ -181,6 +182,59 @@
     justify-content: center;
     transition: all .25s cubic-bezier(0.4,0,0.2,1);
     box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  }
+
+  /* OCTAGON SHAPE for APP button */
+  .dot-shape.dot-octagon {
+    width: 44px;
+    height: 44px;
+    border-radius: 0;
+    border: 2px solid var(--zyber-cyber-cyan);
+    background: rgba(6, 182, 212, 0.1);
+    clip-path: polygon(
+      30% 0%, 70% 0%,
+      100% 30%, 100% 70%,
+      70% 100%, 30% 100%,
+      0% 70%, 0% 30%
+    );
+    box-shadow:
+      0 0 15px rgba(6, 182, 212, 0.4),
+      0 0 30px rgba(6, 182, 212, 0.2),
+      inset 0 0 15px rgba(6, 182, 212, 0.1);
+    animation: octagon-glow 3s ease-in-out infinite;
+  }
+  .dot-shape.dot-octagon::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(6, 182, 212, 0.2) 0%, transparent 50%, rgba(139, 92, 246, 0.2) 100%);
+    clip-path: polygon(
+      30% 0%, 70% 0%,
+      100% 30%, 100% 70%,
+      70% 100%, 30% 100%,
+      0% 70%, 0% 30%
+    );
+  }
+  .dot-shape.dot-octagon::after {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    border: 1px solid var(--zyber-cyber-cyan);
+    opacity: 0.3;
+    clip-path: polygon(
+      30% 0%, 70% 0%,
+      100% 30%, 100% 70%,
+      70% 100%, 30% 100%,
+      0% 70%, 0% 30%
+    );
+    animation: octagon-ring 2s ease-out infinite;
+  }
+
+  /* Octagon icon always cyan */
+  .dot-shape.dot-octagon .dot-icon {
+    color: var(--zyber-cyber-cyan);
+    opacity: 1;
+    text-shadow: 0 0 8px rgba(6, 182, 212, 0.6);
   }
 
   .dot-icon {
@@ -201,13 +255,22 @@
   }
 
   /* HOVER */
-  .nav-dot:hover .dot-square {
+  .nav-dot:hover .dot-shape {
     border-color: var(--zyber-cyber-cyan);
     background: rgba(6, 182, 212, 0.08);
     transform: scale(1.1);
     box-shadow:
       0 0 15px rgba(6, 182, 212, 0.3),
       0 2px 10px rgba(0,0,0,0.4);
+  }
+  .nav-dot:hover .dot-shape.dot-octagon {
+    border: 2px solid var(--zyber-cyber-cyan);
+    background: rgba(6, 182, 212, 0.2);
+    transform: scale(1.15);
+    box-shadow:
+      0 0 25px rgba(6, 182, 212, 0.6),
+      0 0 50px rgba(6, 182, 212, 0.3),
+      inset 0 0 20px rgba(6, 182, 212, 0.2);
   }
   .nav-dot:hover .dot-icon {
     opacity: 1;
@@ -217,9 +280,12 @@
     opacity: 0.5;
     animation: pulse-square 1.2s ease-out infinite;
   }
+  .nav-dot:hover .dot-pulse.octagon-pulse {
+    animation: pulse-octagon 1.2s ease-out infinite;
+  }
 
   /* ACTIVE */
-  .nav-dot.active .dot-square {
+  .nav-dot.active .dot-shape {
     background: rgba(6, 182, 212, 0.15);
     border-color: var(--zyber-cyber-cyan);
     transform: scale(1.15);
@@ -227,6 +293,16 @@
       0 0 20px rgba(6, 182, 212, 0.5),
       0 0 40px rgba(6, 182, 212, 0.2),
       inset 0 0 10px rgba(6, 182, 212, 0.1);
+  }
+  .nav-dot.active .dot-shape.dot-octagon {
+    border: 2px solid var(--zyber-cyber-cyan);
+    background: rgba(6, 182, 212, 0.25);
+    transform: scale(1.2);
+    box-shadow:
+      0 0 30px rgba(6, 182, 212, 0.7),
+      0 0 60px rgba(6, 182, 212, 0.4),
+      0 0 100px rgba(6, 182, 212, 0.2),
+      inset 0 0 25px rgba(6, 182, 212, 0.3);
   }
   .nav-dot.active .dot-icon {
     opacity: 1;
@@ -236,6 +312,9 @@
   .nav-dot.active .dot-pulse {
     opacity: 0.8;
     animation: pulse-square-active 2s infinite;
+  }
+  .nav-dot.active .dot-pulse.octagon-pulse {
+    animation: pulse-octagon-active 2s infinite;
   }
 
   /* LABEL */
@@ -280,6 +359,40 @@
   @keyframes pulse-square-active {
     0%,100% { opacity: 0.6; transform: scale(1); }
     50%     { opacity: 1;   transform: scale(1.25); }
+  }
+  @keyframes pulse-octagon {
+    0%   { opacity: 0.5; transform: scale(1); }
+    100% { opacity: 0;   transform: scale(1.5); }
+  }
+  @keyframes pulse-octagon-active {
+    0%,100% { opacity: 0.7; transform: scale(1); }
+    50%     { opacity: 1;   transform: scale(1.3); }
+  }
+
+  @keyframes octagon-glow {
+    0%, 100% {
+      box-shadow:
+        0 0 15px rgba(6, 182, 212, 0.4),
+        0 0 30px rgba(6, 182, 212, 0.2),
+        inset 0 0 15px rgba(6, 182, 212, 0.1);
+    }
+    50% {
+      box-shadow:
+        0 0 20px rgba(6, 182, 212, 0.6),
+        0 0 40px rgba(6, 182, 212, 0.3),
+        inset 0 0 20px rgba(6, 182, 212, 0.15);
+    }
+  }
+
+  @keyframes octagon-ring {
+    0% {
+      opacity: 0.5;
+      transform: scale(1);
+    }
+    100% {
+      opacity: 0;
+      transform: scale(1.5);
+    }
   }
 
   @media (max-width: 768px) {

@@ -10,6 +10,30 @@ use crate::AppState;
 use blake2::{Blake2s256, Digest};
 
 // ============================================================================
+// Helper Functions
+// ============================================================================
+
+/// Format bytes into human-readable string (B, KB, MB, GB, TB)
+fn format_bytes(bytes: i64) -> String {
+    const KB: i64 = 1024;
+    const MB: i64 = KB * 1024;
+    const GB: i64 = MB * 1024;
+    const TB: i64 = GB * 1024;
+
+    if bytes >= TB {
+        format!("{:.2} TB", bytes as f64 / TB as f64)
+    } else if bytes >= GB {
+        format!("{:.2} GB", bytes as f64 / GB as f64)
+    } else if bytes >= MB {
+        format!("{:.2} MB", bytes as f64 / MB as f64)
+    } else if bytes >= KB {
+        format!("{:.2} KB", bytes as f64 / KB as f64)
+    } else {
+        format!("{} B", bytes)
+    }
+}
+
+// ============================================================================
 // Response Types
 // ============================================================================
 
@@ -197,7 +221,7 @@ pub struct NetworkStatsResponse {
     pub jobs_completed: i64,
     pub jobs_total: i64,
     pub data_encrypted_bytes: i64,
-    pub data_encrypted_tb: f64,
+    pub data_encrypted_formatted: String, // Adaptive: B, KB, MB, GB, TB
     pub network_start_time: Option<String>,
     pub uptime_seconds: i64,
     pub uptime_percent: f64,
@@ -803,16 +827,42 @@ async fn get_network_stats(data: web::Data<AppState>) -> impl Responder {
         (0, None)
     };
 
-    // Estimate encrypted data (1KB per job as rough estimate)
-    let data_bytes = jobs_total * 1024;
-    let data_tb = data_bytes as f64 / (1024.0 * 1024.0 * 1024.0 * 1024.0);
+    // Query 5: Get actual encrypted data size from temp_job_data
+    let encrypted_data_size: i64 = sqlx::query_scalar!(
+        r#"SELECT COALESCE(SUM(LENGTH(encrypted_data)), 0)::bigint as "size!" FROM temp_job_data"#
+    )
+    .fetch_one(&data.db_pool)
+    .await
+    .unwrap_or(0);
+
+    // Query 6: Get server_key sizes (these are large ~40MB each)
+    let server_key_size: i64 = sqlx::query_scalar!(
+        r#"SELECT COALESCE(SUM(LENGTH(server_key)), 0)::bigint as "size!" FROM temp_job_data"#
+    )
+    .fetch_one(&data.db_pool)
+    .await
+    .unwrap_or(0);
+
+    // Query 7: Get witness data sizes
+    let witness_size: i64 = sqlx::query_scalar!(
+        r#"SELECT COALESCE(SUM(LENGTH(data)), 0)::bigint as "size!" FROM witnesses"#
+    )
+    .fetch_one(&data.db_pool)
+    .await
+    .unwrap_or(0);
+
+    // Total encrypted data processed
+    let data_bytes = encrypted_data_size + server_key_size + witness_size;
+
+    // Format bytes adaptively
+    let data_formatted = format_bytes(data_bytes);
 
     HttpResponse::Ok().json(NetworkStatsResponse {
         active_provers,
         jobs_completed,
         jobs_total,
         data_encrypted_bytes: data_bytes,
-        data_encrypted_tb: data_tb,
+        data_encrypted_formatted: data_formatted,
         network_start_time: network_start_str,
         uptime_seconds,
         uptime_percent: 99.97, // Simplified - in production track actual downtime

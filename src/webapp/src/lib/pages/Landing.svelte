@@ -3,7 +3,7 @@
   import Logo from '../components/Logo.svelte';
   import HeroBootSequence from '../components/HeroBootSequence.svelte';
   import FHEFlow from '../components/FHEFlow.svelte';
-  import StatsBar from '../components/StatsBar.svelte';
+  import FloatingStatsCards from '../components/FloatingStatsCards.svelte';
   import Timeline from '../components/Timeline.svelte';
   import UseCases from '../components/UseCases.svelte';
   import Footer from '../components/Footer.svelte';
@@ -136,9 +136,17 @@
     </section>
 
     <!-- Stats Banner -->
-    <div id="stats">
-      <StatsBar />
-    </div>
+    <section id="stats" class="stats-section">
+      <div class="stats-header text-center mb-6">
+        <h3 class="text-mono text-uppercase">
+          <span class="text-cyan">&gt;</span> NETWORK_STATISTICS
+        </h3>
+        <div class="text-xs text-muted text-mono mt-2">
+          REAL_TIME_METRICS_FROM_DECENTRALIZED_NETWORK
+        </div>
+      </div>
+      <FloatingStatsCards />
+    </section>
 
     <!-- How It Works -->
     <section id="how-it-works" class="hero fade-in">
@@ -212,6 +220,19 @@
     width: 100%;
     min-height: 100vh;
     padding: var(--space-8) 0;
+  }
+
+  .stats-section {
+    width: 100%;
+    max-width: 900px;
+    margin: var(--space-8) auto;
+    padding: var(--space-8) var(--space-6);
+    background: linear-gradient(180deg, rgba(139, 92, 246, 0.03) 0%, transparent 100%);
+  }
+
+  .stats-header h3 {
+    font-size: var(--text-xl);
+    font-weight: 600;
   }
 
   .hero {

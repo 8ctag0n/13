@@ -4,9 +4,11 @@
   const API_BASE = import.meta.env.VITE_API_URL || import.meta.env.VITE_BACKEND_URL || 'http://127.0.0.1:8080';
 
   let activeProvers = 0;
-  let totalProvers = 0;
   let jobsTotal = 0;
   let jobsCompleted = 0;
+  let dataEncrypted = '0 B';
+  let dataEncryptedBytes = 0;
+  let uptimeSeconds = 0;
   let lastUpdate = new Date();
 
   // Activity data (jobs per hour, last 24h)
@@ -21,11 +23,21 @@
         activeProvers = data.active_provers || 0;
         jobsTotal = data.jobs_total || 0;
         jobsCompleted = data.jobs_completed || 0;
+        dataEncrypted = data.data_encrypted_formatted || '0 B';
+        dataEncryptedBytes = data.data_encrypted_bytes || 0;
+        uptimeSeconds = data.uptime_seconds || 0;
         lastUpdate = new Date();
       }
     } catch (error) {
       console.error('Failed to fetch network stats:', error);
     }
+  }
+
+  function formatUptime(seconds) {
+    if (seconds < 60) return `${seconds}s`;
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
+    return `${Math.floor(seconds / 86400)}d`;
   }
 
   function generateActivityData() {
@@ -128,23 +140,35 @@
       </div>
     </div>
 
-    <!-- Right: Activity Sparkline -->
+    <!-- Right: Network Stats -->
     <div class="section">
       <div class="section-title text-mono text-xs text-muted">
-        ├─ ACTIVITY_24H
+        ├─ NETWORK_STATS
       </div>
-      <div class="sparkline-container">
-        <div class="sparkline text-mono text-cyan">{sparkline}</div>
-        <div class="sparkline-labels text-mono text-xs text-muted">
-          <span>-24h</span>
-          <span>-12h</span>
-          <span>now</span>
+      <div class="stats-grid">
+        <div class="stat-item">
+          <span class="stat-label text-muted">DATA_ENCRYPTED:</span>
+          <span class="stat-value text-cyan">{dataEncrypted}</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label text-muted">JOBS_COMPLETED:</span>
+          <span class="stat-value text-success">{jobsCompleted}</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label text-muted">JOBS_TOTAL:</span>
+          <span class="stat-value">{jobsTotal}</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label text-muted">UPTIME:</span>
+          <span class="stat-value text-cyan">{formatUptime(uptimeSeconds)}</span>
         </div>
       </div>
-      <div class="activity-stats text-mono text-sm">
-        <div><span class="text-muted">PEAK:</span> <span class="text-cyan">{peakJobs}</span> <span class="text-muted">jobs/h</span></div>
-        <div><span class="text-muted">AVG:</span> <span class="text-cyan">{avgJobs}</span> <span class="text-muted">jobs/h</span></div>
+
+      <!-- Mini Activity Sparkline -->
+      <div class="section-title text-mono text-xs text-muted mt-3">
+        ├─ ACTIVITY_24H
       </div>
+      <div class="sparkline-mini text-mono text-cyan">{sparkline}</div>
     </div>
   </div>
 
@@ -249,6 +273,43 @@
     display: flex;
     justify-content: space-between;
   }
+
+  /* Stats Grid */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-2);
+  }
+
+  .stat-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .stat-label {
+    font-size: var(--text-xs);
+  }
+
+  .stat-value {
+    font-size: var(--text-base);
+    font-weight: 600;
+    text-shadow: 0 0 8px currentColor;
+  }
+
+  .sparkline-mini {
+    font-size: var(--text-sm);
+    letter-spacing: 0.5px;
+    text-shadow: 0 0 5px currentColor;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+
+  .mt-3 {
+    margin-top: var(--space-3);
+  }
+
+  .text-success { color: var(--zyber-success); }
 
   .panel-footer {
     margin-top: var(--space-4);
