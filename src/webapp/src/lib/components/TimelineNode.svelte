@@ -1,4 +1,6 @@
 <script>
+  import { onMount } from 'svelte';
+
   export let year;
   export let title;
   export let subtitle;
@@ -10,9 +12,48 @@
   export let linkLabel = '';
 
   let expanded = false;
+  let titleElement;
+  let subtitleElement;
+  let yearElement;
+  let hasDecrypted = false;
+
+  // Decrypt effect characters
+  const cypherChars = '⟁⧖⟟⍦⌧01xX|\\/*#@$%&';
+
+  function decryptEffect(el, text, speed = 25) {
+    if (!el) return;
+    let i = 0;
+    const interval = setInterval(() => {
+      const partial = text.substring(0, i);
+      const scramble = Array(text.length - i)
+        .fill()
+        .map(() => cypherChars[Math.floor(Math.random() * cypherChars.length)])
+        .join('');
+      el.textContent = partial + scramble;
+      i++;
+      if (i > text.length) {
+        clearInterval(interval);
+        el.textContent = text;
+      }
+    }, speed);
+  }
+
+  function triggerDecrypt() {
+    if (hasDecrypted) return;
+    hasDecrypted = true;
+    decryptEffect(yearElement, year, 40);
+    setTimeout(() => decryptEffect(titleElement, title, 30), 100);
+    setTimeout(() => decryptEffect(subtitleElement, subtitle, 20), 300);
+  }
+
+  // Trigger decrypt when becoming active
+  $: if (active && !hasDecrypted) {
+    triggerDecrypt();
+  }
 
   function toggleExpand() {
     expanded = !expanded;
+    if (!hasDecrypted) triggerDecrypt();
   }
 
   function openLink(url) {
@@ -20,6 +61,13 @@
       window.open(url, '_blank', 'noopener,noreferrer');
     }
   }
+
+  onMount(() => {
+    // Initialize with scrambled text
+    if (yearElement) yearElement.textContent = Array(year.length).fill().map(() => cypherChars[Math.floor(Math.random() * cypherChars.length)]).join('');
+    if (titleElement) titleElement.textContent = Array(title.length).fill().map(() => cypherChars[Math.floor(Math.random() * cypherChars.length)]).join('');
+    if (subtitleElement) subtitleElement.textContent = Array(subtitle.length).fill().map(() => cypherChars[Math.floor(Math.random() * cypherChars.length)]).join('');
+  });
 </script>
 
 <div class="timeline-node" class:active class:expanded>
@@ -42,9 +90,9 @@
       <div class="corner-br text-mono glow-{color}">═╝</div>
 
       <div class="node-content">
-        <div class="node-year text-mono text-{color}">{year}</div>
-        <div class="node-title text-mono">{title}</div>
-        <div class="node-subtitle text-xs text-muted">{subtitle}</div>
+        <div class="node-year text-mono text-{color}" bind:this={yearElement}>{year}</div>
+        <div class="node-title text-mono" bind:this={titleElement}>{title}</div>
+        <div class="node-subtitle text-xs text-muted" bind:this={subtitleElement}>{subtitle}</div>
 
         {#if expanded}
           <div class="node-description text-sm mt-4 fade-in">
@@ -281,17 +329,27 @@
     font-size: var(--text-2xl);
     font-weight: 600;
     margin-bottom: var(--space-2);
+    letter-spacing: 0.1em;
+    transition: text-shadow 0.3s ease;
   }
 
   .node-title {
     font-size: var(--text-base);
     font-weight: 600;
     margin-bottom: var(--space-1);
+    transition: text-shadow 0.3s ease;
   }
 
   .node-subtitle {
     text-transform: uppercase;
     letter-spacing: 0.05em;
+    transition: text-shadow 0.3s ease;
+  }
+
+  /* Glow effect during decrypt */
+  .active .node-year,
+  .active .node-title {
+    text-shadow: 0 0 10px currentColor;
   }
 
   .node-description {

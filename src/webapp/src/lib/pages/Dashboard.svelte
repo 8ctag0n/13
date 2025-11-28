@@ -191,8 +191,22 @@
         </div>
 
         <nav class="header-nav text-mono">
-          <a href="#" class="nav-link active">[DASHBOARD]</a>
-          <a href="#" class="nav-link" on:click|preventDefault={handleNewJob}>[CREATE_JOB]</a>
+          <div class="nav-select-wrapper">
+            <select
+              class="nav-select text-mono"
+              bind:value={filters.status}
+              on:change={() => { filters.showMyJobs = false; loadJobs(); }}
+            >
+              <option value="all">ALL_JOBS</option>
+              <option value="pending_tx">PENDING</option>
+              <option value="claimed">COMPUTING</option>
+              <option value="completed">COMPLETED</option>
+              <option value="expired">EXPIRED</option>
+            </select>
+          </div>
+          <a href="#my-jobs" class="nav-link nav-myjobs" on:click|preventDefault={() => navigateTo('my-jobs')}>[MY_JOBS]</a>
+          <a href="#" class="nav-link nav-create" on:click|preventDefault={handleNewJob}>[+ CREATE]</a>
+          <a href="#metrics" class="nav-link nav-metrics" on:click|preventDefault={() => navigateTo('metrics')}>[# METRICS]</a>
         </nav>
 
         <div class="header-right">
@@ -404,7 +418,50 @@
 
   .header-nav {
     display: flex;
-    gap: var(--space-2);
+    align-items: center;
+    gap: var(--space-3);
+  }
+
+  .nav-select-wrapper {
+    position: relative;
+  }
+
+  .nav-select {
+    appearance: none;
+    background: rgba(6, 182, 212, 0.1);
+    border: 1px solid var(--zyber-cyber-cyan);
+    color: var(--zyber-cyber-cyan);
+    padding: var(--space-2) var(--space-4);
+    padding-right: var(--space-8);
+    font-size: var(--text-sm);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+  }
+
+  .nav-select:hover {
+    background: rgba(6, 182, 212, 0.2);
+    box-shadow: 0 0 10px rgba(6, 182, 212, 0.3);
+  }
+
+  .nav-select:focus {
+    outline: none;
+    box-shadow: 0 0 15px rgba(6, 182, 212, 0.4);
+  }
+
+  .nav-select option {
+    background: var(--zyber-bg-primary);
+    color: var(--zyber-text-primary);
+  }
+
+  .nav-select-wrapper::after {
+    content: '▼';
+    position: absolute;
+    right: var(--space-2);
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--zyber-cyber-cyan);
+    font-size: var(--text-xs);
+    pointer-events: none;
   }
 
   .nav-link {
@@ -420,6 +477,24 @@
   .nav-link.active {
     color: var(--zyber-text-primary);
     border-bottom-color: var(--zyber-cyber-cyan);
+  }
+
+  .nav-link.nav-myjobs.active {
+    color: var(--zyber-quantum-violet);
+    border-bottom-color: var(--zyber-quantum-violet);
+  }
+
+  .nav-link.nav-create {
+    color: var(--zyber-cyber-cyan);
+    border: 1px solid var(--zyber-cyber-cyan);
+    border-radius: var(--radius-sm);
+    padding: var(--space-1) var(--space-2);
+    margin-left: var(--space-2);
+  }
+
+  .nav-link.nav-create:hover {
+    background: rgba(6, 182, 212, 0.1);
+    border-bottom-color: transparent;
   }
 
   .wallet-info {
@@ -645,6 +720,18 @@
   .mt-8 { margin-top: var(--space-8); }
 
   /* Responsive */
+  @media (max-width: 1024px) {
+    .header-nav {
+      flex-wrap: wrap;
+      gap: var(--space-1);
+    }
+
+    .nav-link {
+      font-size: var(--text-xs);
+      padding: var(--space-1) var(--space-2);
+    }
+  }
+
   @media (max-width: 768px) {
     .header-content {
       flex-direction: column;
@@ -653,6 +740,15 @@
 
     .header-nav {
       justify-content: center;
+      order: 2;
+    }
+
+    .header-left {
+      justify-content: center;
+    }
+
+    .header-right {
+      order: 1;
     }
 
     .wallet-info {

@@ -1,7 +1,6 @@
 <script>
   import { onMount } from 'svelte';
   import Logo from '../components/Logo.svelte';
-  import WalletConnect from '../components/WalletConnect.svelte';
   import HeroBootSequence from '../components/HeroBootSequence.svelte';
   import FHEFlow from '../components/FHEFlow.svelte';
   import StatsBar from '../components/StatsBar.svelte';
@@ -119,7 +118,6 @@
           <!-- CTA Section -->
           <div class="cta-section">
             <div class="cta-buttons">
-              <WalletConnect />
               <button class="btn btn-secondary" on:click={skipToDemo}>
                 <span class="text-mono">[EXPLORE_JOBS →]</span>
               </button>

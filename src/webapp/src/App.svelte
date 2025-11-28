@@ -1,18 +1,19 @@
 <script>
-  import { currentRoute } from './lib/stores/router';
+  import { currentRoute, isPatternRoute, getRouteParams } from './lib/stores/router';
   import { walletStore } from './lib/stores/wallet';
   import Landing from './lib/pages/Landing.svelte';
   import Dashboard from './lib/pages/Dashboard.svelte';
   import CreateJob from './lib/pages/CreateJob.svelte';
+  import MetricsDashboard from './lib/pages/MetricsDashboard.svelte';
+  import MyJobs from './lib/pages/MyJobs.svelte';
+  import JobDetails from './lib/pages/JobDetails.svelte';
   import Toast from './lib/components/Toast.svelte';
   import { toastStore } from './lib/stores/toast';
   import './styles/tui-system.css';
   import './app.css';
 
-  // Auto-navigate to dashboard when wallet connects (optional - user can skip)
-  // $: if ($walletStore.connected && $currentRoute === 'landing') {
-  //   currentRoute.set('dashboard');
-  // }
+  // Get job ID for job-details route
+  $: jobParams = getRouteParams($currentRoute);
 </script>
 
 <main>
@@ -22,6 +23,12 @@
     <Dashboard />
   {:else if $currentRoute === 'create-job'}
     <CreateJob />
+  {:else if $currentRoute === 'metrics'}
+    <MetricsDashboard />
+  {:else if $currentRoute === 'my-jobs'}
+    <MyJobs />
+  {:else if isPatternRoute($currentRoute, 'job-details')}
+    <JobDetails jobId={jobParams.jobId} />
   {/if}
 </main>
 

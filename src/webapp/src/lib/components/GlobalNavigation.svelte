@@ -103,8 +103,8 @@
       aria-label="Navigate to {section.label}"
       title={section.label}
     >
-      <!-- Dot Circle -->
-      <div class="dot-circle">
+      <!-- Dot Square -->
+      <div class="dot-square">
         <div class="dot-pulse"></div>
         <div class="dot-icon text-mono">{section.icon}</div>
       </div>
@@ -130,213 +130,163 @@
     flex-direction: column;
     gap: var(--space-6);
     align-items: center;
-    opacity: 1;
     transition: opacity 0.3s ease;
   }
 
-  .global-nav:not(.visible) {
-    opacity: 0.3;
-  }
+  .global-nav:not(.visible) { opacity: 0.3; }
 
-  /* Connection Line */
   .nav-line {
     position: absolute;
-    top: 0;
-    bottom: 0;
+    top: 10px;
+    bottom: 10px;
     left: 50%;
-    width: 2px;
+    width: 1px;
     background: linear-gradient(
       180deg,
       transparent 0%,
-      var(--zyber-border-secondary) 10%,
-      var(--zyber-cyan) 50%,
-      var(--zyber-border-secondary) 90%,
+      var(--zyber-border-muted) 15%,
+      var(--zyber-cyber-cyan) 50%,
+      var(--zyber-border-muted) 85%,
       transparent 100%
     );
     transform: translateX(-50%);
     z-index: -1;
-    opacity: 0.3;
+    opacity: 0.4;
   }
 
-  /* Navigation Dot */
+  /* --- SQUARE ITEM --- */
   .nav-dot {
     position: relative;
     background: none;
     border: none;
-    padding: 0;
     cursor: pointer;
     display: flex;
     flex-direction: row;
     align-items: center;
     gap: var(--space-3);
+    padding: 0;
     transition: all var(--transition-base);
   }
 
-  .dot-circle {
+  .dot-square {
     position: relative;
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    background: rgba(0, 0, 0, 0.8);
+    width: 36px;
+    height: 36px;
+    background: rgba(10, 15, 25, 0.95);
+    border: 1px solid var(--zyber-border-secondary);
+    border-radius: 4px;
     backdrop-filter: blur(10px);
-    border: 2px solid var(--zyber-border-secondary);
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    transition: all .25s cubic-bezier(0.4,0,0.2,1);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.4);
   }
 
   .dot-icon {
-    font-size: var(--text-sm);
-    opacity: 0.6;
+    font-size: var(--text-xs);
+    color: var(--zyber-text-muted);
+    opacity: 0.7;
     transition: all var(--transition-base);
-    filter: grayscale(0.8);
+    z-index: 1;
   }
 
-  /* Pulse Effect */
   .dot-pulse {
     position: absolute;
-    top: -2px;
-    left: -2px;
-    right: -2px;
-    bottom: -2px;
-    border-radius: 50%;
-    border: 2px solid var(--zyber-cyan);
+    inset: -3px;
+    border: 1px solid var(--zyber-cyber-cyan);
+    border-radius: 6px;
     opacity: 0;
     transition: opacity var(--transition-base);
   }
 
-  /* Hover State */
-  .nav-dot:hover .dot-circle {
-    border-color: var(--zyber-cyan);
-    background: rgba(6, 182, 212, 0.1);
-    transform: scale(1.15);
-    box-shadow: 0 0 20px rgba(6, 182, 212, 0.4),
-                0 4px 16px rgba(0, 0, 0, 0.4);
+  /* HOVER */
+  .nav-dot:hover .dot-square {
+    border-color: var(--zyber-cyber-cyan);
+    background: rgba(6, 182, 212, 0.08);
+    transform: scale(1.1);
+    box-shadow:
+      0 0 15px rgba(6, 182, 212, 0.3),
+      0 2px 10px rgba(0,0,0,0.4);
   }
-
   .nav-dot:hover .dot-icon {
     opacity: 1;
-    filter: grayscale(0);
-    transform: scale(1.1);
+    color: var(--zyber-cyber-cyan);
   }
-
   .nav-dot:hover .dot-pulse {
-    opacity: 0.3;
-    animation: pulse-expand 1s ease-out infinite;
+    opacity: 0.5;
+    animation: pulse-square 1.2s ease-out infinite;
   }
 
-  /* Active State */
-  .nav-dot.active .dot-circle {
-    border-color: var(--zyber-cyan);
-    background: var(--zyber-cyan);
-    box-shadow: 0 0 30px rgba(6, 182, 212, 0.8),
-                0 0 60px rgba(6, 182, 212, 0.4),
-                0 4px 20px rgba(0, 0, 0, 0.5);
-    transform: scale(1.2);
+  /* ACTIVE */
+  .nav-dot.active .dot-square {
+    background: rgba(6, 182, 212, 0.15);
+    border-color: var(--zyber-cyber-cyan);
+    transform: scale(1.15);
+    box-shadow:
+      0 0 20px rgba(6, 182, 212, 0.5),
+      0 0 40px rgba(6, 182, 212, 0.2),
+      inset 0 0 10px rgba(6, 182, 212, 0.1);
   }
-
   .nav-dot.active .dot-icon {
     opacity: 1;
-    filter: grayscale(0) drop-shadow(0 0 8px rgba(0, 0, 0, 0.8));
-    transform: scale(1.2);
+    color: var(--zyber-cyber-cyan);
+    text-shadow: 0 0 8px rgba(6, 182, 212, 0.8);
   }
-
   .nav-dot.active .dot-pulse {
-    opacity: 1;
-    animation: pulse-active 2s ease-in-out infinite;
+    opacity: 0.8;
+    animation: pulse-square-active 2s infinite;
   }
 
-  /* Label */
+  /* LABEL */
   .dot-label {
     position: absolute;
-    right: 56px;
+    right: 48px;
     white-space: nowrap;
-    background: rgba(0, 0, 0, 0.95);
-    backdrop-filter: blur(10px);
-    border: 1px solid var(--zyber-border-secondary);
-    border-radius: var(--radius-sm);
-    padding: var(--space-1) var(--space-3);
-    color: var(--zyber-text-muted);
+    background: rgba(10, 15, 25, 0.95);
+    border: 1px solid var(--zyber-border-muted);
+    border-radius: 3px;
+    padding: var(--space-1) var(--space-2);
     opacity: 0;
-    pointer-events: none;
     transform: translateX(8px);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    transition: all .2s ease;
+    color: var(--zyber-text-muted);
+    pointer-events: none;
   }
-
   .label-bracket {
-    color: var(--zyber-cyan);
-    opacity: 0.5;
+    color: var(--zyber-cyber-cyan);
+    opacity: 0.6;
   }
-
-  .nav-dot:hover .dot-label,
+  .nav-dot:hover .dot-label {
+    opacity: 1;
+    transform: translateX(0);
+    border-color: var(--zyber-border-secondary);
+  }
   .nav-dot.active .dot-label {
     opacity: 1;
     transform: translateX(0);
+    border-color: var(--zyber-cyber-cyan);
+    color: var(--zyber-text-primary);
   }
-
-  .nav-dot.active .dot-label {
-    border-color: var(--zyber-cyan);
-    color: var(--zyber-cyan);
-    box-shadow: 0 0 20px rgba(6, 182, 212, 0.3),
-                0 4px 12px rgba(0, 0, 0, 0.4);
-  }
-
   .nav-dot.active .dot-label .label-bracket {
     opacity: 1;
   }
 
-  /* Animations */
-  @keyframes pulse-expand {
-    0% {
-      opacity: 0.3;
-      transform: scale(1);
-    }
-    100% {
-      opacity: 0;
-      transform: scale(1.5);
-    }
+  /* ANIMACIONES */
+  @keyframes pulse-square {
+    0%   { opacity: 0.4; transform: scale(1); }
+    100% { opacity: 0;   transform: scale(1.45); }
+  }
+  @keyframes pulse-square-active {
+    0%,100% { opacity: 0.6; transform: scale(1); }
+    50%     { opacity: 1;   transform: scale(1.25); }
   }
 
-  @keyframes pulse-active {
-    0%, 100% {
-      opacity: 0.6;
-      transform: scale(1);
-    }
-    50% {
-      opacity: 1;
-      transform: scale(1.3);
-    }
-  }
-
-  /* Responsive - Mobile */
   @media (max-width: 768px) {
-    .global-nav {
-      right: var(--space-2);
-      gap: var(--space-4);
-    }
-
-    .dot-circle {
-      width: 32px;
-      height: 32px;
-    }
-
-    .dot-icon {
-      font-size: var(--text-xs);
-    }
-
-    /* Ocultar labels en mobile */
-    .dot-label {
-      display: none;
-    }
+    .global-nav { right: var(--space-2); }
+    .dot-label { display: none; }
   }
-
-  /* Ocultar en pantallas muy pequeñas o landscape mobile */
   @media (max-width: 480px), (max-height: 500px) and (orientation: landscape) {
-    .global-nav {
-      display: none;
-    }
+    .global-nav { display: none; }
   }
 </style>
