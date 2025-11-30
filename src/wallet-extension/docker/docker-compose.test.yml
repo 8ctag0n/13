@@ -1,0 +1,110 @@
+# ZyberLink Wallet - E2E Test Environment
+# Runs extension e2e tests against local testnet
+#
+# Usage:
+#   docker-compose -f docker-compose.test.yml up --build --abort-on-container-exit
+#
+
+services:
+  # ============================================
+  # SOLANA - Local Validator
+  # ============================================
+  solana:
+    image: solanalabs/solana:v1.18.22
+    container_name: test-solana
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8899/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    command: >
+      solana-test-validator
+      --reset
+      --rpc-port 8899
+      --faucet-port 9900
+      --bind-address 0.0.0.0
+      --rpc-bind-address 0.0.0.0
+
+  # ============================================
+  # STARKNET - Katana (Local Devnet)
+  # ============================================
+  starknet:
+    image: ghcr.io/dojoengine/katana:latest
+    container_name: test-starknet
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:5050", "||", "exit", "0"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    command: >
+      --host 0.0.0.0
+      --port 5050
+      --accounts 3
+      --seed 0
+
+  # ============================================
+  # ZCASH - Regtest Node
+  # ============================================
+  zcash:
+    image: electriccoinco/zcashd:latest
+    container_name: test-zcash
+    volumes:
+      - ./zcash.conf:/root/.zcash/zcash.conf:ro
+    healthcheck:
+      test: ["CMD", "zcash-cli", "-regtest", "-rpcuser=zyberlink", "-rpcpassword=testpass123", "getblockchaininfo"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+    command: >
+      -regtest
+      -server=1
+      -rpcuser=zyberlink
+      -rpcpassword=testpass123
+      -rpcallowip=0.0.0.0/0
+      -rpcbind=0.0.0.0
+
+  # ============================================
+  # E2E TEST RUNNER
+  # ============================================
+  e2e-tests:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.e2e
+    container_name: test-e2e-runner
+    depends_on:
+      solana:
+        condition: service_healthy
+      starknet:
+        condition: service_healthy
+      zcash:
+        condition: service_healthy
+    environment:
+      # RPC URLs pointing to container services
+      - SOLANA_RPC_URL=http://solana:8899
+      - STARKNET_RPC_URL=http://starknet:5050
+      - ZCASH_RPC_URL=http://zcash:18232
+      # Test configuration
+      - CI=true
+      - PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+    volumes:
+      # Mount test results
+      - ../test-results:/app/test-results
+      - ../playwright-report:/app/playwright-report
+    # Override to wait for services
+    command: >
+      sh -c "
+        echo '[e2e] Waiting for services...'
+        sleep 10
+        echo '[e2e] Starting Xvfb...'
+        Xvfb :99 -screen 0 1280x720x24 &
+        sleep 2
+        echo '[e2e] Running tests...'
+        npm test -- --reporter=list
+        EXIT_CODE=$$?
+        echo '[e2e] Tests completed with exit code: '$$EXIT_CODE
+        exit $$EXIT_CODE
+      "
+
+networks:
+  default:
+    name: zyberlink-test-network
