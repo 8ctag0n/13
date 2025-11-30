@@ -1,6 +1,8 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, createEventDispatcher } from 'svelte';
   import { walletStore } from '../stores/wallet';
+
+  const dispatch = createEventDispatcher();
 
   let detecting = true;
   let availableWallets = [];
@@ -24,12 +26,22 @@
   async function connectWallet(wallet) {
     try {
       const response = await wallet.provider.connect();
-      walletStore.set({
+      const pubKey = response.publicKey.toString();
+      console.log('Wallet connected:', pubKey);
+
+      const walletData = {
         connected: true,
-        publicKey: response.publicKey.toString(),
+        publicKey: pubKey,
         provider: wallet.provider,
-        name: wallet.name
-      });
+        name: wallet.name,
+        signMessage: wallet.provider.signMessage?.bind(wallet.provider),
+        signTransaction: wallet.provider.signTransaction?.bind(wallet.provider)
+      };
+
+      walletStore.set(walletData);
+
+      // Dispatch event for parent components
+      dispatch('connected', walletData);
     } catch (err) {
       console.error('Failed to connect wallet:', err);
     }
