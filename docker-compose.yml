@@ -1,0 +1,112 @@
+# ZyberLink Docker Compose
+# Scalable architecture with load balancing
+
+services:
+  # ============================================
+  # Solana Test Validator
+  # ============================================
+  validator:
+    build:
+      context: ./src/validator
+    ports:
+      - "8899:8899"   # RPC HTTP
+      - "8900:8900"   # RPC WebSocket
+      - "9900:9900"   # Faucet
+    volumes:
+      - validator_ledger:/ledger
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8899/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ============================================
+  # NGINX Load Balancer
+  # ============================================
+  nginx:
+    image: docker.io/library/nginx:alpine
+    ports:
+      - "9000:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - webapp
+      - backend
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+  # ============================================
+  # Frontend (Svelte) - 2 replicas
+  # ============================================
+  webapp:
+    build:
+      context: ./src/webapp
+      args:
+        VITE_API_URL: ""
+        VITE_SOLANA_RPC_URL: "http://localhost:8899"
+    deploy:
+      replicas: 2
+    expose:
+      - "80"
+    restart: unless-stopped
+
+  # ============================================
+  # Backend API (Rust) - 2 replicas
+  # ============================================
+  backend:
+    build:
+      context: .
+      dockerfile: src/blink-server/Dockerfile
+    deploy:
+      replicas: 2
+    expose:
+      - "8080"
+    volumes:
+      - /tmp/backend-keypair.json:/app/keypair.json:ro
+    environment:
+      - RUST_LOG=info
+      - DATABASE_URL=postgresql://zyberlink:${DB_PASSWORD:-dev_password}@postgres:5432/zyberlink
+      - SOLANA_RPC_URL=http://validator:8899
+      - PROGRAM_ID=${PROGRAM_ID:-CypherLinkProgram11111111111111111111111111}
+      - HOST=0.0.0.0
+      - PORT=8080
+      - SERVER_KEYPAIR_PATH=/app/keypair.json
+    depends_on:
+      postgres:
+        condition: service_healthy
+      validator:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ============================================
+  # PostgreSQL Database
+  # ============================================
+  postgres:
+    image: docker.io/library/postgres:16-alpine
+    environment:
+      - POSTGRES_USER=zyberlink
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-dev_password}
+      - POSTGRES_DB=zyberlink
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    expose:
+      - "5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zyberlink"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  validator_ledger:
+
+# Para escalar manualmente:
+# podman-compose up --scale backend=4 --scale webapp=3

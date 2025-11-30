@@ -92,11 +92,15 @@ async fn check_and_finalize_jobs(
         )
         .await
         {
-            Ok(true) => {
+            Ok(Some(tx_signature)) => {
+                // Save the finalize tx_signature to database
+                if let Err(e) = save_finalize_signature(db_pool, job_id, &tx_signature).await {
+                    log::warn!("Failed to save tx_signature for job {}: {}", job_id, e);
+                }
                 finalized_count += 1;
-                log::info!("Successfully finalized FHE job {}", job_id);
+                log::info!("Successfully finalized FHE job {} with tx: {}", job_id, tx_signature);
             }
-            Ok(false) => {
+            Ok(None) => {
                 // Not ready for finalization yet
                 log::debug!("Job {} not ready for finalization", job_id);
             }
@@ -109,15 +113,32 @@ async fn check_and_finalize_jobs(
     Ok(finalized_count)
 }
 
+/// Save the finalize transaction signature to database
+async fn save_finalize_signature(db_pool: &PgPool, job_id: i64, tx_signature: &str) -> anyhow::Result<()> {
+    sqlx::query!(
+        r#"
+        UPDATE blockchain_jobs
+        SET tx_signature = $1, synced_at = NOW()
+        WHERE job_id = $2
+        "#,
+        tx_signature,
+        job_id
+    )
+    .execute(db_pool)
+    .await?;
+    Ok(())
+}
+
 /// Try to finalize a single FHE job if consensus is reached
 /// Runs RPC calls in spawn_blocking since they are synchronous
+/// Returns Some(tx_signature) if finalized, None if not ready
 async fn try_finalize_job(
     rpc_url: String,
     program_id: Pubkey,
     job_id: u64,
     creator_pubkey_str: String,
     server_keypair: Arc<Keypair>,
-) -> anyhow::Result<bool> {
+) -> anyhow::Result<Option<String>> {
     // Run all RPC operations in a blocking thread
     tokio::task::spawn_blocking(move || {
         try_finalize_job_blocking(
@@ -133,13 +154,14 @@ async fn try_finalize_job(
 }
 
 /// Blocking version of try_finalize_job (runs in spawn_blocking)
+/// Returns Some(tx_signature) if finalized, None if not ready
 fn try_finalize_job_blocking(
     rpc_url: &str,
     program_id: Pubkey,
     job_id: u64,
     creator_pubkey_str: &str,
     server_keypair: &Keypair,
-) -> anyhow::Result<bool> {
+) -> anyhow::Result<Option<String>> {
     // Create RPC client
     let rpc_client = RpcClient::new_with_commitment(rpc_url.to_string(), CommitmentConfig::confirmed());
     let client = MarketplaceClient::new_with_commitment(rpc_url.to_string(), program_id, CommitmentConfig::confirmed());
@@ -152,7 +174,7 @@ fn try_finalize_job_blocking(
         Ok(data) => data,
         Err(e) => {
             log::debug!("Job {}: No FHE consensus data found: {}", job_id, e);
-            return Ok(false);
+            return Ok(None);
         }
     };
 
@@ -174,7 +196,7 @@ fn try_finalize_job_blocking(
             fhe_data.results_count,
             fhe_data.claimed_count
         );
-        return Ok(false);
+        return Ok(None);
     }
 
     // Check for consensus - count matching hashes
@@ -204,7 +226,7 @@ fn try_finalize_job_blocking(
         Some((hash, provers)) => (hash, provers),
         None => {
             log::info!("Job {}: No results to check", job_id);
-            return Ok(false);
+            return Ok(None);
         }
     };
 
@@ -217,7 +239,7 @@ fn try_finalize_job_blocking(
             fhe_data.results_count,
             fhe_data.consensus_threshold
         );
-        return Ok(false);
+        return Ok(None);
     }
 
     log::info!(
@@ -237,7 +259,7 @@ fn try_finalize_job_blocking(
     let job = fetch_job(&rpc_client, &job_pda)?;
     if job.status != zyberlink_types::JobStatus::Claimed {
         log::info!("Job {}: Already finalized (status: {:?}), skipping", job_id, job.status);
-        return Ok(false);
+        return Ok(None);
     }
 
     // Collect ALL claimed provers (program expects all, not just matching)
@@ -264,7 +286,7 @@ fn try_finalize_job_blocking(
     match client.send_and_confirm_transaction(&[finalize_ix], &[server_keypair]) {
         Ok(sig) => {
             log::info!("Job {}: FINALIZED SUCCESSFULLY! Signature: {}", job_id, sig);
-            Ok(true)
+            Ok(Some(sig.to_string()))
         }
         Err(e) => {
             log::error!("Job {}: Finalize transaction FAILED: {}", job_id, e);

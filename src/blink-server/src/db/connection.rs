@@ -22,17 +22,29 @@ pub async fn create_pool(database_url: &str) -> Result<PgPool, sqlx::Error> {
 pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
     log::info!("Running database migrations...");
 
-    // Use runtime migration loading from the migrations directory
-    log::info!("Loading migrations from ./blink-server/migrations...");
-    let migrator = sqlx::migrate::Migrator::new(std::path::Path::new("./blink-server/migrations"))
-        .await
-        .map_err(|e| {
-            log::error!(
-                "Failed to load migrations from ./blink-server/migrations: {}",
-                e
-            );
-            e
-        })?;
+    // Try multiple paths for migrations (local dev vs container)
+    let paths = [
+        "./src/blink-server/migrations",  // Local development
+        "./blink-server/migrations",       // Container
+    ];
+
+    let mut migrator = None;
+    for path in &paths {
+        log::info!("Trying migrations from {}...", path);
+        match sqlx::migrate::Migrator::new(std::path::Path::new(path)).await {
+            Ok(m) => {
+                log::info!("Found migrations at {}", path);
+                migrator = Some(m);
+                break;
+            }
+            Err(_) => continue,
+        }
+    }
+
+    let migrator = migrator.ok_or_else(|| {
+        log::error!("Failed to load migrations from any path: {:?}", paths);
+        sqlx::Error::Configuration("No migrations directory found".into())
+    })?;
 
     log::info!("Found {} migrations to apply", migrator.iter().count());
     for migration in migrator.iter() {

@@ -1,4 +1,4 @@
-.PHONY: help demo-up demo-down demo-restart start stop status logs clean build build-all deploy init-marketplace check-provers start-provers stop-provers tunnel-help dev-up dev-down dev-logs dev-rebuild dev-status dev-shell-backend dev-shell-db serve
+.PHONY: help demo-up demo-down demo-restart start stop status logs clean build build-all deploy init-marketplace check-provers start-provers stop-provers tunnel-help dev-up dev-down dev-logs dev-rebuild dev-status dev-shell-backend dev-shell-db serve c0 c1 c2 c3 c4 c-status c-scale c-restart
 
 # Colors
 GREEN  := \033[0;32m
@@ -463,9 +463,39 @@ localnet-init: ## [STEP 2] Initialize marketplace on-chain (run once after setup
 	@echo "$(BLUE)Initializing marketplace...$(NC)"
 	@scripts/init-marketplace.sh
 
-localnet-jobs: ## [STEP 3] Start job creator (generates test jobs every 10s)
-	@echo "$(BLUE)Starting job creator...$(NC)"
-	@scripts/start-job-creator.sh
+localnet-jobs: ## [STEP 3] Start job creator (auto-creates jobs every 10s)
+	@echo "$(BLUE)Starting job creator (auto-creating jobs)...$(NC)"
+	@# Kill any existing job-creator
+	@-pkill -f "job-creator" 2>/dev/null || true
+	@# Create keypair if needed
+	@if [ ! -f "/tmp/job-creator-keypair.json" ]; then \
+		echo "Creating job creator keypair..."; \
+		solana-keygen new --no-bip39-passphrase --force --outfile /tmp/job-creator-keypair.json >/dev/null 2>&1; \
+	fi
+	@export $$(grep -v '^#' src/blink-server/.env | xargs) && \
+	ADDR=$$(solana address --keypair /tmp/job-creator-keypair.json); \
+	echo "  Job creator: $$ADDR"; \
+	solana airdrop 100 $$ADDR --url $$SOLANA_RPC_URL 2>/dev/null || echo "  (airdrop may have failed)"; \
+	BALANCE=$$(solana balance --keypair /tmp/job-creator-keypair.json --url $$SOLANA_RPC_URL 2>/dev/null); \
+	echo "  Balance: $$BALANCE"
+	@# Build job-creator
+	@echo "  Building job-creator..."
+	@cargo build --release --manifest-path src/job-creator/Cargo.toml 2>&1 | tail -3
+	@# Start job-creator in background (pointing to local backend on 8080)
+	@export $$(grep -v '^#' src/blink-server/.env | xargs) && \
+	RUST_LOG=info \
+	BACKEND_URL=http://localhost:8080 \
+	SOLANA_RPC_URL=$$SOLANA_RPC_URL \
+	PROGRAM_ID=$$PROGRAM_ID \
+	USER_KEYPAIR=/tmp/job-creator-keypair.json \
+	./target/release/job-creator > /tmp/job-creator.log 2>&1 &
+	@sleep 2
+	@if pgrep -f "job-creator" > /dev/null; then \
+		echo "$(GREEN)Job creator running! (creating jobs every 10s)$(NC)"; \
+		echo "  Logs: tail -f /tmp/job-creator.log"; \
+	else \
+		echo "$(RED)Job creator failed to start. Check /tmp/job-creator.log$(NC)"; \
+	fi
 
 # ============================================================================
 # Helpful Aliases
@@ -521,3 +551,210 @@ dev-shell-db: ## Open psql shell in postgres container
 
 # Quick alias
 serve: dev-up ## Alias: make serve = start containerized dev
+
+# ============================================================================
+# Container Test Commands (Production-like with Local Validator)
+# ============================================================================
+# Similar to l0-l4 but using docker-compose containers with replicas
+# Flow: c0 (reset) -> c1 (infra) -> c2 (init) -> c3 (jobs) -> c4 (logs)
+
+c0: ## [CONTAINER] Reset: stop containers + clean volumes
+	@echo "$(BLUE)Resetting container environment...$(NC)"
+	@-pkill -f "job-creator" 2>/dev/null || true
+	@-pkill -f "zyberlink-prover" 2>/dev/null || true
+	@podman-compose down -v 2>/dev/null || true
+	@podman system prune -f 2>/dev/null || true
+	@rm -f .env.containers 2>/dev/null || true
+	@echo "$(GREEN)Container environment reset. Ready for 'make c1'$(NC)"
+
+c1: ## [CONTAINER] Start: validator + containers + prepare provers
+	@echo "$(BLUE)Starting production-like container stack...$(NC)"
+	@echo ""
+	@echo "Step 1/6: Building program..."
+	@cd src/programs && cargo build-sbf 2>/dev/null || (echo "$(RED)Program build failed$(NC)" && exit 1)
+	@echo "$(GREEN)  Program built$(NC)"
+	@echo ""
+	@echo "Step 2/6: Starting containers (validator + postgres + nginx + webapp)..."
+	@echo "DB_PASSWORD=dev_password" > .env.containers
+	@podman-compose up -d --build validator postgres
+	@echo "  Waiting for validator to be ready..."
+	@for i in $$(seq 1 30); do \
+		if curl -s http://localhost:8899/health 2>/dev/null | grep -q "ok"; then \
+			break; \
+		fi; \
+		sleep 2; \
+	done
+	@solana config set --url http://localhost:8899 > /dev/null
+	@echo "$(GREEN)  Validator ready$(NC)"
+	@echo ""
+	@echo "Step 3/6: Deploying program..."
+	@solana airdrop 10 --url http://localhost:8899 >/dev/null 2>&1 || true
+	@solana program deploy src/programs/target/deploy/zyberlink.so --output json > /tmp/deploy-output.json 2>&1 || (cat /tmp/deploy-output.json && exit 1)
+	@PROGRAM_ID=$$(cat /tmp/deploy-output.json | jq -r '.programId'); \
+	echo "$(GREEN)  Program deployed: $$PROGRAM_ID$(NC)"; \
+	echo "PROGRAM_ID=$$PROGRAM_ID" >> .env.containers
+	@echo ""
+	@echo "Step 4/7: Creating backend finalizer keypair..."
+	@if [ ! -f "/tmp/backend-keypair.json" ]; then \
+		solana-keygen new --no-bip39-passphrase --force --outfile /tmp/backend-keypair.json >/dev/null 2>&1; \
+	fi
+	@BACKEND_ADDR=$$(solana address --keypair /tmp/backend-keypair.json); \
+	solana airdrop 10 $$BACKEND_ADDR --url http://localhost:8899 >/dev/null 2>&1 || true; \
+	echo "  Backend finalizer: $$BACKEND_ADDR (funded 10 SOL)"
+	@echo ""
+	@echo "Step 5/7: Starting remaining containers (backend + nginx + webapp)..."
+	@podman-compose --env-file .env.containers up -d --build backend webapp nginx
+	@echo "$(GREEN)  All containers started$(NC)"
+	@echo ""
+	@echo "Step 6/7: Waiting for backend to sync..."
+	@sleep 5
+	@echo ""
+	@echo "Step 7/7: Preparing prover wallets..."
+	@for i in 1 2 3; do \
+		if [ ! -f "/tmp/prover-$$i-keypair.json" ]; then \
+			solana-keygen new --no-bip39-passphrase --force --outfile /tmp/prover-$$i-keypair.json >/dev/null 2>&1; \
+		fi; \
+		ADDR=$$(solana address --keypair /tmp/prover-$$i-keypair.json); \
+		solana airdrop 10 $$ADDR --url http://localhost:8899 >/dev/null 2>&1 || true; \
+		echo "  Prover $$i: $$ADDR (funded 10 SOL)"; \
+	done
+	@echo ""
+	@echo "$(GREEN)Container stack running!$(NC)"
+	@echo ""
+	@echo "  Services:"
+	@echo "    - Nginx LB:     http://localhost:9000"
+	@echo "    - Frontend:     http://localhost:9000"
+	@echo "    - API:          http://localhost:9000/api/"
+	@echo "    - Validator:    http://localhost:8899 (containerized)"
+	@echo ""
+	@echo "  Replicas:"
+	@podman-compose ps 2>/dev/null || echo "  Use 'podman ps' to see containers"
+	@echo ""
+	@echo "$(YELLOW)Next: make c2 (init marketplace + register provers)$(NC)"
+
+c2: ## [CONTAINER] Initialize marketplace + register provers
+	@echo "$(BLUE)Initializing marketplace and registering provers...$(NC)"
+	@if [ ! -f ".env.containers" ]; then \
+		echo "$(RED)ERROR: .env.containers not found. Run 'make c1' first$(NC)"; \
+		exit 1; \
+	fi
+	@echo ""
+	@echo "Step 1/3: Initializing marketplace..."
+	@export $$(grep -v '^#' .env.containers | xargs) && \
+	SOLANA_RPC_URL=http://localhost:8899 cargo run --manifest-path src/sdk/Cargo.toml --example initialize_program
+	@echo "$(GREEN)  Marketplace initialized$(NC)"
+	@echo ""
+	@echo "Step 2/3: Building prover binary..."
+	@cargo build --release --bin zyberlink-prover 2>&1 | tail -3
+	@echo "$(GREEN)  Prover built$(NC)"
+	@echo ""
+	@echo "Step 3/3: Registering provers on-chain..."
+	@export $$(grep -v '^#' .env.containers | xargs) && \
+	for i in 1 2 3; do \
+		KEYPAIR="/tmp/prover-$$i-keypair.json"; \
+		if [ -f "$$KEYPAIR" ]; then \
+			ADDR=$$(solana address --keypair $$KEYPAIR); \
+			./target/release/zyberlink-prover register \
+				--program-id $$PROGRAM_ID \
+				--rpc-url http://localhost:8899 \
+				--keypair $$KEYPAIR \
+				--stake-amount 5000000000 2>&1 | tail -1 || true; \
+			echo "  Prover $$i registered: $$ADDR"; \
+		fi; \
+	done
+	@echo ""
+	@echo "$(GREEN)Marketplace ready with 3 provers!$(NC)"
+	@echo "$(YELLOW)Next: make c3 (start provers + job creator)$(NC)"
+
+c3: ## [CONTAINER] Start provers + job creator (local binaries)
+	@echo "$(BLUE)Starting provers and job creator...$(NC)"
+	@if [ ! -f ".env.containers" ]; then \
+		echo "$(RED)ERROR: .env.containers not found. Run 'make c1' first$(NC)"; \
+		exit 1; \
+	fi
+	@-pkill -f "job-creator" 2>/dev/null || true
+	@-pkill -f "zyberlink-prover" 2>/dev/null || true
+	@echo ""
+	@echo "Step 1/2: Starting 3 prover nodes..."
+	@export $$(grep -v '^#' .env.containers | xargs) && \
+	for i in 1 2 3; do \
+		KEYPAIR="/tmp/prover-$$i-keypair.json"; \
+		if [ -f "$$KEYPAIR" ]; then \
+			RUST_LOG=info WITNESS_BACKEND_URL=http://localhost:9000 \
+			./target/release/zyberlink-prover \
+				--program-id $$PROGRAM_ID \
+				--rpc-url http://localhost:8899 \
+				--witness-backend-url http://localhost:9000 \
+				--keypair $$KEYPAIR \
+				run > /tmp/prover-$$i.log 2>&1 & \
+			echo "  Prover $$i started (PID: $$!)"; \
+		fi; \
+	done
+	@sleep 2
+	@RUNNING=$$(pgrep -c -f "zyberlink-prover" || echo 0); \
+	echo "$(GREEN)  $$RUNNING provers running$(NC)"
+	@echo ""
+	@echo "Step 2/2: Starting job creator..."
+	@if [ ! -f "/tmp/job-creator-keypair.json" ]; then \
+		solana-keygen new --no-bip39-passphrase --force --outfile /tmp/job-creator-keypair.json >/dev/null 2>&1; \
+	fi
+	@ADDR=$$(solana address --keypair /tmp/job-creator-keypair.json); \
+	echo "  Job creator: $$ADDR"; \
+	solana airdrop 100 $$ADDR --url http://localhost:8899 2>/dev/null || true; \
+	BALANCE=$$(solana balance --keypair /tmp/job-creator-keypair.json --url http://localhost:8899 2>/dev/null); \
+	echo "  Balance: $$BALANCE"
+	@cargo build --release --manifest-path src/job-creator/Cargo.toml 2>&1 | tail -2
+	@export $$(grep -v '^#' .env.containers | xargs) && \
+	RUST_LOG=info \
+	BACKEND_URL=http://localhost:9000 \
+	SOLANA_RPC_URL=http://localhost:8899 \
+	USER_KEYPAIR=/tmp/job-creator-keypair.json \
+	./target/release/job-creator > /tmp/job-creator.log 2>&1 &
+	@sleep 2
+	@if pgrep -f "job-creator" > /dev/null; then \
+		echo "$(GREEN)  Job creator running$(NC)"; \
+	else \
+		echo "$(RED)  Job creator failed. Check /tmp/job-creator.log$(NC)"; \
+	fi
+	@echo ""
+	@echo "$(GREEN)=== DEMO RUNNING ===$(NC)"
+	@echo "  Frontend:     http://localhost:9000"
+	@echo "  API:          http://localhost:9000/api/jobs"
+	@echo ""
+	@echo "  Logs:"
+	@echo "    - Provers:    tail -f /tmp/prover-*.log"
+	@echo "    - Job creator: tail -f /tmp/job-creator.log"
+	@echo "    - Backend:    podman logs -f zyberlink-demo_backend_1"
+	@echo ""
+	@echo "  Jobs created every 10s, provers claim and process them!"
+
+c4: ## [CONTAINER] Show container logs (all services)
+	@echo "$(BLUE)Container logs (Ctrl+C to stop):$(NC)"
+	@podman-compose logs -f
+
+c-status: ## [CONTAINER] Show status of containers + validator
+	@echo "$(BLUE)Container Stack Status:$(NC)"
+	@echo ""
+	@echo "Validator:"
+	@curl -s http://localhost:8899 -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"getHealth"}' 2>/dev/null | grep -q "ok" && echo "  $(GREEN)Running$(NC)" || echo "  $(RED)Not running$(NC)"
+	@echo ""
+	@echo "Containers:"
+	@podman-compose ps 2>/dev/null || echo "  No containers running"
+	@echo ""
+	@echo "Nginx Health:"
+	@curl -s http://localhost:9000/health 2>/dev/null && echo "" || echo "  $(RED)Not responding$(NC)"
+	@echo ""
+	@echo "Backend Health (via nginx):"
+	@curl -s http://localhost:9000/api/health 2>/dev/null || echo "  $(RED)Not responding$(NC)"
+	@echo ""
+
+c-scale: ## [CONTAINER] Scale backend to 4 replicas
+	@echo "$(BLUE)Scaling backend to 4 replicas...$(NC)"
+	@podman-compose up -d --scale backend=4
+	@echo "$(GREEN)Scaled!$(NC)"
+	@podman-compose ps
+
+c-restart: ## [CONTAINER] Restart containers (keep validator)
+	@echo "$(BLUE)Restarting containers...$(NC)"
+	@podman-compose restart
+	@echo "$(GREEN)Containers restarted$(NC)"
