@@ -4,9 +4,26 @@
   import PaymentMethodSelector from '../components/PaymentMethodSelector.svelte';
   import PriceSlider from '../components/PriceSlider.svelte';
   import Loading from '../components/Loading.svelte';
+  import WalletConnect from '../components/WalletConnect.svelte';
   import { ensureTokenAccount, WZEC_MINT } from '../utils/tokenAccountManager';
   import { createSolanaRpc } from '@solana/kit';
   import { toastStore } from '../stores/toast';
+
+  // Wallet connection state - use store directly for reactivity
+  let showWalletModal = false;
+
+  // Reactive wallet state
+  $: isWalletConnected = $walletStore?.connected === true;
+  $: walletAddress = $walletStore?.publicKey || '';
+
+  // Handle wallet connection event
+  function handleWalletConnected(event) {
+    console.log('Wallet connected event:', event.detail);
+    showWalletModal = false;
+    // Force reactivity update
+    isWalletConnected = true;
+    walletAddress = event.detail.publicKey;
+  }
 
   // API URLs - use relative path for nginx proxy, fallback for local dev
   const API_BASE = import.meta.env.VITE_API_URL || '';
@@ -18,6 +35,7 @@
   let jobData = {
     encryptedData: null,
     serverKey: null,
+    witness: null,
     operation: 'Multiply',
     operationValue: 5,
     consensus: '2-of-3',
@@ -27,9 +45,9 @@
     paymentMethod: 'sol' // 'sol' | 'wzec'
   };
 
-  // File uploads
-  let encryptedDataFile = null;
-  let serverKeyFile = null;
+  // File uploads - simplified to witness.bin only
+  let witnessFile = null;
+  let witnessParseError = null;
   let isDragging = false;
 
   // Dynamic pricing estimation
@@ -48,11 +66,23 @@
   $: platformFee = (jobData.priceLamports * 0.01 / 1000000000).toFixed(5);
   $: totalWithFee = ((jobData.priceLamports * 1.01) / 1000000000).toFixed(5);
 
-  // Reactive: estimate cost whenever operation params change
-  $: {
-    if (jobData.operation && jobData.operationValue && jobData.requiredProvers) {
-      estimateCost();
-    }
+  // Track previous values to prevent infinite loops
+  let lastEstimateKey = '';
+  let lastPriceKey = '';
+
+  // Fetch estimates only when entering step 2 or when relevant params change
+  function maybeEstimateCost() {
+    const key = `${jobData.operation}-${jobData.operationValue}-${jobData.requiredProvers}`;
+    if (key === lastEstimateKey || isEstimating) return;
+    lastEstimateKey = key;
+    estimateCost();
+  }
+
+  function maybeFetchPriceRecommendation() {
+    const key = `${jobData.operation}-${jobData.requiredProvers}`;
+    if (key === lastPriceKey || isFetchingPrice) return;
+    lastPriceKey = key;
+    fetchPriceRecommendation();
   }
 
   // Fetch cost estimation from backend
@@ -65,8 +95,8 @@
         body: JSON.stringify({
           operation: jobData.operation.toLowerCase(),
           operation_value: jobData.operationValue,
-          expected_count: 100, // Default for operations that need it
-          bins: 5, // Default for histogram
+          expected_count: 100,
+          bins: 5,
           required_provers: jobData.requiredProvers
         })
       });
@@ -76,14 +106,10 @@
       }
 
       estimatedCost = await response.json();
-
-      // Update pricing based on estimate
       jobData.priceLamports = estimatedCost.total_min_payment_lamports;
-
       console.log('Cost estimated:', estimatedCost);
     } catch (error) {
       console.error('Failed to estimate cost:', error);
-      // Fall back to default pricing on error
       jobData.priceLamports = jobData.requiredProvers === 3 ? 3000000 : 5000000;
     } finally {
       isEstimating = false;
@@ -112,7 +138,6 @@
 
       priceRecommendation = await response.json();
 
-      // Set initial price to recommended
       if (!jobData.priceLamports || jobData.priceLamports < priceRecommendation.recommended_price_lamports) {
         jobData.priceLamports = priceRecommendation.recommended_price_lamports;
       }
@@ -120,7 +145,6 @@
       console.log('Price recommendation:', priceRecommendation);
     } catch (error) {
       console.error('Failed to get price recommendation:', error);
-      // Fall back to defaults
       priceRecommendation = {
         min_price_lamports: 3000000,
         recommended_price_lamports: 5400000,
@@ -132,11 +156,10 @@
     }
   }
 
-  // Fetch price recommendation when operation/provers change
-  $: {
-    if (jobData.operation && jobData.requiredProvers) {
-      fetchPriceRecommendation();
-    }
+  // Trigger estimates when entering step 2
+  $: if (currentStep === 2) {
+    maybeEstimateCost();
+    maybeFetchPriceRecommendation();
   }
 
   function handlePriceChange(event) {
@@ -152,30 +175,91 @@
     isDragging = false;
   }
 
-  function handleDrop(e, type) {
+  function handleDrop(e) {
     e.preventDefault();
     isDragging = false;
 
     const files = e.dataTransfer.files;
     if (files.length > 0) {
-      handleFileUpload(files[0], type);
+      handleWitnessUpload(files[0]);
     }
   }
 
-  function handleFileInput(e, type) {
+  function handleFileInput(e) {
     const files = e.target.files;
     if (files.length > 0) {
-      handleFileUpload(files[0], type);
+      handleWitnessUpload(files[0]);
     }
   }
 
-  function handleFileUpload(file, type) {
-    if (type === 'encrypted_data') {
-      encryptedDataFile = file;
-      jobData.encryptedData = file.name;
-    } else if (type === 'server_key') {
-      serverKeyFile = file;
-      jobData.serverKey = file.name;
+  /**
+   * Convert Uint8Array to base64 using chunks (memory efficient)
+   */
+  function arrayBufferToBase64(bytes) {
+    const chunkSize = 0x8000; // 32KB chunks
+    let result = '';
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      const chunk = bytes.subarray(i, i + chunkSize);
+      result += String.fromCharCode.apply(null, chunk);
+    }
+    return btoa(result);
+  }
+
+  // Processing state for witness parsing
+  let isParsingWitness = false;
+
+  /**
+   * Parse witness.bin format:
+   * [server_key_len (8 bytes LE)][server_key bytes][encrypted_data bytes]
+   */
+  async function handleWitnessUpload(file) {
+    witnessFile = file;
+    witnessParseError = null;
+    jobData.witness = file.name;
+    isParsingWitness = true;
+
+    try {
+      // Use setTimeout to let UI update before heavy processing
+      await new Promise(r => setTimeout(r, 50));
+
+      const buffer = await file.arrayBuffer();
+      const view = new DataView(buffer);
+
+      // Read server_key length (8 bytes, little-endian u64)
+      const serverKeyLen = Number(view.getBigUint64(0, true));
+
+      if (serverKeyLen <= 0 || serverKeyLen > buffer.byteLength - 8) {
+        throw new Error(`Invalid server_key length: ${serverKeyLen}`);
+      }
+
+      // Extract server_key bytes
+      const serverKeyBytes = new Uint8Array(buffer, 8, serverKeyLen);
+
+      // Extract encrypted_data bytes (rest of the file)
+      const encryptedDataStart = 8 + serverKeyLen;
+      const encryptedDataBytes = new Uint8Array(buffer, encryptedDataStart);
+
+      if (encryptedDataBytes.length === 0) {
+        throw new Error('No encrypted data found in witness');
+      }
+
+      // Convert to base64 using chunked approach (memory efficient)
+      jobData.serverKey = arrayBufferToBase64(serverKeyBytes);
+
+      // Small delay to keep UI responsive
+      await new Promise(r => setTimeout(r, 10));
+
+      jobData.encryptedData = arrayBufferToBase64(encryptedDataBytes);
+
+      console.log(`Parsed witness: server_key=${(serverKeyLen / 1024 / 1024).toFixed(1)}MB, encrypted_data=${(encryptedDataBytes.length / 1024).toFixed(1)}KB`);
+
+    } catch (error) {
+      console.error('Failed to parse witness file:', error);
+      witnessParseError = error.message || 'Invalid witness file format';
+      jobData.serverKey = null;
+      jobData.encryptedData = null;
+    } finally {
+      isParsingWitness = false;
     }
   }
 
@@ -218,8 +302,13 @@
       return;
     }
 
-    if (!encryptedDataFile || !serverKeyFile) {
-      toastStore.add('Please upload encrypted data files', 'error');
+    if (!witnessFile || !jobData.serverKey || !jobData.encryptedData) {
+      toastStore.add('Please upload a valid witness.bin file', 'error');
+      return;
+    }
+
+    if (witnessParseError) {
+      toastStore.add(`Invalid witness file: ${witnessParseError}`, 'error');
       return;
     }
 
@@ -252,18 +341,10 @@
         }
       }
 
-      // Step 1: Read encrypted files
-      processingMessage = 'Reading encrypted data files...';
-      const encryptedDataBuffer = await encryptedDataFile.arrayBuffer();
-      const serverKeyBuffer = await serverKeyFile.arrayBuffer();
-
-      // Convert to base64
-      const encryptedDataBase64 = btoa(
-        String.fromCharCode(...new Uint8Array(encryptedDataBuffer))
-      );
-      const serverKeyBase64 = btoa(
-        String.fromCharCode(...new Uint8Array(serverKeyBuffer))
-      );
+      // Step 1: Use already parsed data from witness.bin
+      processingMessage = 'Preparing encrypted data...';
+      const encryptedDataBase64 = jobData.encryptedData;
+      const serverKeyBase64 = jobData.serverKey;
 
       // Step 2: Generate signature
       processingMessage = 'Generating signature...';
@@ -380,7 +461,7 @@
     jobData.paymentMethod = event.detail.payment_method;
   }
 
-  $: canProceedStep1 = jobData.encryptedData && jobData.serverKey;
+  $: canProceedStep1 = jobData.witness && jobData.serverKey && jobData.encryptedData && !witnessParseError;
   $: canProceedStep2 = jobData.operation && jobData.operationValue;
 </script>
 
@@ -390,8 +471,22 @@
     <div class="container">
       <div class="header-content">
         <h1 class="text-mono text-uppercase">CREATE_FHE_JOB</h1>
-        <div class="step-indicator text-mono text-sm text-muted">
-          STEP {currentStep} OF 4
+        <div class="header-right">
+          <!-- Wallet Status -->
+          {#if isWalletConnected}
+            <div class="wallet-badge connected text-mono text-sm">
+              <span class="wallet-dot"></span>
+              {walletAddress.slice(0, 4)}...{walletAddress.slice(-4)}
+            </div>
+          {:else}
+            <button class="wallet-badge disconnected text-mono text-sm" on:click={() => { showWalletModal = true; }}>
+              <span class="wallet-dot"></span>
+              CONNECT_WALLET
+            </button>
+          {/if}
+          <div class="step-indicator text-mono text-sm text-muted">
+            STEP {currentStep} OF 4
+          </div>
         </div>
       </div>
     </div>
@@ -447,108 +542,81 @@
           <div class="info-box mb-6">
             <div class="text-sm">
               For privacy, encryption happens on <strong>YOUR</strong> computer.
-              Run this command in your terminal:
+              Download the <span class="text-cyan">fhe-cli</span> tool and run:
             </div>
           </div>
 
           <div class="code-block mb-6">
             <div class="text-mono text-cyan">
-              $ cargo run --bin fhe-encrypt
+              $ fhe-cli encrypt -p ./my-job -v 42
             </div>
-            <button class="btn-copy text-mono text-sm" on:click={() => navigator.clipboard.writeText('cargo run --bin fhe-encrypt')}>
+            <button class="btn-copy text-mono text-sm" on:click={() => navigator.clipboard.writeText('fhe-cli encrypt -p ./my-job -v 42')}>
               [COPY]
             </button>
           </div>
 
-          <!-- Unified File Upload Section - Improved UX -->
+          <!-- Simplified File Upload Section - Only witness.bin -->
           <div class="upload-section-unified mb-6">
             <div class="upload-help-header text-mono text-sm mb-4">
-              <span class="text-cyan">[REQUIRED_FILES]</span> Upload TWO files generated by fhe-encrypt:
+              <span class="text-cyan">[REQUIRED]</span> Upload the <strong>witness.bin</strong> file generated by fhe-cli:
             </div>
 
-            <!-- File 1: Encrypted Data -->
-            <div class="file-input-wrapper mb-4" data-testid="encrypted-data-upload-wrapper">
-              <label class="file-label" for="encrypted-data-input">
+            <!-- Single File: witness.bin -->
+            <div class="file-input-wrapper mb-4" data-testid="witness-upload-wrapper">
+              <label class="file-label" for="witness-input">
                 <span class="label-header">
-                  <span class="label-title text-mono">1. ENCRYPTED_DATA.JSON</span>
-                  <span class="label-format text-xs text-muted">Contains your encrypted values</span>
+                  <span class="label-title text-mono">WITNESS.BIN</span>
+                  <span class="label-format text-xs text-muted">Contains server key + encrypted data</span>
                 </span>
                 <input
                   type="file"
-                  id="encrypted-data-input"
-                  accept=".json"
-                  on:change={(e) => handleFileInput(e, 'encrypted_data')}
-                  data-testid="encrypted-data-input"
-                  class="file-input"
-                  aria-label="Upload encrypted data JSON file"
-                />
-                <span
-                  class="file-status text-mono text-sm"
-                  class:file-selected={jobData.encryptedData}
-                  class:file-pending={!jobData.encryptedData}
-                  data-testid="encrypted-data-status"
-                  aria-live="polite"
-                >
-                  {#if jobData.encryptedData}
-                    <span class="text-success">[✓]</span> {jobData.encryptedData}
-                    <span class="text-muted text-xs">({encryptedDataFile?.size ? (encryptedDataFile.size / 1024).toFixed(1) : '0'} KB)</span>
-                  {:else}
-                    <span class="text-warning">[○]</span> Click or drop encrypted_data.json here
-                  {/if}
-                </span>
-              </label>
-            </div>
-
-            <!-- File 2: Server Key -->
-            <div class="file-input-wrapper mb-4" data-testid="server-key-upload-wrapper">
-              <label class="file-label" for="server-key-input">
-                <span class="label-header">
-                  <span class="label-title text-mono">2. SERVER_KEY.BIN</span>
-                  <span class="label-format text-xs text-muted">FHE public key for computation</span>
-                </span>
-                <input
-                  type="file"
-                  id="server-key-input"
+                  id="witness-input"
                   accept=".bin"
-                  on:change={(e) => handleFileInput(e, 'server_key')}
-                  data-testid="server-key-input"
+                  on:change={handleFileInput}
+                  data-testid="witness-input"
                   class="file-input"
-                  aria-label="Upload server key binary file"
+                  aria-label="Upload witness.bin file"
                 />
                 <span
                   class="file-status text-mono text-sm"
-                  class:file-selected={jobData.serverKey}
-                  class:file-pending={!jobData.serverKey}
-                  data-testid="server-key-status"
+                  class:file-selected={jobData.witness && !witnessParseError && !isParsingWitness}
+                  class:file-pending={!jobData.witness}
+                  class:file-processing={isParsingWitness}
+                  class:file-error={witnessParseError}
+                  data-testid="witness-status"
                   aria-live="polite"
                 >
-                  {#if jobData.serverKey}
-                    <span class="text-success">[✓]</span> {jobData.serverKey}
-                    <span class="text-muted text-xs">({serverKeyFile?.size ? (serverKeyFile.size / (1024 * 1024)).toFixed(1) : '0'} MB)</span>
+                  {#if isParsingWitness}
+                    <span class="text-cyan">[...]</span> Processing witness file...
+                  {:else if witnessParseError}
+                    <span class="text-error">[!]</span> {witnessParseError}
+                  {:else if jobData.witness && jobData.serverKey}
+                    <span class="text-success">[OK]</span> {jobData.witness}
+                    <span class="text-muted text-xs">({witnessFile?.size ? (witnessFile.size / (1024 * 1024)).toFixed(1) : '0'} MB)</span>
                   {:else}
-                    <span class="text-warning">[○]</span> Click or drop server_key.bin here
+                    <span class="text-warning">[...]</span> Click or drop witness.bin here
                   {/if}
                 </span>
               </label>
             </div>
 
-            <!-- Upload Status Indicator with Progress -->
+            <!-- Upload Status Indicator -->
             <div class="upload-status-container" data-testid="upload-status">
-              {#if jobData.encryptedData && jobData.serverKey}
+              {#if isParsingWitness}
+                <div class="upload-processing-indicator text-mono text-sm text-cyan">
+                  <span>[~]</span> Processing ~50MB file, please wait...
+                </div>
+              {:else if witnessParseError}
+                <div class="upload-error-indicator text-mono text-sm text-error">
+                  <span>[X]</span> Invalid witness file. Generate it with: fhe-cli encrypt -p ./output
+                </div>
+              {:else if jobData.witness && jobData.serverKey && jobData.encryptedData}
                 <div class="upload-complete-indicator text-mono text-sm text-success">
-                  <span>[✓]</span> Both files uploaded successfully. Ready to proceed.
-                </div>
-              {:else if jobData.encryptedData && !jobData.serverKey}
-                <div class="upload-partial-indicator text-mono text-sm text-warning">
-                  <span>[!]</span> 1 of 2 files uploaded. Please upload server_key.bin
-                </div>
-              {:else if !jobData.encryptedData && jobData.serverKey}
-                <div class="upload-partial-indicator text-mono text-sm text-warning">
-                  <span>[!]</span> 1 of 2 files uploaded. Please upload encrypted_data.json
+                  <span>[OK]</span> Witness parsed successfully. Ready to proceed.
                 </div>
               {:else}
                 <div class="upload-pending-indicator text-mono text-sm text-muted">
-                  <span>[○]</span> 0 of 2 files uploaded. Both files required to continue
+                  <span>[...]</span> Upload witness.bin to continue
                 </div>
               {/if}
             </div>
@@ -558,14 +626,14 @@
             <div class="text-mono text-sm">
               [i] WHY_LOCAL_ENCRYPTION?<br/>
               This ensures your data is never exposed to our servers.<br/>
-              Only YOU can decrypt the final result.
+              Only YOU can decrypt the final result with your client_key.bin.
             </div>
           </div>
         </div>
 
       {:else if currentStep === 2}
         <!-- Step 2: Configure -->
-        <div class="wizard-card tui-box fade-in">
+        <div class="wizard-card tui-box fade-in scrollable">
           <h2 class="text-mono text-uppercase mb-6">
             STEP_2: CONFIGURE_COMPUTATION
           </h2>
@@ -771,12 +839,8 @@
             <div class="text-mono text-sm text-muted mb-2">DATA_UPLOADED:</div>
             <div class="review-box">
               <div class="review-line text-mono text-sm">
-                <span class="text-success">[✓]</span> {jobData.encryptedData}
-                <span class="text-muted">({encryptedDataFile?.size ? (encryptedDataFile.size / 1024).toFixed(1) : '0'} KB)</span>
-              </div>
-              <div class="review-line text-mono text-sm">
-                <span class="text-success">[✓]</span> {jobData.serverKey}
-                <span class="text-muted">({serverKeyFile?.size ? (serverKeyFile.size / (1024 * 1024)).toFixed(1) : '0'} MB)</span>
+                <span class="text-success">[OK]</span> {jobData.witness}
+                <span class="text-muted">({witnessFile?.size ? (witnessFile.size / (1024 * 1024)).toFixed(1) : '0'} MB)</span>
               </div>
             </div>
           </div>
@@ -831,7 +895,18 @@
           </h2>
 
           <div class="signing-state">
-            {#if isProcessing}
+            {#if !isWalletConnected}
+              <!-- Wallet Not Connected - Show Connect UI -->
+              <div class="wallet-connect-prompt">
+                <div class="text-mono text-center mb-4 text-warning">
+                  [!] WALLET_NOT_CONNECTED
+                </div>
+                <div class="text-sm text-muted text-center mb-6">
+                  Connect your Solana wallet to sign and submit the transaction
+                </div>
+                <WalletConnect on:connected={handleWalletConnected} />
+              </div>
+            {:else if isProcessing}
               <!-- Processing State -->
               <div class="text-center mb-6">
                 <Loading size="large" />
@@ -845,18 +920,17 @@
                 Please wait while we prepare your transaction
               </div>
             {:else}
-              <!-- Wallet Signature State -->
+              <!-- Ready to Sign -->
               <div class="wallet-icon text-center mb-6">
-                <div class="text-4xl text-mono text-cyan">[WALLET]</div>
+                <div class="text-4xl text-mono text-success">[OK]</div>
               </div>
 
-              <div class="text-mono text-center mb-4">
-                WAITING_FOR_WALLET_SIGNATURE<span class="cursor-blink"></span>
+              <div class="text-mono text-center mb-4 text-success">
+                WALLET_CONNECTED
               </div>
 
               <div class="text-sm text-muted text-center mb-6">
-                Check your {$walletStore.name || 'wallet'} extension<br/>
-                and approve the transaction
+                Click "CREATE_JOB_&_SIGN" below to submit your transaction
               </div>
             {/if}
 
@@ -911,6 +985,18 @@
   </main>
 </div>
 
+<!-- Wallet Connect Modal -->
+{#if showWalletModal}
+  <div class="wallet-modal-overlay" on:click={() => showWalletModal = false}>
+    <div class="wallet-modal" on:click|stopPropagation>
+      <button class="wallet-modal-close" on:click={() => showWalletModal = false}>
+        [X]
+      </button>
+      <WalletConnect on:connected={handleWalletConnected} />
+    </div>
+  </div>
+{/if}
+
 <style>
   .create-job {
     min-height: 100vh;
@@ -920,6 +1006,92 @@
   .wizard-header {
     padding: var(--space-6) 0;
     border-bottom: 1px solid var(--zyber-border-muted);
+  }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+  }
+
+  .wallet-badge {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--zyber-border-muted);
+    background: var(--zyber-bg-glass);
+  }
+
+  .wallet-badge.connected {
+    border-color: var(--zyber-success);
+    background: rgba(16, 185, 129, 0.1);
+  }
+
+  .wallet-badge.disconnected {
+    cursor: pointer;
+    border-color: var(--zyber-warning);
+    background: rgba(245, 158, 11, 0.1);
+  }
+
+  .wallet-badge.disconnected:hover {
+    background: rgba(245, 158, 11, 0.2);
+  }
+
+  .wallet-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--zyber-border-muted);
+  }
+
+  .wallet-badge.connected .wallet-dot {
+    background: var(--zyber-success);
+    box-shadow: 0 0 6px var(--zyber-success);
+  }
+
+  .wallet-badge.disconnected .wallet-dot {
+    background: var(--zyber-warning);
+  }
+
+  .wallet-connect-prompt {
+    padding: var(--space-4);
+  }
+
+  .wallet-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+  }
+
+  .wallet-modal {
+    background: var(--zyber-bg-base);
+    border: 2px solid var(--zyber-border-secondary);
+    border-radius: var(--radius-lg);
+    padding: var(--space-6);
+    max-width: 450px;
+    width: 90%;
+    position: relative;
+  }
+
+  .wallet-modal-close {
+    position: absolute;
+    top: var(--space-3);
+    right: var(--space-3);
+    background: none;
+    border: none;
+    color: var(--zyber-text-muted);
+    cursor: pointer;
+    font-size: var(--text-lg);
+  }
+
+  .wallet-modal-close:hover {
+    color: var(--zyber-text-primary);
   }
 
   .header-content {
@@ -1012,6 +1184,11 @@
     max-width: 800px;
     margin: 0 auto var(--space-6);
     padding: var(--space-8);
+  }
+
+  .wizard-card.scrollable {
+    max-height: calc(100vh - 280px);
+    overflow-y: auto;
   }
 
   /* Unified Upload Section */
@@ -1123,6 +1300,43 @@
   .file-status.file-pending {
     background: rgba(245, 158, 11, 0.05);
     border: 1px solid rgba(245, 158, 11, 0.2);
+  }
+
+  .file-status.file-error {
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.4);
+  }
+
+  .file-status.file-processing {
+    background: rgba(6, 182, 212, 0.1);
+    border: 1px solid rgba(6, 182, 212, 0.4);
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+  }
+
+  .upload-error-indicator {
+    padding: var(--space-3);
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.4);
+    border-radius: var(--radius-md);
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .upload-processing-indicator {
+    padding: var(--space-3);
+    background: rgba(6, 182, 212, 0.1);
+    border: 1px solid rgba(6, 182, 212, 0.4);
+    border-radius: var(--radius-md);
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    animation: pulse 1.5s ease-in-out infinite;
   }
 
   /* Form validation styles */
