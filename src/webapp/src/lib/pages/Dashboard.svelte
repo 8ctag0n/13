@@ -3,6 +3,7 @@
   import { createSolanaRpc, address } from '@solana/kit';
   import { walletStore } from '../stores/wallet';
   import { navigateTo } from '../stores/router';
+  // Analytics and PoI now have dedicated pages - see Analytics.svelte and ProofOfInnocence.svelte
   import NetworkCommandPanel from '../components/NetworkCommandPanel.svelte';
   import FloatingStatsCards from '../components/FloatingStatsCards.svelte';
   import ExpandedJobCard from '../components/ExpandedJobCard.svelte';
@@ -216,6 +217,9 @@
     }
   }
 
+  // Note: Analytics and Proof of Innocence now have dedicated pages
+  // Navigate to /analytics or /proof-of-innocence for full functionality
+
   $: walletInfo = $walletStore;
   $: if ($walletStore.connected) loadWalletBalance();
   $: totalPages = Math.ceil(totalJobs / jobsPerPage);
@@ -287,6 +291,41 @@
       <section class="network-overview">
         <NetworkCommandPanel />
         <FloatingStatsCards />
+      </section>
+
+      <!-- Quick Actions Section -->
+      <section class="quick-actions-section">
+        <div class="quick-actions-grid">
+          <!-- Private Analytics Card -->
+          <button class="action-card tui-box" on:click={() => navigateTo('analytics')}>
+            <div class="action-icon text-mono text-cyan">[SUM]</div>
+            <h3 class="text-mono text-uppercase">Private Analytics</h3>
+            <p class="text-mono text-sm text-muted">
+              Run aggregate computations (Sum, Average) on encrypted data without revealing values.
+            </p>
+            <div class="action-cta text-mono text-cyan">[LAUNCH {'>'}{'>'}]</div>
+          </button>
+
+          <!-- Proof of Innocence Card -->
+          <button class="action-card tui-box" on:click={() => navigateTo('proof-of-innocence')}>
+            <div class="action-icon text-mono text-success">[OK]</div>
+            <h3 class="text-mono text-uppercase">Proof of Innocence</h3>
+            <p class="text-mono text-sm text-muted">
+              Verify your transactions have not interacted with sanctioned addresses.
+            </p>
+            <div class="action-cta text-mono text-cyan">[VERIFY {'>'}{'>'}]</div>
+          </button>
+
+          <!-- Create Custom Job Card -->
+          <button class="action-card tui-box" on:click={() => navigateTo('create-job')}>
+            <div class="action-icon text-mono text-violet">[+]</div>
+            <h3 class="text-mono text-uppercase">Custom FHE Job</h3>
+            <p class="text-mono text-sm text-muted">
+              Create a custom computation with full control over operation and parameters.
+            </p>
+            <div class="action-cta text-mono text-cyan">[CREATE {'>'}{'>'}]</div>
+          </button>
+        </div>
       </section>
 
       <!-- Jobs Section -->
@@ -863,6 +902,79 @@
 
   .network-overview {
     margin-bottom: var(--space-8);
+  }
+
+  .private-analytics-section {
+    margin-bottom: var(--space-8);
+  }
+
+  .private-analytics-section .tui-box {
+    padding: var(--space-6);
+  }
+
+  .analytics-result {
+    padding: var(--space-3);
+    border: 1px solid var(--zyber-success);
+    background: rgba(16, 185, 129, 0.1);
+    color: var(--zyber-success);
+  }
+
+  /* Quick Actions Section */
+  .quick-actions-section {
+    margin-bottom: var(--space-8);
+  }
+
+  .quick-actions-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: var(--space-4);
+  }
+
+  .action-card {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-3);
+    padding: var(--space-6);
+    background: rgba(15, 23, 42, 0.6);
+    border: 1px solid var(--zyber-border-muted);
+    border-radius: var(--radius-lg);
+    cursor: pointer;
+    transition: all var(--transition-base);
+    text-align: left;
+    width: 100%;
+  }
+
+  .action-card:hover {
+    border-color: var(--zyber-cyber-cyan);
+    background: rgba(6, 182, 212, 0.05);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 20px rgba(6, 182, 212, 0.2);
+  }
+
+  .action-card h3 {
+    margin: 0;
+    font-size: var(--text-lg);
+  }
+
+  .action-card p {
+    margin: 0;
+    line-height: 1.5;
+  }
+
+  .action-icon {
+    font-size: var(--text-2xl);
+    font-weight: bold;
+  }
+
+  .action-cta {
+    margin-top: auto;
+    padding-top: var(--space-3);
+    font-size: var(--text-sm);
+  }
+
+  .text-violet {
+    color: var(--zyber-quantum-violet);
   }
 
   .jobs-section {

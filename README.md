@@ -163,6 +163,194 @@ See [ROADMAP.md](ROADMAP.md) for full status and planned features.
 - **Wallet Proving:** Offload mobile ZK proof generation
 - **Privacy Analytics:** Compute on encrypted datasets
 
+---
+
+## Demo Features (Hackathon)
+
+### Private Analytics (Zcash-ready)
+Compute aggregations over encrypted transaction data without revealing amounts.
+
+**Supported Operations:**
+- `Sum` - Total of encrypted values
+- `Average` - Mean of encrypted values
+- `CountIf` - Count values matching a predicate
+
+**Flow:**
+1. User encrypts transaction amounts locally with `fhe-cli encrypt`
+2. Uploads `witness.bin` to webapp
+3. Selects operation (Sum/Average)
+4. Multi-prover network computes on encrypted data
+5. User decrypts final result locally
+
+### Proof of Innocence (FHE)
+Verify wallet has no interactions with sanctioned addresses - without revealing transaction history.
+
+**How it works:**
+1. User encrypts their transaction counterparty addresses
+2. Backend runs `count_if` with `EqualTo` predicate against OFAC list
+3. If result = 0, wallet is verified innocent
+4. User never reveals their actual transaction data
+
+### Verification Panel
+Visual consensus verification for FHE jobs:
+
+- **Witness Hash** - Blake2s256 hash of input data (proves all provers worked on same input)
+- **Result Hash** - Blake2s256 hash of encrypted output (deterministic commitment)
+- **Prover Table** - Shows each prover's commitment and match status
+- **Consensus Badge** - N-of-M consensus indicator
+
+---
+
+## FHE CLI Tool
+
+The `fhe-cli` is the user's offline encryption/decryption tool. **No WASM in browser** - all FHE operations happen locally.
+
+### Installation
+
+```bash
+# Build from source
+cd src/fhe-cli
+cargo build --release
+
+# Binary at: target/release/fhe-cli
+```
+
+### Commands
+
+#### Encrypt Single Value
+```bash
+# Interactive
+fhe-cli encrypt
+
+# With value
+fhe-cli encrypt -v 42
+
+# Custom output path
+fhe-cli encrypt -v 42 -p ./my-job
+```
+
+#### Encrypt Multiple Values (for Sum/Average)
+```bash
+# Comma-separated values
+fhe-cli encrypt --values 10,20,30,40,50
+
+# For analytics demo
+fhe-cli encrypt --values 100,250,75,300,125
+```
+
+#### Decrypt Result
+```bash
+# Interactive (prompts for base64 result)
+fhe-cli decrypt -p ./fhe-output
+
+# With result
+fhe-cli decrypt -p ./fhe-output -r "base64_encrypted_result..."
+```
+
+### Generated Files
+
+| File | Size | Purpose |
+|------|------|---------|
+| `client_key.bin` | ~2.5 MB | **SECRET** - Keep locally for decryption |
+| `server_key.bin` | ~18 MB | Public - Sent to provers |
+| `encrypted_data.bin` | ~200 bytes | Encrypted values |
+| `witness.bin` | ~18 MB | **Upload this** - Combined package for job creation |
+| `metadata.json` | ~200 bytes | Job metadata (original values for reference) |
+
+### Witness Format
+
+The `witness.bin` file combines server key and encrypted data:
+
+```
+┌─────────────────────────────────────────────────────┐
+│ encrypted_data_len (4 bytes, u32 LE)                │
+├─────────────────────────────────────────────────────┤
+│ encrypted_data (variable length)                    │
+├─────────────────────────────────────────────────────┤
+│ server_key (bincode serialized, ~18 MB)             │
+└─────────────────────────────────────────────────────┘
+```
+
+---
+
+## API Endpoints
+
+### Job Management
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/jobs/create` | Create new FHE job |
+| `GET` | `/api/jobs/{id}` | Get job details |
+| `GET` | `/api/jobs/{id}/status` | Get job status |
+| `GET` | `/api/jobs/{id}/result` | Get job result (when completed) |
+| `GET` | `/api/jobs/list` | List all jobs |
+| `GET` | `/api/jobs/by-wallet/{pubkey}` | Jobs by wallet |
+
+### Job Creation Request
+
+```json
+{
+  "operation": "sum",
+  "predicate": null,
+  "server_key": "base64...",
+  "encrypted_data": "base64...",
+  "signature": "base64...",
+  "user_pubkey": "solana_pubkey",
+  "payment_method": "sol",
+  "price_lamports": 1000000,
+  "required_provers": 3,
+  "consensus_threshold": 2
+}
+```
+
+### Operations
+
+| Operation | Predicate | Description |
+|-----------|-----------|-------------|
+| `sum` | - | Sum all encrypted values |
+| `average` | - | Average of encrypted values |
+| `count_if` | `EqualTo(n)` | Count values equal to n |
+| `count_if` | `GreaterThan(n)` | Count values > n |
+| `count_if` | `LessThan(n)` | Count values < n |
+
+---
+
+## Webapp Pages
+
+| Route | Page | Description |
+|-------|------|-------------|
+| `/` | Landing | Hero + features |
+| `/#dashboard` | Dashboard | Quick actions + recent jobs |
+| `/#analytics` | Analytics | Private sum/average computations |
+| `/#proof-of-innocence` | PoI | Sanctions verification |
+| `/#create-job` | CreateJob | Full custom job creation |
+| `/#my-jobs` | MyJobs | User's job history |
+| `/#job-details/{id}` | JobDetails | Single job details |
+
+---
+
+## Demo Quickstart
+
+```bash
+# 1. Start local environment
+make localnet-setup && make localnet-init && make localnet-run
+
+# 2. Generate test data (in another terminal)
+cd src/fhe-cli
+cargo run --release -- encrypt --values 100,200,150,300,250
+
+# 3. Open webapp
+open http://localhost:5173
+
+# 4. Go to Analytics page
+#    - Upload witness.bin from ./fhe-output
+#    - Select "Sum" operation
+#    - Connect wallet and submit
+
+# 5. After job completes, decrypt
+cargo run --release -- decrypt -p ./fhe-output
+```
+
 ## License
 
 MIT OR Apache-2.0

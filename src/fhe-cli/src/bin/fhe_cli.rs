@@ -26,9 +26,13 @@ enum Commands {
         #[arg(short, long, default_value = "./fhe-output")]
         path: PathBuf,
 
-        /// Value to encrypt (0-255). If not provided, will prompt interactively.
-        #[arg(short, long)]
+        /// Single value to encrypt (0-255).
+        #[arg(short, long, conflicts_with = "values")]
         value: Option<u8>,
+
+        /// Comma-separated list of values to encrypt for aggregation jobs (e.g., sum, count_if).
+        #[arg(long, value_delimiter = ',', conflicts_with = "value")]
+        values: Option<Vec<u8>>,
     },
 
     /// Decrypt result from a completed job
@@ -47,7 +51,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Encrypt { path, value } => encrypt_command(path, value),
+        Commands::Encrypt { path, value, values } => encrypt_command(path, value, values),
         Commands::Decrypt { path, result } => decrypt_command(path, result),
     }
 }
@@ -56,17 +60,8 @@ fn main() -> Result<()> {
 // ENCRYPT COMMAND
 // ============================================
 
-fn encrypt_command(path: PathBuf, value: Option<u8>) -> Result<()> {
+fn encrypt_command(path: PathBuf, value: Option<u8>, values: Option<Vec<u8>>) -> Result<()> {
     println!("\n{}", "=== ZyberLink FHE Encrypt ===".bold().cyan());
-
-    // Get value to encrypt
-    let value = match value {
-        Some(v) => {
-            println!("  Value: {}", v.to_string().bright_yellow());
-            v
-        }
-        None => get_value_interactive()?,
-    };
 
     // Create output directory
     fs::create_dir_all(&path)?;
@@ -83,10 +78,27 @@ fn encrypt_command(path: PathBuf, value: Option<u8>) -> Result<()> {
     let (client_key, server_key) = generate_fhe_keys()?;
     println!("[+] Keypair generated");
 
-    // Encrypt the value
-    println!("\n[*] Encrypting value: {}", value);
-    let encrypted_data = encrypt_value(value, &client_key)?;
-    println!("[+] Value encrypted successfully");
+    // Encrypt the value(s)
+    let (encrypted_data, original_values) = if let Some(vals) = values {
+        println!("\n[*] Encrypting values for aggregation: {:?}", vals);
+        let mut encrypted_values = Vec::new();
+        for v in &vals {
+            let encrypted = encrypt_value(*v, &client_key)?;
+            encrypted_values.push(encrypted);
+        }
+        (bincode::serialize(&encrypted_values)?, vals)
+    } else {
+        let val = match value {
+            Some(v) => {
+                println!("\n[*] Encrypting value: {}", v.to_string().bright_yellow());
+                v
+            }
+            None => get_value_interactive()?,
+        };
+        (encrypt_value(val, &client_key)?, vec![val])
+    };
+    println!("[+] Encryption successful");
+
 
     // Save all files
     println!("\n[*] Saving files...");
@@ -130,7 +142,7 @@ fn encrypt_command(path: PathBuf, value: Option<u8>) -> Result<()> {
 
     // 5. Metadata
     let metadata_path = path.join("metadata.json");
-    create_metadata_file(value, &metadata_path)?;
+    create_metadata_file(&original_values, &metadata_path)?;
     println!("    [+] {}", "metadata.json".bright_white());
 
     // Print summary
@@ -174,22 +186,21 @@ fn create_witness_file(
     encrypted_data: &[u8],
     filepath: &PathBuf,
 ) -> Result<()> {
-    let server_key_bytes = bincode::serialize(server_key)?;
-    let server_key_len = server_key_bytes.len() as u64;
+    let encrypted_data_len = encrypted_data.len() as u32; // Use u32 for length
 
     let mut witness = Vec::new();
-    witness.extend_from_slice(&server_key_len.to_le_bytes());
-    witness.extend_from_slice(&server_key_bytes);
+    witness.extend_from_slice(&encrypted_data_len.to_le_bytes()); // Write 4 bytes length
     witness.extend_from_slice(encrypted_data);
+    witness.extend_from_slice(&bincode::serialize(server_key)?); // Append server key bytes
 
     fs::write(filepath, witness)?;
     Ok(())
 }
 
-fn create_metadata_file(original_value: u8, filepath: &PathBuf) -> Result<()> {
+fn create_metadata_file(original_values: &[u8], filepath: &PathBuf) -> Result<()> {
     let metadata = serde_json::json!({
         "version": "1.0",
-        "original_value": original_value,
+        "original_values": original_values,
         "created_at": chrono::Utc::now().to_rfc3339(),
         "files": {
             "client_key": "client_key.bin",

@@ -22,6 +22,7 @@ mod witness_fetcher;
 mod wizard;
 
 use fhe_engine::FheEngine;
+use fhe_engine::FhePredicate as FheEnginePredicate; // Alias to avoid conflict
 use halo2_prover::{Halo2Prover, OrchardWitness};
 use roi_calculator::ROICalculator;
 use witness_encryption::WitnessEncryption;
@@ -76,9 +77,17 @@ fn circuit_type_from_u8(circuit_type: u8, fhe_data: Option<&FheConsensusData>) -
         }
         CIRCUIT_FHE_COUNT_IF => {
             let count = fhe_data.map(|d| d.operation_param1).unwrap_or(0);
-            // CountIf predicate cannot be fully reconstructed from u8, use default
+            let predicate_value = fhe_data.map(|d| d.operation_param1 as u8).unwrap_or(0);
+            let predicate_type = fhe_data.map(|d| d.operation_param2 as u8).unwrap_or(0); // 0: EqualTo, 1: GreaterThan, 2: LessThan
+
+            let fhe_engine_predicate = match predicate_type {
+                1 => fhe_engine::FhePredicate::GreaterThan(predicate_value),
+                2 => fhe_engine::FhePredicate::LessThan(predicate_value),
+                _ => fhe_engine::FhePredicate::EqualTo(predicate_value), // Default to EqualTo
+            };
+
             CircuitType::FheComputation(FheOperation::CountIf {
-                predicate: FhePredicate::Equals(0),
+                predicate: zyberlink_types::fhe::FhePredicate::Equals(predicate_value), // Keep zyberlink_types predicate for on-chain
                 expected_count: count,
             })
         }
@@ -960,7 +969,7 @@ impl ProverNode {
                     let input_refs: Vec<&[u8]> = inputs.iter().map(|v| v.as_slice()).collect();
 
                     // Use u16 by default for safety (handles up to 65k)
-                    CensusCircuit::compute_sum_u16(input_refs)
+                    engine.compute_sum(&input_refs)
                 }
                 FheOperation::Threshold {
                     threshold,
@@ -1018,9 +1027,16 @@ impl ProverNode {
                     // Convert Vec<Vec<u8>> to Vec<&[u8]>
                     let input_refs: Vec<&[u8]> = inputs.iter().map(|v| v.as_slice()).collect();
 
+                    // Convert zyberlink_types::FhePredicate to fhe_engine::FhePredicate
+                    let fhe_engine_predicate = match predicate {
+                        zyberlink_types::fhe::FhePredicate::Equals(val) => FheEnginePredicate::EqualTo(*val),
+                        zyberlink_types::fhe::FhePredicate::GreaterThan(val) => FheEnginePredicate::GreaterThan(*val),
+                        zyberlink_types::fhe::FhePredicate::LessThan(val) => FheEnginePredicate::LessThan(*val),
+                        _ => anyhow::bail!("Unsupported FhePredicate type for CountIf in prover-node"),
+                    };
+
                     // Compute count_if
-                    VotingCircuit::compute_count_if(input_refs, predicate)
-                        .context("Failed to compute count_if")
+                    engine.compute_count_if(&input_refs, fhe_engine_predicate)
                 }
 
                 FheOperation::Histogram { ref bins } => {

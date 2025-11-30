@@ -1,6 +1,7 @@
 <script>
   import { walletStore } from '../stores/wallet';
   import { navigateTo } from '../stores/router';
+  import VerificationPanel from './VerificationPanel.svelte';
 
   export let job;
   export let isMyJob = false;
@@ -138,6 +139,30 @@
       console.error('Failed to copy:', err);
     }
   }
+
+  // Generate deterministic mock hashes for verification panel
+  function generateMockHash(seed, length = 64) {
+    const chars = '0123456789abcdef';
+    let hash = '';
+    for (let i = 0; i < length; i++) {
+      const charSeed = (seed * 1000) + i;
+      const charIndex = Math.floor(seededRandom(charSeed) * chars.length);
+      hash += chars.charAt(charIndex);
+    }
+    return hash;
+  }
+
+  // Generate verification data for completed jobs
+  $: verificationData = job.status === 'completed' ? {
+    witnessHash: generateMockHash(job.job_id * 7, 64),
+    resultHash: generateMockHash(job.job_id * 13, 64),
+    provers: provers.map((p, i) => ({
+      id: `prover-${i + 1}`,
+      address: p.address,
+      // All provers have same hash for consensus (completed job)
+      commitmentHash: generateMockHash(job.job_id * 13, 64)
+    }))
+  } : null;
 </script>
 
 <div class="job-card glass-card {getStatusClass(job.status)}" class:expanded on:click={goToDetails} on:keypress={goToDetails} role="button" tabindex="0">
@@ -246,6 +271,21 @@
               </div>
             {/each}
           </div>
+        </div>
+      {/if}
+
+      <!-- Verification Panel (for completed jobs) -->
+      {#if job.status === 'completed' && verificationData}
+        <div class="verification-section">
+          <VerificationPanel
+            jobId={job.job_id}
+            witnessHash={verificationData.witnessHash}
+            resultHash={verificationData.resultHash}
+            provers={verificationData.provers}
+            consensusThreshold={job.consensus_threshold || 2}
+            txSignature={job.tx_signature}
+            compact={false}
+          />
         </div>
       {/if}
 
@@ -668,6 +708,11 @@
   .job-card:hover .click-hint {
     opacity: 1;
     color: var(--zyber-cyber-cyan);
+  }
+
+  /* Verification Section */
+  .verification-section {
+    margin-bottom: var(--space-4);
   }
 
   /* Utilities */

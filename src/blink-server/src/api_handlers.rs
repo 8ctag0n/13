@@ -1286,6 +1286,16 @@ fn build_create_job_transaction(
     let operation = match validated.operation.as_str() {
         "add" => FheOperation::Add(validated.operation_value),
         "multiply" => FheOperation::Multiply(validated.operation_value),
+        "sum" => FheOperation::Sum {
+            expected_count: validated.expected_count,
+        },
+        "count_if" => FheOperation::CountIf {
+            expected_count: validated.expected_count,
+            predicate: validated
+                .predicate
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("Missing predicate for count_if operation"))?,
+        },
         _ => return Err(anyhow::anyhow!("Invalid operation")),
     };
 

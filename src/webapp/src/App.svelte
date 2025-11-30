@@ -7,6 +7,8 @@
   import MetricsDashboard from './lib/pages/MetricsDashboard.svelte';
   import MyJobs from './lib/pages/MyJobs.svelte';
   import JobDetails from './lib/pages/JobDetails.svelte';
+  import Analytics from './lib/pages/Analytics.svelte';
+  import ProofOfInnocence from './lib/pages/ProofOfInnocence.svelte';
   import Toast from './lib/components/Toast.svelte';
   import { toastStore } from './lib/stores/toast';
   import './styles/tui-system.css';
@@ -27,6 +29,10 @@
     <MetricsDashboard />
   {:else if $currentRoute === 'my-jobs'}
     <MyJobs />
+  {:else if $currentRoute === 'analytics'}
+    <Analytics />
+  {:else if $currentRoute === 'proof-of-innocence'}
+    <ProofOfInnocence />
   {:else if isPatternRoute($currentRoute, 'job-details')}
     <JobDetails jobId={jobParams.jobId} />
   {/if}
