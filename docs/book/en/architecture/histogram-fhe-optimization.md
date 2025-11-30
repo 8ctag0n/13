@@ -1,27 +1,27 @@
-# FHE Histogram: Diseño y Optimizaciones Futuras
+# FHE Histogram: Design and Future Optimizations
 
-## Versión: 2.0 (Optimizada - No Implementada)
+## Version: 2.0 (Optimized - Not Implemented)
 
-### Resumen Ejecutivo
+### Executive Summary
 
-Este documento describe el diseño optimizado de operaciones Histogram sobre datos cifrados con FHE (Fully Homomorphic Encryption), para implementación futura en ZyberLink. Documenta estrategias de optimización, benchmarks objetivos, y trade-offs arquitectónicos.
+This document outlines the optimized design for Histogram operations over FHE (Fully Homomorphic Encryption) encrypted data for future implementation in ZyberLink. It captures optimization strategies, target benchmarks, and architectural trade-offs.
 
 ---
 
-## 1. Fundamentos Matemáticos
+## 1. Mathematical Fundamentals
 
-### 1.1 Operación Base
+### 1.1 Base Operation
 
 ```
 FHE_Histogram: [Enc(v₁), ..., Enc(vₙ)], bins → [Enc(count₁), ..., Enc(countₘ)]
 
-Donde:
-- vᵢ ∈ {0..255} (valores encriptados FheUint8)
-- bins = [(min₁,max₁), ..., (minₘ,maxₘ)] (definición de rangos)
-- countⱼ = |{i : minⱼ ≤ vᵢ ≤ maxⱼ}| (conteo por bin)
+Where:
+- vᵢ ∈ {0..255} (encrypted FheUint8 values)
+- bins = [(min₁,max₁), ..., (minₘ,maxₘ)] (range definitions)
+- countⱼ = |{i : minⱼ ≤ vᵢ ≤ maxⱼ}| (count per bin)
 ```
 
-### 1.2 Implementación Naive
+### 1.2 Naive Implementation
 
 ```rust
 fn compute_histogram_naive(
@@ -60,22 +60,22 @@ fn check_range(value: &FheUint8, min: u8, max: u8) -> Result<FheUint8> {
 }
 ```
 
-**Complejidad:** O(n × m × c)
-- n = número de valores
-- m = número de bins
-- c = costo de comparación FHE (~2-3 operaciones bootstrap)
+**Complexity:** O(n × m × c)
+- n = number of values
+- m = number of bins
+- c = FHE comparison cost (~2-3 bootstrap operations)
 
-**Performance Estimada (v1.0):**
-- 100 valores, 5 bins: ~20-30 segundos
-- 1000 valores, 10 bins: ~300-500 segundos
+**Estimated Performance (v1.0):**
+- 100 values, 5 bins: ~20-30 seconds
+- 1000 values, 10 bins: ~300-500 seconds
 
 ---
 
-## 2. Estrategias de Optimización
+## 2. Optimization Strategies
 
-### 2.1 Paralelización por Bins
+### 2.1 Parallelization by Bins
 
-**Concepto:** Cada bin se procesa independientemente en hilos separados.
+**Concept:** Each bin is processed independently on separate threads.
 
 ```rust
 fn compute_histogram_parallel(
@@ -101,46 +101,46 @@ fn count_values_in_bin(
 }
 ```
 
-**Ganancia Esperada:** Speedup lineal en número de bins (5x para 5 bins)
-**Trade-off:** Mayor uso de RAM (m × tamaño_ciphertext)
+**Expected Gain:** Linear speedup with number of bins (5x for 5 bins)
+**Trade-off:** Higher RAM usage (m × ciphertext size)
 
 ### 2.2 Batch Range Checks
 
-**Concepto:** Reducir número de comparaciones mediante pre-sorting conceptual.
+**Concept:** Reduce the number of comparisons through conceptual pre-sorting.
 
 ```rust
-// Optimización: si bins están ordenados y sin overlap
-// podemos usar búsqueda binaria conceptual
+// Optimization: if bins are sorted and non-overlapping
+// we can use conceptual binary search
 
 fn optimized_range_check(
     value: &FheUint8,
     sorted_bins: &[HistogramBin]
 ) -> Result<FheUint8> {
-    // Para bins ordenados: [0-10], [11-20], [21-30], ...
-    // Un valor solo puede estar en un bin
-    // Podemos crear árbol de decisión más eficiente
+    // For sorted bins: [0-10], [11-20], [21-30], ...
+    // A value can only belong to one bin
+    // We can build a more efficient decision tree
 
-    // Ejemplo con 4 bins:
-    // Comparar con punto medio (bin[1].max)
-    // Si value <= mid → buscar en bins[0..2]
-    // Si value > mid → buscar en bins[2..4]
+    // Example with 4 bins:
+    // Compare with midpoint (bin[1].max)
+    // If value <= mid → search bins[0..2]
+    // If value > mid → search bins[2..4]
 
-    // Esto reduce de 4 comparaciones a log₂(4) = 2 en promedio
+    // This reduces from 4 comparisons to log₂(4) = 2 on average
 
-    todo!("Implementar binary search tree en FHE")
+    todo!("Implement binary search tree in FHE")
 }
 ```
 
-**Ganancia Esperada:** O(n × log m × c) vs O(n × m × c)
-**Restricción:** Requiere bins disjuntos y ordenados
+**Expected Gain:** O(n × log m × c) vs O(n × m × c)
+**Constraint:** Requires disjoint, ordered bins
 
-### 2.3 Compresión de Comparaciones
+### 2.3 Comparison Compression
 
-**Concepto:** Reutilizar comparaciones intermedias.
+**Concept:** Reuse intermediate comparisons.
 
 ```rust
-// Si tenemos bins: [0-10], [11-20], [21-30]
-// Podemos calcular:
+// With bins: [0-10], [11-20], [21-30]
+// We can compute:
 // bin1 = (value >= 0) & (value <= 10)
 // bin2 = (value >= 11) & (value <= 20) = NOT(bin1) & (value <= 20)
 // bin3 = (value >= 21) & (value <= 30) = NOT(bin1 | bin2) & (value <= 30)
@@ -149,51 +149,51 @@ fn compressed_histogram(
     values: Vec<FheUint8>,
     bins: &[HistogramBin]
 ) -> Result<Vec<FheUint8>> {
-    // Cachear comparaciones comunes
+    // Cache common comparisons
     let mut comparison_cache = HashMap::new();
 
     for value in &values {
-        // Reutilizar comparaciones ya calculadas
+        // Reuse previously computed comparisons
         let ge_11 = comparison_cache.entry("ge_11")
             .or_insert_with(|| value.ge(&FheUint8::try_encrypt_trivial(11)?));
 
-        // ... aplicar a bins
+        // ... apply to bins
     }
 
-    todo!("Implementar cache de comparaciones")
+    todo!("Implement comparison cache")
 }
 ```
 
-**Ganancia Esperada:** 30-40% menos operaciones FHE
-**Complejidad:** Difícil para bins arbitrarios
+**Expected Gain:** 30-40% fewer FHE operations
+**Complexity:** Challenging for arbitrary bins
 
 ### 2.4 Approximation Schemes
 
-**Concepto:** Trade off precisión por velocidad.
+**Concept:** Trade off precision for speed.
 
 ```rust
-// Opción 1: Discrete Bins (ya implementado)
-// Bins explícitos: [0-10], [11-20], ...
+// Option 1: Discrete Bins (already implemented)
+// Explicit bins: [0-10], [11-20], ...
 
-// Opción 2: Power-of-Two Bins (más eficiente)
-// Usar máscara de bits: bin_index = value >> 3 (divide por 8)
+// Option 2: Power-of-Two Bins (more efficient)
+// Use bit mask: bin_index = value >> 3 (divide by 8)
 fn power_of_two_histogram(
     values: Vec<FheUint8>,
-    bin_shift: u8 // Ejemplo: 3 para bins de tamaño 8
+    bin_shift: u8 // Example: 3 for bin size 8
 ) -> Result<Vec<FheUint8>> {
-    // Bins automáticos: [0-7], [8-15], [16-23], ...
+    // Auto-generated bins: [0-7], [8-15], [16-23], ...
     let num_bins = 256 >> bin_shift;
     let mut counts = vec![FheUint8::try_encrypt_trivial(0)?; num_bins];
 
     for value in values {
-        // Shift es más barato que comparaciones
+        // Shift is cheaper than comparisons
         let bin_index = value >> bin_shift; // FHE shift operation
 
-        // Incrementar el bin correcto
-        // Problema: indexación dinámica en FHE es costosa
-        // Solución: usar one-hot encoding + select
+        // Increment the correct bin
+        // Problem: dynamic indexing in FHE is expensive
+        // Solution: use one-hot encoding + select
 
-        todo!("Implementar indexación eficiente")
+        todo!("Implement efficient indexing")
     }
 
     Ok(counts)
