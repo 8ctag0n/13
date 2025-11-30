@@ -89,6 +89,30 @@ pub fn save_client_key(client_key: &ClientKey, filepath: &PathBuf) -> Result<()>
     Ok(())
 }
 
+/// Save server key to file (binary format for efficiency)
+pub fn save_server_key(server_key: &ServerKey, filepath: &PathBuf) -> Result<()> {
+    let bytes = bincode::serialize(server_key)?;
+    fs::write(filepath, bytes).context("Failed to write server key to file")?;
+    Ok(())
+}
+
+/// Save encrypted data to file (binary format)
+pub fn save_encrypted_data(encrypted: &[u8], filepath: &PathBuf) -> Result<()> {
+    fs::write(filepath, encrypted).context("Failed to write encrypted data to file")?;
+    Ok(())
+}
+
+/// Load server key from file
+pub fn load_server_key(filepath: &PathBuf) -> Result<ServerKey> {
+    let bytes = fs::read(filepath).context("Failed to read server key file")?;
+    Ok(bincode::deserialize(&bytes)?)
+}
+
+/// Load encrypted data from file
+pub fn load_encrypted_data(filepath: &PathBuf) -> Result<Vec<u8>> {
+    fs::read(filepath).context("Failed to read encrypted data file")
+}
+
 /// Load client key from file
 pub fn load_client_key(filepath: &PathBuf) -> Result<ClientKey> {
     let base64_key = fs::read_to_string(filepath).context("Failed to read client key file")?;

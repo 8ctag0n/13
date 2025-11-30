@@ -2192,8 +2192,11 @@ dependencies = [
  "atty",
  "base64 0.22.1",
  "bincode",
+ "chrono",
+ "clap",
  "colored",
  "dirs 5.0.1",
+ "serde_json",
  "tfhe",
 ]
 
