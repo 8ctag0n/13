@@ -3,6 +3,8 @@
   import { currentRoute, navigateTo } from '../stores/router';
   import { walletStore } from '../stores/wallet';
 
+  const API_BASE = import.meta.env.VITE_API_URL || '';
+
   export let jobId;
 
   let job = null;
@@ -17,7 +19,7 @@
   // Fetch job details
   async function fetchJob() {
     try {
-      const response = await fetch(`http://localhost:8080/api/jobs/${jobId}`);
+      const response = await fetch(`${API_BASE}/api/jobs/${jobId}`);
       if (!response.ok) {
         if (response.status === 404) {
           throw new Error('Job not found');

@@ -1,7 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
 
-  const API_BASE = import.meta.env.VITE_API_URL || import.meta.env.VITE_BACKEND_URL || 'http://127.0.0.1:8080';
+  const API_BASE = import.meta.env.VITE_API_URL || '';
 
   let stats = [
     { id: 'provers', icon: '[#]', label: 'ACTIVE_PROVERS', value: 0, target: 0, color: 'cyan' },

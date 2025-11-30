@@ -62,7 +62,7 @@ log_step "STEP 1: Infrastructure Bootstrap"
 log_info "Checking PostgreSQL database..."
 if ! podman ps | grep -q postgres; then
     log_warn "PostgreSQL not running, starting..."
-    podman-compose up -d
+    podman-compose -f infra/docker/docker-compose.yml up -d
     sleep 5
 fi
 
