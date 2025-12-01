@@ -2,14 +2,17 @@ mod common;
 
 use borsh::BorshDeserialize;
 use common::{initialize_marketplace, register_prover, setup_program_test};
-use zyberlink::{instruction::MarketplaceInstruction, state::{JobAccount, FheConsensusData}};
-use zyberlink_types::{fhe::FheOperation, CircuitType, FheConsensusConfig, JobStatus};
 use solana_program::pubkey::Pubkey;
 use solana_program_test::*;
 use solana_sdk::{
     signature::{Keypair, Signer},
     transaction::Transaction,
 };
+use zyberlink::{
+    instruction::MarketplaceInstruction,
+    state::{FheConsensusData, JobAccount},
+};
+use zyberlink_types::{fhe::FheOperation, CircuitType, FheConsensusConfig, JobStatus};
 
 /// Helper to create an FHE job with proper accounts
 async fn create_fhe_job(
@@ -21,15 +24,11 @@ async fn create_fhe_job(
 ) -> (Pubkey, Pubkey, Pubkey) {
     let job_creator = payer.pubkey();
     let job_id_bytes = job_id.to_le_bytes();
-    let (job_pda, _) = Pubkey::find_program_address(
-        &[b"job", job_creator.as_ref(), &job_id_bytes],
-        program_id,
-    );
+    let (job_pda, _) =
+        Pubkey::find_program_address(&[b"job", job_creator.as_ref(), &job_id_bytes], program_id);
     let (escrow_pda, _) = Pubkey::find_program_address(&[b"escrow", job_pda.as_ref()], program_id);
-    let (fhe_consensus_pda, _) = Pubkey::find_program_address(
-        &[b"fhe_consensus", &job_id_bytes],
-        program_id,
-    );
+    let (fhe_consensus_pda, _) =
+        Pubkey::find_program_address(&[b"fhe_consensus", &job_id_bytes], program_id);
 
     let fhe_operation = FheOperation::Add(5);
     let fhe_config = FheConsensusConfig {
@@ -104,8 +103,7 @@ async fn claim_fhe_job(
     };
 
     let recent_blockhash = banks_client.get_latest_blockhash().await.unwrap();
-    let mut claim_job_tx =
-        Transaction::new_with_payer(&[claim_job_ix], Some(&prover_authority));
+    let mut claim_job_tx = Transaction::new_with_payer(&[claim_job_ix], Some(&prover_authority));
     claim_job_tx.sign(&[prover_keypair], recent_blockhash);
     banks_client
         .process_transaction(claim_job_tx)
@@ -205,14 +203,8 @@ async fn test_submit_fhe_result_success() {
 
     // 3. Create FHE job
     let job_id = 0u64;
-    let (job_pda, _escrow_pda, fhe_consensus_pda) = create_fhe_job(
-        &mut banks_client,
-        &payer,
-        &program_id,
-        &config_pda,
-        job_id,
-    )
-    .await;
+    let (job_pda, _escrow_pda, fhe_consensus_pda) =
+        create_fhe_job(&mut banks_client, &payer, &program_id, &config_pda, job_id).await;
 
     // 4. Claim job with all 3 provers
     for prover_keypair in [&prover1_keypair, &prover2_keypair, &prover3_keypair] {
@@ -256,7 +248,11 @@ async fn test_submit_fhe_result_success() {
     assert_eq!(job.status, JobStatus::Claimed);
 
     // Results are now in FheConsensusData
-    let fhe_account = banks_client.get_account(fhe_consensus_pda).await.unwrap().unwrap();
+    let fhe_account = banks_client
+        .get_account(fhe_consensus_pda)
+        .await
+        .unwrap()
+        .unwrap();
     let fhe_data: FheConsensusData = {
         let mut data_slice = &fhe_account.data[..];
         FheConsensusData::deserialize(&mut data_slice).unwrap()
@@ -327,14 +323,8 @@ async fn test_submit_fhe_result_duplicate() {
 
     // Create FHE job
     let job_id = 0u64;
-    let (job_pda, _escrow_pda, fhe_consensus_pda) = create_fhe_job(
-        &mut banks_client,
-        &payer,
-        &program_id,
-        &config_pda,
-        job_id,
-    )
-    .await;
+    let (job_pda, _escrow_pda, fhe_consensus_pda) =
+        create_fhe_job(&mut banks_client, &payer, &program_id, &config_pda, job_id).await;
 
     // Claim job with all 3 provers
     for pk in [&prover_keypair, &prover2_keypair, &prover3_keypair] {
@@ -373,12 +363,19 @@ async fn test_submit_fhe_result_duplicate() {
     assert!(result1.is_ok(), "First submission should succeed");
 
     // Verify the result was stored in FheConsensusData
-    let fhe_account = banks_client.get_account(fhe_consensus_pda).await.unwrap().unwrap();
+    let fhe_account = banks_client
+        .get_account(fhe_consensus_pda)
+        .await
+        .unwrap()
+        .unwrap();
     let fhe_data: FheConsensusData = {
         let mut data_slice = &fhe_account.data[..];
         FheConsensusData::deserialize(&mut data_slice).unwrap()
     };
-    assert!(fhe_data.result_submitted[0], "Result should be marked as submitted");
+    assert!(
+        fhe_data.result_submitted[0],
+        "Result should be marked as submitted"
+    );
     assert_eq!(fhe_data.results_count, 1, "Results count should be 1");
 
     // Get NEW blockhash for second transaction and retry a few times
@@ -386,7 +383,8 @@ async fn test_submit_fhe_result_duplicate() {
     let mut result2_is_err = false;
     for _ in 0..5 {
         let blockhash2 = banks_client.get_latest_blockhash().await.unwrap();
-        let mut tx2 = Transaction::new_with_payer(&[submit_result_ix.clone()], Some(&prover_authority));
+        let mut tx2 =
+            Transaction::new_with_payer(&[submit_result_ix.clone()], Some(&prover_authority));
         tx2.sign(&[&prover_keypair], blockhash2);
 
         let result2 = banks_client.process_transaction(tx2).await;
@@ -477,14 +475,8 @@ async fn test_submit_fhe_result_unauthorized() {
 
     // Create FHE job
     let job_id = 0u64;
-    let (job_pda, _escrow_pda, fhe_consensus_pda) = create_fhe_job(
-        &mut banks_client,
-        &payer,
-        &program_id,
-        &config_pda,
-        job_id,
-    )
-    .await;
+    let (job_pda, _escrow_pda, fhe_consensus_pda) =
+        create_fhe_job(&mut banks_client, &payer, &program_id, &config_pda, job_id).await;
 
     // Only Prover A, prover2, and prover3 claim (NOT Prover B)
     for pk in [&prover_a_keypair, &prover2_keypair, &prover3_keypair] {

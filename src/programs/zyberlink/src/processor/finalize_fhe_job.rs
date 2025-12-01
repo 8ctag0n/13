@@ -1,5 +1,4 @@
 use borsh::BorshDeserialize;
-use zyberlink_types::JobStatus;
 use solana_program::{
     account_info::{next_account_info, AccountInfo},
     entrypoint::ProgramResult,
@@ -7,6 +6,7 @@ use solana_program::{
     pubkey::Pubkey,
     sysvar::{clock::Clock, Sysvar},
 };
+use zyberlink_types::JobStatus;
 
 use crate::{
     error::ZyberLinkProgramError,
@@ -72,10 +72,7 @@ pub fn process_finalize_fhe_job(program_id: &Pubkey, accounts: &[AccountInfo]) -
 
     // Verify FHE consensus PDA
     let job_id_bytes = job.id.to_le_bytes();
-    let (fhe_pda, _) = Pubkey::find_program_address(
-        &[b"fhe_consensus", &job_id_bytes],
-        program_id,
-    );
+    let (fhe_pda, _) = Pubkey::find_program_address(&[b"fhe_consensus", &job_id_bytes], program_id);
 
     if fhe_consensus_info.key != &fhe_pda {
         msg!("Invalid FHE consensus account");

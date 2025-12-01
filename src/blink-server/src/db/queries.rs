@@ -70,6 +70,7 @@ impl JobQueries {
     }
 
     /// Update job status
+    #[allow(dead_code)]
     pub async fn update_job_status(pool: &PgPool, job_id: i64, status: JobStatus) -> Result<()> {
         let result = sqlx::query(
             r#"
@@ -92,7 +93,12 @@ impl JobQueries {
     }
 
     /// Update job status and tx_signature (for confirmed transactions)
-    pub async fn confirm_job_with_signature(pool: &PgPool, job_id: i64, status: JobStatus, tx_signature: &str) -> Result<()> {
+    pub async fn confirm_job_with_signature(
+        pool: &PgPool,
+        job_id: i64,
+        status: JobStatus,
+        tx_signature: &str,
+    ) -> Result<()> {
         let result = sqlx::query(
             r#"
             UPDATE temp_job_data
@@ -115,6 +121,7 @@ impl JobQueries {
     }
 
     /// Get all jobs by status
+    #[allow(dead_code)]
     pub async fn get_jobs_by_status(pool: &PgPool, status: JobStatus) -> Result<Vec<TempJobData>> {
         let jobs = sqlx::query_as::<_, TempJobData>(
             r#"

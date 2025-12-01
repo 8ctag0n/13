@@ -1,3 +1,5 @@
+#![allow(unexpected_cfgs, deprecated)]
+
 pub mod error;
 pub mod instruction;
 pub mod processor;

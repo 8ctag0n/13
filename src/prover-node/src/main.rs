@@ -1,7 +1,17 @@
+#![allow(
+    dead_code,
+    unused_imports,
+    unused_variables,
+    clippy::too_many_arguments,
+    clippy::manual_range_contains,
+    clippy::manual_contains,
+    clippy::unnecessary_cast,
+    clippy::needless_borrows_for_generic_args,
+    deprecated
+)]
+
 use anyhow::{Context, Result};
 use clap::Parser;
-use zyberlink_sdk::{fetch_job, fetch_fhe_consensus, find_pending_jobs, find_fhe_jobs_needing_provers, MarketplaceClient, FheConsensusData};
-use zyberlink_types::{CircuitType, FheOperation, FhePredicate, HistogramBin, JobStatus};
 use log::{debug, error, info, warn};
 use solana_sdk::{
     commitment_config::CommitmentConfig,
@@ -10,6 +20,11 @@ use solana_sdk::{
 };
 use std::{sync::Arc, time::Duration};
 use tokio::time::sleep;
+use zyberlink_sdk::{
+    fetch_fhe_consensus, fetch_job, find_fhe_jobs_needing_provers, find_pending_jobs,
+    FheConsensusData, MarketplaceClient,
+};
+use zyberlink_types::{CircuitType, FheOperation, FhePredicate, HistogramBin, JobStatus};
 
 mod circuits;
 mod config;
@@ -59,12 +74,17 @@ fn circuit_type_from_u8(circuit_type: u8, fhe_data: Option<&FheConsensusData>) -
         }
         CIRCUIT_FHE_SUM => {
             let count = fhe_data.map(|d| d.operation_param1).unwrap_or(0);
-            CircuitType::FheComputation(FheOperation::Sum { expected_count: count })
+            CircuitType::FheComputation(FheOperation::Sum {
+                expected_count: count,
+            })
         }
         CIRCUIT_FHE_THRESHOLD => {
             let threshold = fhe_data.map(|d| d.operation_param1 as u8).unwrap_or(0);
             let greater_or_equal = fhe_data.map(|d| d.operation_param2 != 0).unwrap_or(true);
-            CircuitType::FheComputation(FheOperation::Threshold { threshold, greater_or_equal })
+            CircuitType::FheComputation(FheOperation::Threshold {
+                threshold,
+                greater_or_equal,
+            })
         }
         CIRCUIT_FHE_RANGE_CHECK => {
             let min = fhe_data.map(|d| d.operation_param2).unwrap_or(0);
@@ -73,7 +93,9 @@ fn circuit_type_from_u8(circuit_type: u8, fhe_data: Option<&FheConsensusData>) -
         }
         CIRCUIT_FHE_AVERAGE => {
             let count = fhe_data.map(|d| d.operation_param1).unwrap_or(0);
-            CircuitType::FheComputation(FheOperation::Average { expected_count: count })
+            CircuitType::FheComputation(FheOperation::Average {
+                expected_count: count,
+            })
         }
         CIRCUIT_FHE_COUNT_IF => {
             let count = fhe_data.map(|d| d.operation_param1).unwrap_or(0);
@@ -370,11 +392,16 @@ impl ProverNode {
             &self.client.rpc_client,
             &self.config.program_id,
             &keypair.pubkey(),
-        ).unwrap_or_default();
+        )
+        .unwrap_or_default();
 
         let total_pending = pending_jobs.len() + fhe_jobs.len();
-        info!("Found {} pending jobs ({} ZK + {} FHE needing provers)",
-            total_pending, pending_jobs.len(), fhe_jobs.len());
+        info!(
+            "Found {} pending jobs ({} ZK + {} FHE needing provers)",
+            total_pending,
+            pending_jobs.len(),
+            fhe_jobs.len()
+        );
 
         // Filter jobs using ROI calculator - only accept profitable jobs
         let mut suitable_jobs = Vec::new();
@@ -677,7 +704,9 @@ impl ProverNode {
 
                 // Parse witness format: [encrypted_data_len (4 bytes)] [encrypted_data] [server_key]
                 if witness_bytes.len() < 4 {
-                    return Err(anyhow::anyhow!("Witness too short to contain length prefix"));
+                    return Err(anyhow::anyhow!(
+                        "Witness too short to contain length prefix"
+                    ));
                 }
 
                 let encrypted_data_len = u32::from_le_bytes([
@@ -804,11 +833,8 @@ impl ProverNode {
                 // Use deterministic commitment for consensus (see fhe_engine.rs for design note)
                 // TFHE-rs produces non-deterministic ciphertext across processes,
                 // so we commit to inputs rather than outputs for PoC consensus
-                let result_hash = FheEngine::deterministic_commitment(
-                    &witness_hash,
-                    op.name(),
-                    job_id,
-                );
+                let result_hash =
+                    FheEngine::deterministic_commitment(&witness_hash, op.name(), job_id);
 
                 info!(
                     "[Job {}] FHE deterministic commitment: {} (op: {})",
@@ -1029,10 +1055,18 @@ impl ProverNode {
 
                     // Convert zyberlink_types::FhePredicate to fhe_engine::FhePredicate
                     let fhe_engine_predicate = match predicate {
-                        zyberlink_types::fhe::FhePredicate::Equals(val) => FheEnginePredicate::EqualTo(*val),
-                        zyberlink_types::fhe::FhePredicate::GreaterThan(val) => FheEnginePredicate::GreaterThan(*val),
-                        zyberlink_types::fhe::FhePredicate::LessThan(val) => FheEnginePredicate::LessThan(*val),
-                        _ => anyhow::bail!("Unsupported FhePredicate type for CountIf in prover-node"),
+                        zyberlink_types::fhe::FhePredicate::Equals(val) => {
+                            FheEnginePredicate::EqualTo(*val)
+                        }
+                        zyberlink_types::fhe::FhePredicate::GreaterThan(val) => {
+                            FheEnginePredicate::GreaterThan(*val)
+                        }
+                        zyberlink_types::fhe::FhePredicate::LessThan(val) => {
+                            FheEnginePredicate::LessThan(*val)
+                        }
+                        _ => anyhow::bail!(
+                            "Unsupported FhePredicate type for CountIf in prover-node"
+                        ),
                     };
 
                     // Compute count_if

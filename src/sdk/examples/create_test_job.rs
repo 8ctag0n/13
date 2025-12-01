@@ -4,8 +4,6 @@ use chacha20poly1305::{
     aead::{Aead, AeadCore, KeyInit, OsRng as AeadRng},
     ChaCha20Poly1305,
 };
-use zyberlink_sdk::MarketplaceClient;
-use zyberlink_types::{CircuitType, FheOperation};
 use rand::rngs::OsRng;
 use reqwest::Client;
 use solana_sdk::{
@@ -15,6 +13,8 @@ use solana_sdk::{
 };
 use std::env;
 use x25519_dalek::{EphemeralSecret, PublicKey};
+use zyberlink_sdk::MarketplaceClient;
+use zyberlink_types::{CircuitType, FheOperation};
 
 /// Encrypted witness envelope (must match prover format)
 #[derive(BorshSerialize, BorshDeserialize)]
@@ -135,7 +135,11 @@ async fn main() -> Result<()> {
                 "FHE Add Operation",
             )
         }
-        "zk" | _ => {
+        "zk" => {
+            println!("🔐 Creating ZK Zcash Orchard job...");
+            (CircuitType::ZcashOrchard, "ZK Zcash Orchard Proof")
+        }
+        _ => {
             println!("🔐 Creating ZK Zcash Orchard job...");
             (CircuitType::ZcashOrchard, "ZK Zcash Orchard Proof")
         }

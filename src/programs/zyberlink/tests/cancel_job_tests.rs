@@ -2,13 +2,13 @@ mod common;
 
 use borsh::BorshDeserialize;
 use common::{initialize_marketplace, register_prover, setup_program_test};
-use zyberlink::{instruction::MarketplaceInstruction, state::JobAccount};
-use zyberlink_types::{CircuitType, JobStatus};
 use solana_program::pubkey::Pubkey;
 use solana_sdk::{
     signature::{Keypair, Signer},
     transaction::Transaction,
 };
+use zyberlink::{instruction::MarketplaceInstruction, state::JobAccount};
+use zyberlink_types::{CircuitType, JobStatus};
 
 /// Helper to create a job
 async fn create_job(

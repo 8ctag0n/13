@@ -1,13 +1,14 @@
 use anyhow::Result;
 use borsh::BorshDeserialize;
-use zyberlink_sdk::{
-    CircuitType, JobAccount, JobStatus, MarketplaceClient, MarketplaceConfig, ProverAccount,
-};
 use solana_program_test::{processor, ProgramTest};
+#[allow(deprecated)]
 use solana_sdk::{
     signature::{Keypair, Signer},
     system_instruction,
     transaction::Transaction,
+};
+use zyberlink_sdk::{
+    CircuitType, JobAccount, JobStatus, MarketplaceClient, MarketplaceConfig, ProverAccount,
 };
 
 fn program_id() -> solana_sdk::pubkey::Pubkey {

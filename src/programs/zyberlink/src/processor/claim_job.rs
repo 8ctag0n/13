@@ -104,15 +104,13 @@ pub fn process_claim_job(program_id: &Pubkey, accounts: &[AccountInfo]) -> Progr
     // Handle FHE multi-prover claiming vs ZK single-prover claiming
     if job.is_fhe() {
         // FHE job: multi-prover support via FheConsensusData
-        let fhe_info = fhe_consensus_info
-            .ok_or(ZyberLinkProgramError::MissingFheConsensusAccount)?;
+        let fhe_info =
+            fhe_consensus_info.ok_or(ZyberLinkProgramError::MissingFheConsensusAccount)?;
 
         // Verify FHE consensus PDA
         let job_id_bytes = job.id.to_le_bytes();
-        let (fhe_pda, _) = Pubkey::find_program_address(
-            &[b"fhe_consensus", &job_id_bytes],
-            program_id,
-        );
+        let (fhe_pda, _) =
+            Pubkey::find_program_address(&[b"fhe_consensus", &job_id_bytes], program_id);
 
         if fhe_info.key != &fhe_pda {
             msg!("Invalid FHE consensus account");

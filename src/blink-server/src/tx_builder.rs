@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+#[allow(deprecated)]
 use solana_sdk::{message::Message, pubkey::Pubkey, system_instruction, transaction::Transaction};
 
 /// Build a SOL transfer transaction

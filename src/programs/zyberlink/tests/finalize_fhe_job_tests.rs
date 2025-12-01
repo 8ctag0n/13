@@ -2,14 +2,14 @@ mod common;
 
 use borsh::BorshDeserialize;
 use common::{initialize_marketplace, register_prover, setup_program_test};
-use zyberlink::{instruction::MarketplaceInstruction, state::JobAccount};
-use zyberlink_types::{fhe::FheOperation, CircuitType, FheConsensusConfig, JobStatus};
 use solana_program::pubkey::Pubkey;
 use solana_program_test::*;
 use solana_sdk::{
     signature::{Keypair, Signer},
     transaction::Transaction,
 };
+use zyberlink::{instruction::MarketplaceInstruction, state::JobAccount};
+use zyberlink_types::{fhe::FheOperation, CircuitType, FheConsensusConfig, JobStatus};
 
 /// Helper to create an FHE job with proper accounts
 async fn create_fhe_job(
@@ -22,15 +22,11 @@ async fn create_fhe_job(
 ) -> (Pubkey, Pubkey, Pubkey) {
     let job_creator = payer.pubkey();
     let job_id_bytes = job_id.to_le_bytes();
-    let (job_pda, _) = Pubkey::find_program_address(
-        &[b"job", job_creator.as_ref(), &job_id_bytes],
-        program_id,
-    );
+    let (job_pda, _) =
+        Pubkey::find_program_address(&[b"job", job_creator.as_ref(), &job_id_bytes], program_id);
     let (escrow_pda, _) = Pubkey::find_program_address(&[b"escrow", job_pda.as_ref()], program_id);
-    let (fhe_consensus_pda, _) = Pubkey::find_program_address(
-        &[b"fhe_consensus", &job_id_bytes],
-        program_id,
-    );
+    let (fhe_consensus_pda, _) =
+        Pubkey::find_program_address(&[b"fhe_consensus", &job_id_bytes], program_id);
 
     let fhe_operation = FheOperation::Add(5);
     let fhe_config = FheConsensusConfig {
@@ -103,8 +99,7 @@ async fn claim_fhe_job(
     };
 
     let recent_blockhash = banks_client.get_latest_blockhash().await.unwrap();
-    let mut claim_job_tx =
-        Transaction::new_with_payer(&[claim_job_ix], Some(&prover_authority));
+    let mut claim_job_tx = Transaction::new_with_payer(&[claim_job_ix], Some(&prover_authority));
     claim_job_tx.sign(&[prover_keypair], recent_blockhash);
     banks_client
         .process_transaction(claim_job_tx)

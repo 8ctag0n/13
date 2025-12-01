@@ -1,12 +1,13 @@
 use anyhow::Result;
 use blake2::{Blake2s256, Digest};
-use zyberlink_types::{CircuitType, FheConsensusConfig};
+#[allow(deprecated)]
 use solana_sdk::{
     instruction::{AccountMeta, Instruction},
     pubkey::Pubkey,
     system_program, sysvar,
 };
 use std::str::FromStr;
+use zyberlink_types::{CircuitType, FheConsensusConfig};
 
 use crate::instruction::MarketplaceInstruction;
 
@@ -178,6 +179,7 @@ impl InstructionBuilder {
     /// * `price_lamports` - Payment for job completion
     /// * `timeout_seconds` - Job timeout in seconds
     /// * `fhe_config` - Optional FHE consensus configuration
+    #[allow(clippy::too_many_arguments)]
     pub fn create_job(
         &self,
         creator: Pubkey,
@@ -277,6 +279,7 @@ impl InstructionBuilder {
     /// * `timeout_seconds` - Job timeout in seconds
     /// * `token_mint` - SPL token mint address (e.g. wZEC mint)
     /// * `creator_token_account` - Creator's associated token account
+    #[allow(clippy::too_many_arguments)]
     pub fn create_fhe_job_with_token(
         &self,
         creator: Pubkey,
@@ -362,7 +365,12 @@ impl InstructionBuilder {
     /// * `prover` - Prover pubkey (will sign)
     /// * `job_pda` - Job account PDA
     /// * `job_id` - Job ID (for FHE consensus PDA derivation)
-    pub fn claim_fhe_job(&self, prover: Pubkey, job_pda: Pubkey, job_id: u64) -> Result<Instruction> {
+    pub fn claim_fhe_job(
+        &self,
+        prover: Pubkey,
+        job_pda: Pubkey,
+        job_id: u64,
+    ) -> Result<Instruction> {
         let (prover_pda, _) = self.prover_pda(&prover);
         let (config_pda, _) = self.config_pda();
         let (fhe_consensus_pda, _) = self.fhe_consensus_pda(job_id);

@@ -25,8 +25,8 @@ fn main() -> Result<()> {
     let keypair_data = fs::read_to_string(&args.keypair).context("Failed to read keypair file")?;
     let keypair_bytes: Vec<u8> =
         serde_json::from_str(&keypair_data).context("Failed to parse keypair JSON")?;
-    let keypair =
-        Keypair::from_bytes(&keypair_bytes).context("Failed to create keypair from bytes")?;
+    let keypair = Keypair::try_from(keypair_bytes.as_slice())
+        .context("Failed to create keypair from bytes")?;
 
     // Sign message
     let message_bytes = args.message.as_bytes();
@@ -41,3 +41,4 @@ fn main() -> Result<()> {
 
     Ok(())
 }
+use std::convert::TryFrom;

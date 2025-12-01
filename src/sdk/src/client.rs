@@ -1,6 +1,5 @@
 use anyhow::Result;
 use blake2::{Blake2s256, Digest};
-use zyberlink_types::{CircuitType, FheConsensusConfig};
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::{
     commitment_config::CommitmentConfig,
@@ -9,6 +8,7 @@ use solana_sdk::{
     signature::{Keypair, Signature, Signer},
     transaction::Transaction,
 };
+use zyberlink_types::{CircuitType, FheConsensusConfig};
 
 use crate::instruction::MarketplaceInstruction;
 
@@ -109,6 +109,7 @@ impl MarketplaceClient {
     /// Build CreateJob instruction
     ///
     /// For FHE jobs (when fhe_config is Some), this also includes the fhe_consensus_pda account.
+    #[allow(clippy::too_many_arguments)]
     pub fn create_job_instruction(
         &self,
         job_creator: &Pubkey,
@@ -361,7 +362,12 @@ impl MarketplaceClient {
         job_pda: &Pubkey,
         prover_authority: &Pubkey,
     ) -> Result<Instruction> {
-        self.slash_prover_instruction_with_recipient(authority, job_pda, prover_authority, authority)
+        self.slash_prover_instruction_with_recipient(
+            authority,
+            job_pda,
+            prover_authority,
+            authority,
+        )
     }
 
     /// Build SlashProver instruction with explicit protocol fee recipient
@@ -383,9 +389,9 @@ impl MarketplaceClient {
         Ok(Instruction {
             program_id: self.program_id,
             accounts: vec![
-                AccountMeta::new(*authority, true),          // 0. authority (signer)
-                AccountMeta::new(prover_pda, false),         // 1. prover
-                AccountMeta::new_readonly(*job_pda, false),  // 2. job (evidence)
+                AccountMeta::new(*authority, true),  // 0. authority (signer)
+                AccountMeta::new(prover_pda, false), // 1. prover
+                AccountMeta::new_readonly(*job_pda, false), // 2. job (evidence)
                 AccountMeta::new(*protocol_fee_recipient, false), // 3. protocol_fee_recipient
                 AccountMeta::new_readonly(config_pda, false), // 4. config
             ],
@@ -432,7 +438,7 @@ impl MarketplaceClient {
     /// 6. [] MarketplaceConfig account
     /// 7. [] System program
     /// 8. [] Clock sysvar
-    /// 9..N. [writable] Prover accounts (pairs of [authority, pda])
+    ///    9..N. [writable] Prover accounts (pairs of [authority, pda])
     pub fn finalize_fhe_job_instruction(
         &self,
         finalizer: &Pubkey,
@@ -541,7 +547,8 @@ impl MarketplaceClient {
         job_id: u64,
         result_hash: [u8; 32],
     ) -> Result<Signature> {
-        let ix = self.submit_fhe_result_instruction(&prover.pubkey(), job_pda, job_id, result_hash)?;
+        let ix =
+            self.submit_fhe_result_instruction(&prover.pubkey(), job_pda, job_id, result_hash)?;
 
         self.send_and_confirm_transaction(&[ix], &[prover])
     }

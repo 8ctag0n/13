@@ -11,8 +11,9 @@
 /// - Client decrypts final result with their private key
 use anyhow::{anyhow, Context, Result};
 use sha3::{Digest, Sha3_256};
-use tfhe::{generate_keys, set_server_key, ClientKey, ConfigBuilder, FheBool, FheUint8, ServerKey};
+use std::fmt;
 use tfhe::prelude::*;
+use tfhe::{generate_keys, set_server_key, ClientKey, ConfigBuilder, FheBool, FheUint8, ServerKey};
 
 /// Defines the predicate for FHE comparison operations
 #[derive(Debug, Clone, PartialEq)]
@@ -22,12 +23,12 @@ pub enum FhePredicate {
     EqualTo(u8),
 }
 
-impl FhePredicate {
-    pub fn to_string(&self) -> String {
+impl fmt::Display for FhePredicate {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            FhePredicate::GreaterThan(val) => format!("GreaterThan({})", val),
-            FhePredicate::LessThan(val) => format!("LessThan({})", val),
-            FhePredicate::EqualTo(val) => format!("EqualTo({})", val),
+            FhePredicate::GreaterThan(val) => write!(f, "GreaterThan({})", val),
+            FhePredicate::LessThan(val) => write!(f, "LessThan({})", val),
+            FhePredicate::EqualTo(val) => write!(f, "EqualTo({})", val),
         }
     }
 }
@@ -223,12 +224,9 @@ impl FheEngine {
             return Err(anyhow!("count_if requires at least one encrypted input"));
         }
 
-        // Deserialize first element to use as template for zero
-        let first_ct: FheUint8 = bincode::deserialize(encrypted_inputs[0])
-            .context("Failed to deserialize first element for count_if")?;
-
         // Initialize accumulator with encrypted zero (subtract element from itself)
-        let mut count_accumulator = &first_ct - &first_ct;
+        let mut count_accumulator = FheUint8::try_encrypt_trivial(0u8)
+            .context("Failed to create zero ciphertext for count_if")?;
 
         for (i, encrypted_input) in encrypted_inputs.iter().enumerate() {
             let ciphertext: FheUint8 = bincode::deserialize(encrypted_input).context(format!(
@@ -262,8 +260,8 @@ impl FheEngine {
             count_accumulator = &count_accumulator + &one_if_true;
         }
 
-        let result_bytes =
-            bincode::serialize(&count_accumulator).context("Failed to serialize count_if result")?;
+        let result_bytes = bincode::serialize(&count_accumulator)
+            .context("Failed to serialize count_if result")?;
 
         Ok(result_bytes)
     }
@@ -329,7 +327,7 @@ impl FheEngine {
         hasher.update(b"ZYBERLINK_FHE_COMMITMENT_V1:");
         hasher.update(witness_hash);
         hasher.update(operation.as_bytes());
-        hasher.update(&job_id.to_le_bytes());
+        hasher.update(job_id.to_le_bytes());
         let hash = hasher.finalize();
 
         let mut output = [0u8; 32];
@@ -386,7 +384,6 @@ pub fn deserialize_client_key(bytes: &[u8]) -> Result<ClientKey> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tfhe::prelude::*;
 
     #[test]
     fn test_fhe_engine_add() {
@@ -546,7 +543,7 @@ mod tests {
         let engine = FheEngine::new(server_key);
 
         // Test case 1: Sum of multiple values
-        let values = vec![10u8, 20, 30, 5];
+        let values = [10u8, 20, 30, 5];
         let encrypted_values: Vec<Vec<u8>> = values
             .iter()
             .map(|&v| bincode::serialize(&FheUint8::try_encrypt(v, &client_key).unwrap()).unwrap())
@@ -556,10 +553,10 @@ mod tests {
         let result_bytes = engine.compute_sum(&encrypted_refs).unwrap();
         let result_ciphertext: FheUint8 = bincode::deserialize(&result_bytes).unwrap();
         let decrypted: u8 = result_ciphertext.decrypt(&client_key);
-        assert_eq!(decrypted, values.iter().sum::<u8>()); // 10 + 20 + 30 + 5 = 65
+        assert_eq!(decrypted, values.iter().copied().sum::<u8>()); // 10 + 20 + 30 + 5 = 65
 
         // Test case 2: Sum of a single value
-        let single_value = vec![100u8];
+        let single_value = [100u8];
         let encrypted_single: Vec<Vec<u8>> = single_value
             .iter()
             .map(|&v| bincode::serialize(&FheUint8::try_encrypt(v, &client_key).unwrap()).unwrap())
@@ -568,7 +565,8 @@ mod tests {
             encrypted_single.iter().map(|v| v.as_slice()).collect();
 
         let result_bytes_single = engine.compute_sum(&encrypted_single_refs).unwrap();
-        let result_ciphertext_single: FheUint8 = bincode::deserialize(&result_bytes_single).unwrap();
+        let result_ciphertext_single: FheUint8 =
+            bincode::deserialize(&result_bytes_single).unwrap();
         let decrypted_single: u8 = result_ciphertext_single.decrypt(&client_key);
         assert_eq!(decrypted_single, 100);
 
@@ -582,7 +580,7 @@ mod tests {
         let (client_key, server_key) = generate_fhe_keys().unwrap();
         let engine = FheEngine::new(server_key);
 
-        let values = vec![10u8, 20, 30, 5, 20, 15];
+        let values = [10u8, 20, 30, 5, 20, 15];
         let encrypted_values: Vec<Vec<u8>> = values
             .iter()
             .map(|&v| bincode::serialize(&FheUint8::try_encrypt(v, &client_key).unwrap()).unwrap())
@@ -591,7 +589,9 @@ mod tests {
 
         // Test case 1: GreaterThan(15)
         let predicate_gt = FhePredicate::GreaterThan(15);
-        let result_bytes_gt = engine.compute_count_if(&encrypted_refs, predicate_gt).unwrap();
+        let result_bytes_gt = engine
+            .compute_count_if(&encrypted_refs, predicate_gt)
+            .unwrap();
         let decrypted_gt: u8 = bincode::deserialize::<FheUint8>(&result_bytes_gt)
             .unwrap()
             .decrypt(&client_key);
@@ -600,7 +600,9 @@ mod tests {
 
         // Test case 2: LessThan(15)
         let predicate_lt = FhePredicate::LessThan(15);
-        let result_bytes_lt = engine.compute_count_if(&encrypted_refs, predicate_lt).unwrap();
+        let result_bytes_lt = engine
+            .compute_count_if(&encrypted_refs, predicate_lt)
+            .unwrap();
         let decrypted_lt: u8 = bincode::deserialize::<FheUint8>(&result_bytes_lt)
             .unwrap()
             .decrypt(&client_key);
@@ -609,7 +611,9 @@ mod tests {
 
         // Test case 3: EqualTo(20)
         let predicate_eq = FhePredicate::EqualTo(20);
-        let result_bytes_eq = engine.compute_count_if(&encrypted_refs, predicate_eq).unwrap();
+        let result_bytes_eq = engine
+            .compute_count_if(&encrypted_refs, predicate_eq)
+            .unwrap();
         let decrypted_eq: u8 = bincode::deserialize::<FheUint8>(&result_bytes_eq)
             .unwrap()
             .decrypt(&client_key);
@@ -618,6 +622,8 @@ mod tests {
 
         // Test case 4: Empty input should return error
         let empty_inputs: Vec<&[u8]> = Vec::new();
-        assert!(engine.compute_count_if(&empty_inputs, FhePredicate::EqualTo(0)).is_err());
+        assert!(engine
+            .compute_count_if(&empty_inputs, FhePredicate::EqualTo(0))
+            .is_err());
     }
 }

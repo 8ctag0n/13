@@ -2,12 +2,10 @@ mod common;
 
 use borsh::BorshDeserialize;
 use common::{initialize_marketplace, setup_program_test};
-use zyberlink::{
-    instruction::MarketplaceInstruction, state::JobAccount, state::MarketplaceConfig,
-};
-use zyberlink_types::CircuitType;
 use solana_program::pubkey::Pubkey;
 use solana_sdk::{signature::Signer, transaction::Transaction};
+use zyberlink::{instruction::MarketplaceInstruction, state::JobAccount, state::MarketplaceConfig};
+use zyberlink_types::CircuitType;
 
 #[tokio::test]
 async fn test_create_job() {

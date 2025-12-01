@@ -4,9 +4,9 @@
 
 use super::passport::PassportCircuit;
 use anyhow::{Context, Result};
-use zyberlink_types::fhe::FhePredicate;
 use tfhe::prelude::*;
 use tfhe::{FheBool, FheUint8};
+use zyberlink_types::fhe::FhePredicate;
 
 pub struct VotingCircuit;
 
@@ -186,8 +186,8 @@ impl VotingCircuit {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zyberlink_types::fhe::FhePredicate;
     use tfhe::{generate_keys, set_server_key, ClientKey, ConfigBuilder, ServerKey};
+    use zyberlink_types::fhe::FhePredicate;
 
     fn generate_test_keys() -> (ClientKey, ServerKey) {
         let config = ConfigBuilder::default().build();

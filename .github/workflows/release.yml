@@ -39,12 +39,12 @@ jobs:
 
       - name: Build prover-node
         run: |
-          cargo build --release -p cypherlink-prover
+          cargo build --release -p zyberlink-prover
 
       - name: Create release directory
         run: |
           mkdir -p release/prover-node
-          cp target/release/cypherlink-prover release/prover-node/
+          cp target/release/zyberlink-prover release/prover-node/
           cp releases/prover-node-v0.1.0/README.md release/prover-node/
 
       - name: Create tarball
@@ -75,8 +75,8 @@ jobs:
             wget https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/prover-node-linux-x64.tar.gz
             tar -xzf prover-node-linux-x64.tar.gz
             cd prover-node
-            chmod +x cypherlink-prover
-            ./cypherlink-prover --help
+            chmod +x zyberlink-prover
+            ./zyberlink-prover --help
             ```
 
             ### Verify Checksum
@@ -87,7 +87,7 @@ jobs:
 
             ### What's Included
 
-            - `cypherlink-prover` - Prover node binary
+            - `zyberlink-prover` - Prover node binary
             - `README.md` - Setup and usage instructions
 
             ### System Requirements
@@ -101,6 +101,22 @@ jobs:
   build-backend:
     name: Build Backend Server
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: zyberlink
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zyberlink
     steps:
       - uses: actions/checkout@v4
 
@@ -112,6 +128,8 @@ jobs:
 
       - name: Build backend
         run: |
+          cargo install sqlx-cli --no-default-features --features postgres,runtime-tokio-native-tls
+          (cd src/blink-server && sqlx database create && sqlx migrate run)
           cargo build --release -p zyberlink-blink-server
 
       - name: Create release directory

@@ -1,6 +1,5 @@
 use borsh::BorshDeserialize;
 use chrono::{DateTime, NaiveDateTime, Utc};
-use zyberlink_sdk::{JobAccount, FheConsensusData, fetch_fhe_consensus};
 use solana_client::rpc_client::RpcClient;
 use solana_client::rpc_config::{RpcAccountInfoConfig, RpcProgramAccountsConfig};
 use solana_client::rpc_filter::RpcFilterType;
@@ -8,6 +7,7 @@ use solana_sdk::commitment_config::CommitmentConfig;
 use solana_sdk::pubkey::Pubkey;
 use sqlx::PgPool;
 use std::time::Duration;
+use zyberlink_sdk::JobAccount;
 
 // Circuit type ID constants (must match program)
 const CIRCUIT_ZCASH_ORCHARD: u8 = 0;
@@ -24,7 +24,7 @@ const CIRCUIT_FHE_HISTOGRAM: u8 = 11;
 
 /// Check if circuit_type u8 represents an FHE job
 fn is_fhe_circuit(circuit_type: u8) -> bool {
-    circuit_type >= 4 && circuit_type <= 11
+    (4..=11).contains(&circuit_type)
 }
 
 /// Convert circuit_type u8 to string
@@ -56,7 +56,7 @@ fn fhe_operation_name(circuit_type: u8) -> Option<String> {
 /// Convert Unix timestamp (i64) to NaiveDateTime for PostgreSQL
 fn timestamp_to_naive(ts: i64) -> NaiveDateTime {
     DateTime::from_timestamp(ts, 0)
-        .unwrap_or_else(|| Utc::now())
+        .unwrap_or_else(Utc::now)
         .naive_utc()
 }
 
@@ -85,11 +85,7 @@ pub fn start_chain_sync(rpc_url: String, program_id: Pubkey, db_pool: PgPool) {
 }
 
 /// Sync all job accounts from blockchain to database
-async fn sync_jobs(
-    rpc_url: String,
-    program_id: Pubkey,
-    db_pool: &PgPool,
-) -> anyhow::Result<usize> {
+async fn sync_jobs(rpc_url: String, program_id: Pubkey, db_pool: &PgPool) -> anyhow::Result<usize> {
     // Execute blocking RPC call in a separate thread pool
     let accounts = tokio::task::spawn_blocking(move || {
         // Create RPC client inside spawn_blocking (blocking context)
@@ -143,7 +139,10 @@ async fn sync_jobs(
                     account.data.len(),
                     e
                 );
-                log::debug!("First 50 bytes: {:?}", &account.data[..account.data.len().min(50)]);
+                log::debug!(
+                    "First 50 bytes: {:?}",
+                    &account.data[..account.data.len().min(50)]
+                );
             }
         }
     }
@@ -162,12 +161,13 @@ async fn upsert_job(db_pool: &PgPool, pubkey: &Pubkey, job: &JobAccount) -> anyh
 
     // FHE config values will be populated from FheConsensusData if available
     // For now, we don't have access to the RPC client here, so we use defaults for FHE jobs
-    let (required_provers, consensus_threshold): (Option<i16>, Option<i16>) = if is_fhe_circuit(job.circuit_type) {
-        // Default values - ideally we'd fetch FheConsensusData
-        (Some(3), Some(2))
-    } else {
-        (None, None)
-    };
+    let (required_provers, consensus_threshold): (Option<i16>, Option<i16>) =
+        if is_fhe_circuit(job.circuit_type) {
+            // Default values - ideally we'd fetch FheConsensusData
+            (Some(3), Some(2))
+        } else {
+            (None, None)
+        };
 
     // Convert enums to strings for database storage
     let status_str = match job.status {
@@ -188,7 +188,8 @@ async fn upsert_job(db_pool: &PgPool, pubkey: &Pubkey, job: &JobAccount) -> anyh
         None
     };
 
-    let completed_at: Option<NaiveDateTime> = if job.status == zyberlink_types::JobStatus::Completed {
+    let completed_at: Option<NaiveDateTime> = if job.status == zyberlink_types::JobStatus::Completed
+    {
         Some(timestamp_to_naive(job.timeout_at)) // Use timeout_at as approximation
     } else {
         None

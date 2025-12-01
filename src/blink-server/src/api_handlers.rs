@@ -114,7 +114,7 @@ pub struct PriceRecommendationResponse {
     pub max_suggested_sol: f64,
 
     // Acceptance estimates
-    pub acceptance_at_min: String,      // "low" (~20%)
+    pub acceptance_at_min: String,         // "low" (~20%)
     pub acceptance_at_recommended: String, // "high" (~95%)
 
     // For slider UI
@@ -131,11 +131,12 @@ pub struct PriceRecommendationResponse {
 
 #[derive(Debug, Deserialize)]
 pub struct ListJobsQuery {
-    pub status: Option<String>,  // Filter by status: "pending_tx", "active", "completed", "failed"
+    pub status: Option<String>, // Filter by status: "pending_tx", "active", "completed", "failed"
     pub creator: Option<String>, // Filter by creator wallet pubkey
-    pub page: Option<i64>,       // Page number (default: 1)
-    pub limit: Option<i64>,      // Items per page (default: 20, max: 100)
-    pub sort: Option<String>,    // Sort: "recent", "oldest", "price"
+    pub page: Option<i64>,      // Page number (default: 1)
+    pub limit: Option<i64>,     // Items per page (default: 20, max: 100)
+    #[allow(dead_code)]
+    pub sort: Option<String>, // Sort: "recent", "oldest", "price"
 }
 
 #[derive(Debug, Serialize)]
@@ -144,6 +145,7 @@ pub struct WitnessUploadResponse {
 }
 
 #[derive(Debug, Serialize)]
+#[allow(dead_code)]
 pub struct WitnessDataResponse {
     pub data: String, // base64-encoded witness data
 }
@@ -439,16 +441,31 @@ async fn confirm_job_transaction(
     job_id: web::Path<i64>,
     req: web::Json<ConfirmJobRequest>,
 ) -> impl Responder {
-    log::info!("Confirming transaction for job_id: {} with signature: {}", *job_id, &req.signature);
+    log::info!(
+        "Confirming transaction for job_id: {} with signature: {}",
+        *job_id,
+        &req.signature
+    );
 
     // TODO: Verify transaction signature on-chain
     // For now, we trust the client
     let signature = &req.signature;
 
     // Update job status to "active" and store tx_signature
-    match JobQueries::confirm_job_with_signature(&data.db_pool, *job_id, JobStatus::Active, signature).await {
+    match JobQueries::confirm_job_with_signature(
+        &data.db_pool,
+        *job_id,
+        JobStatus::Active,
+        signature,
+    )
+    .await
+    {
         Ok(_) => {
-            log::info!("Job {} confirmed and activated with tx: {}", *job_id, signature);
+            log::info!(
+                "Job {} confirmed and activated with tx: {}",
+                *job_id,
+                signature
+            );
             HttpResponse::Ok().json(json!({
                 "job_id": *job_id,
                 "status": "active",
@@ -564,7 +581,7 @@ async fn get_job_details(data: web::Data<AppState>, job_id: web::Path<i64>) -> i
         Ok(Some(job)) => {
             // Check if there's a result for this job
             let has_result = sqlx::query_scalar::<_, bool>(
-                "SELECT EXISTS(SELECT 1 FROM fhe_results WHERE job_id = $1)"
+                "SELECT EXISTS(SELECT 1 FROM fhe_results WHERE job_id = $1)",
             )
             .bind(*job_id)
             .fetch_one(&data.db_pool)
@@ -715,7 +732,7 @@ async fn list_jobs(data: web::Data<AppState>, query: web::Query<ListJobsQuery>) 
         ) combined_jobs
         ORDER BY created_at DESC
         LIMIT 500
-        "#
+        "#,
     )
     .fetch_all(&data.db_pool)
     .await;
@@ -736,23 +753,17 @@ async fn list_jobs(data: web::Data<AppState>, query: web::Query<ListJobsQuery>) 
 
     // Filter by status if provided
     if let Some(ref status_str) = query.status {
-        filtered_jobs = filtered_jobs
-            .into_iter()
-            .filter(|j| j.status == *status_str)
-            .collect();
+        filtered_jobs.retain(|j| j.status == *status_str);
     }
 
     // Filter by creator if provided
     if let Some(ref creator_str) = query.creator {
-        filtered_jobs = filtered_jobs
-            .into_iter()
-            .filter(|j| j.creator_pubkey == *creator_str)
-            .collect();
+        filtered_jobs.retain(|j| j.creator_pubkey == *creator_str);
     }
 
     // Apply pagination
     let page = query.page.unwrap_or(1).max(1);
-    let limit = query.limit.unwrap_or(20).min(100).max(1);
+    let limit = query.limit.unwrap_or(20).clamp(1, 100);
     let total = filtered_jobs.len();
     let offset = ((page - 1) * limit) as usize;
 
@@ -784,12 +795,11 @@ async fn get_network_stats(data: web::Data<AppState>) -> impl Responder {
     log::info!("Fetching network statistics");
 
     // Query 1: Count active provers from provers table (synced from blockchain)
-    let active_provers: i64 = sqlx::query_scalar!(
-        r#"SELECT COUNT(*) as "count!" FROM provers WHERE is_active = true"#
-    )
-    .fetch_one(&data.db_pool)
-    .await
-    .unwrap_or(0);
+    let active_provers: i64 =
+        sqlx::query_scalar!(r#"SELECT COUNT(*) as "count!" FROM provers WHERE is_active = true"#)
+            .fetch_one(&data.db_pool)
+            .await
+            .unwrap_or(0);
 
     // Query 2: Count completed jobs
     let jobs_completed: i64 = sqlx::query_scalar!(
@@ -811,18 +821,20 @@ async fn get_network_stats(data: web::Data<AppState>) -> impl Responder {
     let jobs_total: i64 = jobs_completed + jobs_active;
 
     // Query 4: Get network start time (first job created)
-    let network_start: Option<chrono::NaiveDateTime> = sqlx::query_scalar!(
-        r#"SELECT MIN(created_at) FROM blockchain_jobs"#
-    )
-    .fetch_one(&data.db_pool)
-    .await
-    .unwrap_or(None);
+    let network_start: Option<chrono::NaiveDateTime> =
+        sqlx::query_scalar!(r#"SELECT MIN(created_at) FROM blockchain_jobs"#)
+            .fetch_one(&data.db_pool)
+            .await
+            .unwrap_or(None);
 
     // Calculate uptime
     let now = chrono::Utc::now().naive_utc();
     let (uptime_seconds, network_start_str) = if let Some(start) = network_start {
         let duration = now.signed_duration_since(start);
-        (duration.num_seconds(), Some(start.format("%Y-%m-%dT%H:%M:%SZ").to_string()))
+        (
+            duration.num_seconds(),
+            Some(start.format("%Y-%m-%dT%H:%M:%SZ").to_string()),
+        )
     } else {
         (0, None)
     };
@@ -878,20 +890,17 @@ async fn get_metrics(data: web::Data<AppState>) -> impl Responder {
     log::info!("Fetching comprehensive metrics");
 
     // Query 1: Active provers
-    let active_provers: i64 = sqlx::query_scalar!(
-        r#"SELECT COUNT(*) as "count!" FROM provers WHERE is_active = true"#
-    )
-    .fetch_one(&data.db_pool)
-    .await
-    .unwrap_or(0);
+    let active_provers: i64 =
+        sqlx::query_scalar!(r#"SELECT COUNT(*) as "count!" FROM provers WHERE is_active = true"#)
+            .fetch_one(&data.db_pool)
+            .await
+            .unwrap_or(0);
 
     // Query 2: Total provers
-    let total_provers: i64 = sqlx::query_scalar!(
-        r#"SELECT COUNT(*) as "count!" FROM provers"#
-    )
-    .fetch_one(&data.db_pool)
-    .await
-    .unwrap_or(0);
+    let total_provers: i64 = sqlx::query_scalar!(r#"SELECT COUNT(*) as "count!" FROM provers"#)
+        .fetch_one(&data.db_pool)
+        .await
+        .unwrap_or(0);
 
     let offline_provers = total_provers - active_provers;
 
@@ -936,12 +945,11 @@ async fn get_metrics(data: web::Data<AppState>) -> impl Responder {
     .unwrap_or(0);
 
     // Query 8: Network start time
-    let network_start: Option<chrono::NaiveDateTime> = sqlx::query_scalar!(
-        r#"SELECT MIN(created_at) FROM blockchain_jobs"#
-    )
-    .fetch_one(&data.db_pool)
-    .await
-    .unwrap_or(None);
+    let network_start: Option<chrono::NaiveDateTime> =
+        sqlx::query_scalar!(r#"SELECT MIN(created_at) FROM blockchain_jobs"#)
+            .fetch_one(&data.db_pool)
+            .await
+            .unwrap_or(None);
 
     let now = chrono::Utc::now().naive_utc();
     let uptime_seconds = if let Some(start) = network_start {
@@ -968,7 +976,7 @@ async fn get_metrics(data: web::Data<AppState>) -> impl Responder {
            FROM blockchain_jobs
            GROUP BY COALESCE(fhe_operation, circuit_type)
            ORDER BY count DESC
-           LIMIT 10"#
+           LIMIT 10"#,
     )
     .fetch_all(&data.db_pool)
     .await
@@ -994,7 +1002,7 @@ async fn get_metrics(data: web::Data<AppState>) -> impl Responder {
            FROM blockchain_jobs
            WHERE created_at >= NOW() - INTERVAL '24 hours'
            GROUP BY date_trunc('hour', created_at)
-           ORDER BY hour ASC"#
+           ORDER BY hour ASC"#,
     )
     .fetch_all(&data.db_pool)
     .await
@@ -1003,7 +1011,10 @@ async fn get_metrics(data: web::Data<AppState>) -> impl Responder {
     let timeline: Vec<TimelinePoint> = timeline_raw
         .into_iter()
         .map(|t| TimelinePoint {
-            timestamp: t.hour.map(|h| h.format("%H:%M").to_string()).unwrap_or_default(),
+            timestamp: t
+                .hour
+                .map(|h| h.format("%H:%M").to_string())
+                .unwrap_or_default(),
             count: t.count,
         })
         .collect();
@@ -1018,7 +1029,8 @@ async fn get_metrics(data: web::Data<AppState>) -> impl Responder {
 
     // Estimate data processed (1KB per job)
     let data_processed_tb = (total_jobs * 1024) as f64 / (1024.0 * 1024.0 * 1024.0 * 1024.0);
-    let data_processed_24h_tb = ((completed_24h + active_current) * 1024) as f64 / (1024.0 * 1024.0 * 1024.0 * 1024.0);
+    let data_processed_24h_tb =
+        ((completed_24h + active_current) * 1024) as f64 / (1024.0 * 1024.0 * 1024.0 * 1024.0);
 
     // Mock provers history (in production, track this in a separate table)
     let provers_history: Vec<i64> = vec![
@@ -1181,13 +1193,19 @@ async fn get_price_recommendation(req: web::Json<PriceRecommendationRequest>) ->
         "countif" => FheOperation::CountIf {
             expected_count: req.expected_count.unwrap_or(10),
             predicate: zyberlink_types::fhe::FhePredicate::GreaterThan(
-                req.operation_value.unwrap_or(50)
+                req.operation_value.unwrap_or(50),
             ),
         },
         "histogram" => {
             let num_bins = req.bins.unwrap_or(5) as usize;
             let bins: Vec<HistogramBin> = (0..num_bins)
-                .map(|i| HistogramBin::new(i as u8 * 10, (i as u8 + 1) * 10 - 1, format!("Bin {}", i + 1)))
+                .map(|i| {
+                    HistogramBin::new(
+                        i as u8 * 10,
+                        (i as u8 + 1) * 10 - 1,
+                        format!("Bin {}", i + 1),
+                    )
+                })
                 .collect();
             FheOperation::Histogram { bins }
         }
@@ -1199,8 +1217,8 @@ async fn get_price_recommendation(req: web::Json<PriceRecommendationRequest>) ->
     };
 
     // Prover economics constants
-    const PROVER_OVERHEAD_MULTIPLIER: f64 = 1.5;  // 50% operational overhead
-    const PROVER_MIN_ROI_PERCENT: f64 = 20.0;     // Minimum 20% ROI required
+    const PROVER_OVERHEAD_MULTIPLIER: f64 = 1.5; // 50% operational overhead
+    const PROVER_MIN_ROI_PERCENT: f64 = 20.0; // Minimum 20% ROI required
     const LAMPORTS_PER_SOL: f64 = 1_000_000_000.0;
 
     // Get base cost from operation
@@ -1228,9 +1246,9 @@ async fn get_price_recommendation(req: web::Json<PriceRecommendationRequest>) ->
 
     // Slider parameters
     let slider_step = if min_total < 10_000_000 {
-        100_000  // 0.0001 SOL steps for small amounts
+        100_000 // 0.0001 SOL steps for small amounts
     } else {
-        1_000_000  // 0.001 SOL steps for larger amounts
+        1_000_000 // 0.001 SOL steps for larger amounts
     };
 
     log::info!(
@@ -1278,9 +1296,9 @@ fn build_create_job_transaction(
     validated: &crate::validators::ValidatedJob,
     builder: &zyberlink_sdk::instructions::InstructionBuilder,
 ) -> anyhow::Result<Transaction> {
-    use zyberlink_types::{FheConsensusConfig, FheOperation};
     use solana_sdk::pubkey::Pubkey;
     use std::str::FromStr;
+    use zyberlink_types::{FheConsensusConfig, FheOperation};
 
     // Parse operation
     let operation = match validated.operation.as_str() {
@@ -1413,10 +1431,7 @@ fn build_create_job_transaction(
 /// Upload encrypted witness data.
 /// Returns the Blake2b commitment hash of the uploaded data.
 #[post("/witness")]
-async fn upload_witness(
-    data: web::Data<AppState>,
-    body: web::Bytes,
-) -> impl Responder {
+async fn upload_witness(data: web::Data<AppState>, body: web::Bytes) -> impl Responder {
     log::info!("Received witness upload, size: {} bytes", body.len());
 
     if body.is_empty() {
@@ -1452,10 +1467,7 @@ async fn upload_witness(
 ///
 /// Download encrypted witness data by commitment hash.
 #[get("/witness/{commitment}")]
-async fn get_witness(
-    data: web::Data<AppState>,
-    commitment: web::Path<String>,
-) -> impl Responder {
+async fn get_witness(data: web::Data<AppState>, commitment: web::Path<String>) -> impl Responder {
     log::info!("Fetching witness for commitment: {}", *commitment);
 
     match WitnessQueries::get_witness(&data.db_pool, &commitment).await {
@@ -1490,10 +1502,7 @@ async fn get_witness(
 /// Upload FHE computation result.
 /// Returns the Blake2s256 commitment hash of the uploaded data.
 #[post("/fhe-result")]
-async fn upload_fhe_result(
-    data: web::Data<AppState>,
-    body: web::Bytes,
-) -> impl Responder {
+async fn upload_fhe_result(data: web::Data<AppState>, body: web::Bytes) -> impl Responder {
     log::info!("Received FHE result upload, size: {} bytes", body.len());
 
     if body.is_empty() {

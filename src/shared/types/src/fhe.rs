@@ -778,12 +778,16 @@ mod tests {
         .get_cost_config();
 
         // Verify tier ordering
-        assert!(tier1.min_payment_lamports < tier3.min_payment_lamports);
-        assert!(tier3.min_payment_lamports < tier5.min_payment_lamports);
+        assert!(tier1.min_payment_lamports < tier2.min_payment_lamports);
+        assert!(tier2.min_payment_lamports < tier3.min_payment_lamports);
+        assert!(tier3.min_payment_lamports < tier4.min_payment_lamports);
+        assert!(tier4.min_payment_lamports < tier5.min_payment_lamports);
 
         // Verify timeout ordering
-        assert!(tier1.timeout_seconds < tier3.timeout_seconds);
-        assert!(tier3.timeout_seconds < tier5.timeout_seconds);
+        assert!(tier1.timeout_seconds < tier2.timeout_seconds);
+        assert!(tier2.timeout_seconds < tier3.timeout_seconds);
+        assert!(tier3.timeout_seconds < tier4.timeout_seconds);
+        assert!(tier4.timeout_seconds < tier5.timeout_seconds);
     }
 
     #[test]

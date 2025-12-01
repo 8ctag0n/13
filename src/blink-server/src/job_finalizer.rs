@@ -73,7 +73,10 @@ async fn check_and_finalize_jobs(
         return Ok(0);
     }
 
-    log::info!("Checking {} claimed FHE jobs for consensus", claimed_jobs.len());
+    log::info!(
+        "Checking {} claimed FHE jobs for consensus",
+        claimed_jobs.len()
+    );
 
     let mut finalized_count = 0;
 
@@ -98,7 +101,11 @@ async fn check_and_finalize_jobs(
                     log::warn!("Failed to save tx_signature for job {}: {}", job_id, e);
                 }
                 finalized_count += 1;
-                log::info!("Successfully finalized FHE job {} with tx: {}", job_id, tx_signature);
+                log::info!(
+                    "Successfully finalized FHE job {} with tx: {}",
+                    job_id,
+                    tx_signature
+                );
             }
             Ok(None) => {
                 // Not ready for finalization yet
@@ -114,7 +121,11 @@ async fn check_and_finalize_jobs(
 }
 
 /// Save the finalize transaction signature to database
-async fn save_finalize_signature(db_pool: &PgPool, job_id: i64, tx_signature: &str) -> anyhow::Result<()> {
+async fn save_finalize_signature(
+    db_pool: &PgPool,
+    job_id: i64,
+    tx_signature: &str,
+) -> anyhow::Result<()> {
     sqlx::query!(
         r#"
         UPDATE blockchain_jobs
@@ -163,8 +174,13 @@ fn try_finalize_job_blocking(
     server_keypair: &Keypair,
 ) -> anyhow::Result<Option<String>> {
     // Create RPC client
-    let rpc_client = RpcClient::new_with_commitment(rpc_url.to_string(), CommitmentConfig::confirmed());
-    let client = MarketplaceClient::new_with_commitment(rpc_url.to_string(), program_id, CommitmentConfig::confirmed());
+    let rpc_client =
+        RpcClient::new_with_commitment(rpc_url.to_string(), CommitmentConfig::confirmed());
+    let client = MarketplaceClient::new_with_commitment(
+        rpc_url.to_string(),
+        program_id,
+        CommitmentConfig::confirmed(),
+    );
 
     // Get FHE consensus PDA
     let (fhe_consensus_pda, _) = client.get_fhe_consensus_pda(job_id);
@@ -251,29 +267,41 @@ fn try_finalize_job_blocking(
     );
 
     // Get job PDA
-    let creator_pubkey: Pubkey = creator_pubkey_str.parse()
+    let creator_pubkey: Pubkey = creator_pubkey_str
+        .parse()
         .map_err(|e| anyhow::anyhow!("Invalid creator pubkey: {}", e))?;
     let (job_pda, _) = client.get_job_pda(&creator_pubkey, job_id);
 
     // Verify job is still in claimed state
     let job = fetch_job(&rpc_client, &job_pda)?;
     if job.status != zyberlink_types::JobStatus::Claimed {
-        log::info!("Job {}: Already finalized (status: {:?}), skipping", job_id, job.status);
+        log::info!(
+            "Job {}: Already finalized (status: {:?}), skipping",
+            job_id,
+            job.status
+        );
         return Ok(None);
     }
 
     // Collect ALL claimed provers (program expects all, not just matching)
-    let all_claimed_provers: Vec<Pubkey> = fhe_data.claimed_provers[..fhe_data.claimed_count as usize]
-        .iter()
-        .copied()
-        .collect();
+    let all_claimed_provers: Vec<Pubkey> =
+        fhe_data.claimed_provers[..fhe_data.claimed_count as usize].to_vec();
 
     // Build and send finalize transaction
     log::info!("Job {}: Sending finalize transaction...", job_id);
-    log::info!("Job {}: Finalizer pubkey: {}", job_id, server_keypair.pubkey());
+    log::info!(
+        "Job {}: Finalizer pubkey: {}",
+        job_id,
+        server_keypair.pubkey()
+    );
     log::info!("Job {}: Job PDA: {}", job_id, job_pda);
     log::info!("Job {}: Creator: {}", job_id, creator_pubkey);
-    log::info!("Job {}: All claimed provers ({}): {:?}", job_id, all_claimed_provers.len(), all_claimed_provers);
+    log::info!(
+        "Job {}: All claimed provers ({}): {:?}",
+        job_id,
+        all_claimed_provers.len(),
+        all_claimed_provers
+    );
 
     let finalize_ix = client.finalize_fhe_job_instruction(
         &server_keypair.pubkey(),
@@ -298,14 +326,18 @@ fn try_finalize_job_blocking(
 /// Load server keypair from file path
 pub fn load_server_keypair(path: &str) -> anyhow::Result<Keypair> {
     let expanded_path = path.replace("~", &std::env::var("HOME").unwrap_or_default());
-    read_keypair_file(&expanded_path)
-        .map_err(|e| anyhow::anyhow!("Failed to read server keypair from {}: {}", expanded_path, e))
+    read_keypair_file(&expanded_path).map_err(|e| {
+        anyhow::anyhow!(
+            "Failed to read server keypair from {}: {}",
+            expanded_path,
+            e
+        )
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use solana_sdk::signature::Keypair;
 
     /// Test consensus detection with matching hashes
     #[test]

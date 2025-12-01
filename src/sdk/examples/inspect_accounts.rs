@@ -1,7 +1,7 @@
 use borsh::BorshDeserialize;
-use zyberlink_sdk::{JobAccount, MarketplaceClient, ProverAccount};
 use solana_sdk::pubkey::Pubkey;
 use std::str::FromStr;
+use zyberlink_sdk::{JobAccount, MarketplaceClient, ProverAccount};
 
 fn main() -> anyhow::Result<()> {
     let program_id = std::env::var("PROGRAM_ID").expect("PROGRAM_ID env var required");

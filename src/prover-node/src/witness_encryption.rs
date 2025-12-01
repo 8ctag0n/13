@@ -225,13 +225,13 @@ impl SerializableWitness {
         }
     }
 
-    fn to_witness(self) -> OrchardWitness {
+    fn to_witness(&self) -> OrchardWitness {
         OrchardWitness {
             spend_auth_sig: self.spend_auth_sig,
             note_value: self.note_value,
             note_rho: self.note_rho,
             note_rseed: self.note_rseed,
-            merkle_path: self.merkle_path,
+            merkle_path: self.merkle_path.clone(),
             merkle_position: self.merkle_position,
             recipient_address: self.recipient_address,
             output_value: self.output_value,

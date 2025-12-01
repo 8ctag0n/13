@@ -1,4 +1,3 @@
-use zyberlink_types::{CircuitType, FheConsensusConfig, FheOperation};
 use solana_program::{
     account_info::{next_account_info, AccountInfo},
     entrypoint::ProgramResult,
@@ -11,6 +10,7 @@ use solana_program::{
     system_instruction,
     sysvar::{clock::Clock, Sysvar},
 };
+use zyberlink_types::{CircuitType, FheConsensusConfig, FheOperation};
 
 // Token account size constant
 const TOKEN_ACCOUNT_LEN: usize = 165;
@@ -55,9 +55,10 @@ fn pack_fhe_params(op: &FheOperation) -> (u16, u8, u8) {
         FheOperation::Add(v) => (*v as u16, 0, 0),
         FheOperation::Multiply(v) => (*v as u16, 0, 0),
         FheOperation::Sum { expected_count } => (*expected_count, 0, 0),
-        FheOperation::Threshold { threshold, greater_or_equal } => {
-            (*threshold as u16, if *greater_or_equal { 1 } else { 0 }, 0)
-        }
+        FheOperation::Threshold {
+            threshold,
+            greater_or_equal,
+        } => (*threshold as u16, if *greater_or_equal { 1 } else { 0 }, 0),
         FheOperation::RangeCheck { min, max } => (0, *min, *max),
         FheOperation::Average { expected_count } => (*expected_count, 0, 0),
         FheOperation::CountIf { expected_count, .. } => (*expected_count, 0, 0),
@@ -176,14 +177,12 @@ pub fn process_create_job_with_token(
                 .map_err(|_| ZyberLinkProgramError::InvalidFheConfig)?;
 
             // Verify FheConsensusData account was provided
-            let fhe_info = fhe_consensus_info
-                .ok_or(ZyberLinkProgramError::MissingFheConsensusAccount)?;
+            let fhe_info =
+                fhe_consensus_info.ok_or(ZyberLinkProgramError::MissingFheConsensusAccount)?;
 
             // Derive and verify FheConsensusData PDA
-            let (fhe_pda, fhe_bump) = Pubkey::find_program_address(
-                &[b"fhe_consensus", &job_id_bytes],
-                program_id,
-            );
+            let (fhe_pda, fhe_bump) =
+                Pubkey::find_program_address(&[b"fhe_consensus", &job_id_bytes], program_id);
 
             if fhe_info.key != &fhe_pda {
                 msg!("Invalid FHE consensus account");
@@ -366,7 +365,10 @@ pub fn process_create_job_with_token(
         let fhe_cfg = fhe_config.as_ref().unwrap();
         let fhe_rent_lamports = rent.minimum_balance(FheConsensusData::LEN);
 
-        msg!("Creating FHE consensus account ({} bytes)", FheConsensusData::LEN);
+        msg!(
+            "Creating FHE consensus account ({} bytes)",
+            FheConsensusData::LEN
+        );
 
         invoke_signed(
             &system_instruction::create_account(
@@ -410,8 +412,8 @@ pub fn process_create_job_with_token(
             circuit_type_id,
             witness_commitment,
             witness_size,
-            price_token_amount,      // Store token amount instead of lamports
-            *token_escrow_info.key,  // Store token escrow address
+            price_token_amount,     // Store token amount instead of lamports
+            *token_escrow_info.key, // Store token escrow address
             current_time,
             actual_timeout,
             job_bump,

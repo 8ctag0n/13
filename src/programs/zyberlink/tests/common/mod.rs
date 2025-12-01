@@ -1,10 +1,10 @@
-use zyberlink::instruction::MarketplaceInstruction;
 use solana_program::pubkey::Pubkey;
 use solana_program_test::{processor, BanksClient, ProgramTest};
 use solana_sdk::{
     signature::{Keypair, Signer},
     transaction::Transaction,
 };
+use zyberlink::instruction::MarketplaceInstruction;
 
 /// Initialize a new program test environment
 pub fn setup_program_test(program_id: Pubkey) -> ProgramTest {

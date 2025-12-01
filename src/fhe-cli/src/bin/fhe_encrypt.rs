@@ -7,7 +7,7 @@ use clap::Parser;
 use colored::Colorize;
 use fhe_cli::*;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Parser, Debug)]
 #[command(name = "fhe-encrypt")]
@@ -62,10 +62,7 @@ fn main() -> Result<()> {
     // 1. Client key (SECRET - for decryption)
     let client_key_path = args.path.join("client_key.bin");
     save_client_key(&client_key, &client_key_path)?;
-    println!(
-        "    [+] {} (KEEP SECRET)",
-        "client_key.bin".bright_red()
-    );
+    println!("    [+] {} (KEEP SECRET)", "client_key.bin".bright_red());
 
     // 2. Server key (for provers to compute)
     let server_key_path = args.path.join("server_key.bin");
@@ -108,7 +105,10 @@ fn main() -> Result<()> {
 }
 
 fn print_header() {
-    println!("\n{}", "=== ZyberLink FHE Encryption Tool ===".bold().cyan());
+    println!(
+        "\n{}",
+        "=== ZyberLink FHE Encryption Tool ===".bold().cyan()
+    );
 }
 
 fn get_value_from_user() -> Result<u8> {
@@ -128,7 +128,7 @@ fn get_value_from_user() -> Result<u8> {
 fn create_witness_file(
     server_key: &tfhe::ServerKey,
     encrypted_data: &[u8],
-    filepath: &PathBuf,
+    filepath: &Path,
 ) -> Result<()> {
     let encrypted_data_len = encrypted_data.len() as u32; // Use u32 for length
 
@@ -141,7 +141,7 @@ fn create_witness_file(
     Ok(())
 }
 
-fn create_metadata_file(original_value: u8, filepath: &PathBuf) -> Result<()> {
+fn create_metadata_file(original_value: u8, filepath: &Path) -> Result<()> {
     let metadata = serde_json::json!({
         "version": "1.0",
         "original_value": original_value,
@@ -159,7 +159,7 @@ fn create_metadata_file(original_value: u8, filepath: &PathBuf) -> Result<()> {
     Ok(())
 }
 
-fn print_summary(output_dir: &PathBuf) {
+fn print_summary(output_dir: &Path) {
     println!("\n{}", "=".repeat(50).bright_black());
     println!("{}", "NEXT STEPS:".bold().green());
     println!("{}", "=".repeat(50).bright_black());

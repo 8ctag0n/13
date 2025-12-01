@@ -24,8 +24,8 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
 
     // Try multiple paths for migrations (local dev vs container)
     let paths = [
-        "./src/blink-server/migrations",  // Local development
-        "./blink-server/migrations",       // Container
+        "./src/blink-server/migrations", // Local development
+        "./blink-server/migrations",     // Container
     ];
 
     let mut migrator = None;

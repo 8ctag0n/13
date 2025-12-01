@@ -1,6 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use zyberlink_types::JobStatus;
 use solana_program::pubkey::Pubkey;
+use zyberlink_types::JobStatus;
 
 /// Maximum number of provers for FHE consensus
 pub const MAX_FHE_PROVERS: usize = 5;
@@ -11,47 +11,47 @@ pub const MAX_FHE_PROVERS: usize = 5;
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
 pub struct JobAccount {
     /// Unique identifier for this job
-    pub id: u64,                              // 8 bytes
+    pub id: u64, // 8 bytes
 
     /// Public key of the job creator (wallet)
-    pub creator: Pubkey,                      // 32 bytes
+    pub creator: Pubkey, // 32 bytes
 
     /// Public key of the prover (for ZK jobs, or first prover for FHE)
-    pub prover: Option<Pubkey>,               // 1 + 32 = 33 bytes
+    pub prover: Option<Pubkey>, // 1 + 32 = 33 bytes
 
     /// Current status of the job
-    pub status: JobStatus,                    // 1 byte
+    pub status: JobStatus, // 1 byte
 
     /// Type of circuit (0-3 = ZK, 4-11 = FHE)
-    pub circuit_type: u8,                     // 1 byte
+    pub circuit_type: u8, // 1 byte
 
     /// Hash of encrypted witness data
-    pub witness_hash: [u8; 32],               // 32 bytes
+    pub witness_hash: [u8; 32], // 32 bytes
 
     /// Size of the original witness (for validation)
-    pub witness_size: u32,                    // 4 bytes
+    pub witness_size: u32, // 4 bytes
 
     /// Hash of encrypted proof (once submitted)
-    pub proof_hash: Option<[u8; 32]>,         // 1 + 32 = 33 bytes
+    pub proof_hash: Option<[u8; 32]>, // 1 + 32 = 33 bytes
 
     /// Price offered for completing this job (in lamports)
-    pub price_lamports: u64,                  // 8 bytes
+    pub price_lamports: u64, // 8 bytes
 
     /// Public key of the escrow account holding the payment
-    pub escrow_account: Pubkey,               // 32 bytes
+    pub escrow_account: Pubkey, // 32 bytes
 
     /// Timestamp when the job was created (Unix timestamp)
-    pub created_at: i64,                      // 8 bytes
+    pub created_at: i64, // 8 bytes
 
     /// Timestamp when the job will timeout (Unix timestamp)
-    pub timeout_at: i64,                      // 8 bytes
+    pub timeout_at: i64, // 8 bytes
 
     /// Bump seed for PDA derivation
-    pub bump: u8,                             // 1 byte
+    pub bump: u8, // 1 byte
 
     /// If FHE job, bump of the associated FheConsensusData PDA
     /// None for ZK jobs
-    pub fhe_consensus_bump: Option<u8>,       // 1 + 1 = 2 bytes
+    pub fhe_consensus_bump: Option<u8>, // 1 + 1 = 2 bytes
 }
 // TOTAL: 8 + 32 + 33 + 1 + 1 + 32 + 4 + 33 + 8 + 32 + 8 + 8 + 1 + 2 = 203 bytes
 
@@ -184,30 +184,30 @@ impl JobAccount {
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
 pub struct FheConsensusData {
     /// Job ID this consensus data belongs to
-    pub job_id: u64,                          // 8 bytes
+    pub job_id: u64, // 8 bytes
 
     /// FHE operation type (matches circuit_type in JobAccount)
-    pub operation_type: u8,                   // 1 byte
+    pub operation_type: u8, // 1 byte
 
     /// Packed operation parameters
-    pub operation_param1: u16,                // 2 bytes (threshold, operand, count, etc.)
-    pub operation_param2: u8,                 // 1 byte (min, flags, etc.)
-    pub operation_param3: u8,                 // 1 byte (max, etc.)
+    pub operation_param1: u16, // 2 bytes (threshold, operand, count, etc.)
+    pub operation_param2: u8, // 1 byte (min, flags, etc.)
+    pub operation_param3: u8, // 1 byte (max, etc.)
 
     /// Number of provers required for this job
-    pub required_provers: u8,                 // 1 byte
+    pub required_provers: u8, // 1 byte
 
     /// Minimum matching results for consensus
-    pub consensus_threshold: u8,              // 1 byte
+    pub consensus_threshold: u8, // 1 byte
 
     /// Timeout for submissions (Unix timestamp)
-    pub submission_timeout: i64,              // 8 bytes
+    pub submission_timeout: i64, // 8 bytes
 
     /// Provers who have claimed this job (fixed array)
     pub claimed_provers: [Pubkey; MAX_FHE_PROVERS], // 5 * 32 = 160 bytes
 
     /// Number of provers who have claimed
-    pub claimed_count: u8,                    // 1 byte
+    pub claimed_count: u8, // 1 byte
 
     /// Result hashes submitted by provers (fixed array)
     pub result_hashes: [[u8; 32]; MAX_FHE_PROVERS], // 5 * 32 = 160 bytes
@@ -216,13 +216,13 @@ pub struct FheConsensusData {
     pub result_submitted: [bool; MAX_FHE_PROVERS], // 5 bytes
 
     /// Number of results submitted
-    pub results_count: u8,                    // 1 byte
+    pub results_count: u8, // 1 byte
 
     /// Consensus hash (once achieved)
-    pub consensus_hash: Option<[u8; 32]>,     // 1 + 32 = 33 bytes
+    pub consensus_hash: Option<[u8; 32]>, // 1 + 32 = 33 bytes
 
     /// Bump seed for PDA derivation
-    pub bump: u8,                             // 1 byte
+    pub bump: u8, // 1 byte
 }
 // Size with Option<[u8; 32]> = 1 (tag) + 32 (data) = 33 bytes when Some
 // TOTAL: 8 + 1 + 2 + 1 + 1 + 1 + 1 + 8 + 160 + 1 + 160 + 5 + 1 + 33 + 1 = 384 bytes
@@ -287,7 +287,11 @@ impl FheConsensusData {
     }
 
     /// Submit a result for a prover
-    pub fn submit_result(&mut self, prover: &Pubkey, result_hash: [u8; 32]) -> Result<(), &'static str> {
+    pub fn submit_result(
+        &mut self,
+        prover: &Pubkey,
+        result_hash: [u8; 32],
+    ) -> Result<(), &'static str> {
         // Find prover index
         let mut prover_idx = None;
         for i in 0..self.claimed_count as usize {
@@ -381,9 +385,13 @@ mod tests {
         let serialized_min = borsh::to_vec(&job_min).unwrap();
         // Min size: prover=None(1), proof_hash=None(1), fhe_consensus_bump=None(1)
         let min_size = 138;
-        assert_eq!(serialized_min.len(), min_size,
+        assert_eq!(
+            serialized_min.len(),
+            min_size,
             "JobAccount min size mismatch: expected {}, got {}",
-            min_size, serialized_min.len());
+            min_size,
+            serialized_min.len()
+        );
 
         // Test maximum size (all Options are Some)
         let mut job_max = job_min.clone();
@@ -392,9 +400,13 @@ mod tests {
         job_max.fhe_consensus_bump = Some(254);
 
         let serialized_max = borsh::to_vec(&job_max).unwrap();
-        assert_eq!(serialized_max.len(), JobAccount::LEN,
+        assert_eq!(
+            serialized_max.len(),
+            JobAccount::LEN,
             "JobAccount max size mismatch: expected {}, got {}",
-            JobAccount::LEN, serialized_max.len());
+            JobAccount::LEN,
+            serialized_max.len()
+        );
     }
 
     #[test]
@@ -406,8 +418,8 @@ mod tests {
             42, // operand
             0,
             0,
-            3,  // required_provers
-            2,  // consensus_threshold
+            3, // required_provers
+            2, // consensus_threshold
             2000,
             255,
         );
@@ -415,18 +427,26 @@ mod tests {
         let serialized_none = borsh::to_vec(&fhe_none).unwrap();
         // Minimum size when Option is None: 352 bytes
         let min_size = 352;
-        assert_eq!(serialized_none.len(), min_size,
+        assert_eq!(
+            serialized_none.len(),
+            min_size,
             "FheConsensusData min size mismatch: expected {}, got {}",
-            min_size, serialized_none.len());
+            min_size,
+            serialized_none.len()
+        );
 
         // Test maximum size (when consensus_hash = Some)
         let mut fhe_some = fhe_none.clone();
         fhe_some.consensus_hash = Some([42u8; 32]);
 
         let serialized_some = borsh::to_vec(&fhe_some).unwrap();
-        assert_eq!(serialized_some.len(), FheConsensusData::LEN,
+        assert_eq!(
+            serialized_some.len(),
+            FheConsensusData::LEN,
             "FheConsensusData max size mismatch: expected {}, got {}",
-            FheConsensusData::LEN, serialized_some.len());
+            FheConsensusData::LEN,
+            serialized_some.len()
+        );
     }
 
     #[test]
@@ -539,17 +559,8 @@ mod tests {
 
     #[test]
     fn test_fhe_add_provers() {
-        let mut fhe = FheConsensusData::new(
-            1,
-            JobAccount::CIRCUIT_FHE_ADD,
-            42,
-            0,
-            0,
-            3,
-            2,
-            2000,
-            255,
-        );
+        let mut fhe =
+            FheConsensusData::new(1, JobAccount::CIRCUIT_FHE_ADD, 42, 0, 0, 3, 2, 2000, 255);
 
         let p1 = Pubkey::new_unique();
         let p2 = Pubkey::new_unique();
@@ -572,17 +583,8 @@ mod tests {
 
     #[test]
     fn test_fhe_submit_results() {
-        let mut fhe = FheConsensusData::new(
-            1,
-            JobAccount::CIRCUIT_FHE_ADD,
-            42,
-            0,
-            0,
-            3,
-            2,
-            2000,
-            255,
-        );
+        let mut fhe =
+            FheConsensusData::new(1, JobAccount::CIRCUIT_FHE_ADD, 42, 0, 0, 3, 2, 2000, 255);
 
         let p1 = Pubkey::new_unique();
         let p2 = Pubkey::new_unique();
@@ -646,17 +648,8 @@ mod tests {
 
     #[test]
     fn test_fhe_no_consensus() {
-        let mut fhe = FheConsensusData::new(
-            1,
-            JobAccount::CIRCUIT_FHE_ADD,
-            42,
-            0,
-            0,
-            3,
-            2,
-            2000,
-            255,
-        );
+        let mut fhe =
+            FheConsensusData::new(1, JobAccount::CIRCUIT_FHE_ADD, 42, 0, 0, 3, 2, 2000, 255);
 
         let p1 = Pubkey::new_unique();
         let p2 = Pubkey::new_unique();

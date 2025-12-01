@@ -2,11 +2,11 @@ mod common;
 
 use borsh::BorshDeserialize;
 use common::{initialize_marketplace, setup_program_test};
-use zyberlink::{instruction::MarketplaceInstruction, state::JobAccount};
-use zyberlink_types::{fhe::FheOperation, CircuitType, FheConsensusConfig};
 use solana_program::pubkey::Pubkey;
 use solana_program_test::*;
 use solana_sdk::{signature::Signer, transaction::Transaction};
+use zyberlink::{instruction::MarketplaceInstruction, state::JobAccount};
+use zyberlink_types::{fhe::FheOperation, CircuitType, FheConsensusConfig};
 
 /// Test that Tier 1 operation (Add) with sufficient pricing succeeds
 #[tokio::test]
@@ -56,10 +56,8 @@ async fn test_tier1_add_sufficient_price() {
     };
 
     // FHE jobs need the fhe_consensus_pda account
-    let (fhe_consensus_pda, _) = Pubkey::find_program_address(
-        &[b"fhe_consensus", &job_id_bytes],
-        &program_id,
-    );
+    let (fhe_consensus_pda, _) =
+        Pubkey::find_program_address(&[b"fhe_consensus", &job_id_bytes], &program_id);
 
     let create_job_ix = solana_program::instruction::Instruction {
         program_id,
@@ -150,10 +148,8 @@ async fn test_tier1_add_insufficient_price() {
     };
 
     // FHE jobs need the fhe_consensus_pda account
-    let (fhe_consensus_pda, _) = Pubkey::find_program_address(
-        &[b"fhe_consensus", &job_id_bytes],
-        &program_id,
-    );
+    let (fhe_consensus_pda, _) =
+        Pubkey::find_program_address(&[b"fhe_consensus", &job_id_bytes], &program_id);
 
     let create_job_ix = solana_program::instruction::Instruction {
         program_id,
@@ -238,10 +234,8 @@ async fn test_tier3_threshold_higher_price() {
     };
 
     // FHE jobs need the fhe_consensus_pda account
-    let (fhe_consensus_pda, _) = Pubkey::find_program_address(
-        &[b"fhe_consensus", &job_id_bytes],
-        &program_id,
-    );
+    let (fhe_consensus_pda, _) =
+        Pubkey::find_program_address(&[b"fhe_consensus", &job_id_bytes], &program_id);
 
     let create_job_ix = solana_program::instruction::Instruction {
         program_id,
@@ -330,10 +324,8 @@ async fn test_pricing_scales_with_provers() {
     };
 
     // FHE jobs need the fhe_consensus_pda account
-    let (fhe_consensus_pda, _) = Pubkey::find_program_address(
-        &[b"fhe_consensus", &job_id_bytes],
-        &program_id,
-    );
+    let (fhe_consensus_pda, _) =
+        Pubkey::find_program_address(&[b"fhe_consensus", &job_id_bytes], &program_id);
 
     let create_job_ix = solana_program::instruction::Instruction {
         program_id,

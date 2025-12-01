@@ -6,7 +6,6 @@
 /// - Transaction simulation support
 /// - Fluent API for common workflows
 use anyhow::Result;
-use zyberlink_types::{CircuitType, FheConsensusConfig, FheOperation};
 use solana_sdk::{
     hash::Hash,
     instruction::Instruction,
@@ -14,6 +13,7 @@ use solana_sdk::{
     signature::{Keypair, Signature, Signer},
     transaction::Transaction,
 };
+use zyberlink_types::{CircuitType, FheConsensusConfig, FheOperation};
 
 use crate::{instructions::InstructionBuilder, transaction::TransactionBuilder, MarketplaceClient};
 
@@ -154,7 +154,12 @@ impl MarketplaceClient {
     }
 
     /// Claim FHE job instruction (wallet-compatible)
-    pub fn claim_fhe_job_ix(&self, prover: Pubkey, job_pda: Pubkey, job_id: u64) -> Result<Instruction> {
+    pub fn claim_fhe_job_ix(
+        &self,
+        prover: Pubkey,
+        job_pda: Pubkey,
+        job_id: u64,
+    ) -> Result<Instruction> {
         self.instructions().claim_fhe_job(prover, job_pda, job_id)
     }
 
@@ -299,6 +304,7 @@ impl MarketplaceClient {
     ///
     /// # Returns
     /// Tuple of (compute_units_used, logs, error_if_any)
+    #[allow(clippy::type_complexity)]
     pub fn simulate_transaction(
         &self,
         instructions: Vec<Instruction>,

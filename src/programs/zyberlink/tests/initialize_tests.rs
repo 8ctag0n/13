@@ -1,9 +1,9 @@
 mod common;
 
 use common::setup_program_test;
-use zyberlink::{instruction::MarketplaceInstruction, state::MarketplaceConfig};
 use solana_program::pubkey::Pubkey;
 use solana_sdk::{signature::Signer, transaction::Transaction};
+use zyberlink::{instruction::MarketplaceInstruction, state::MarketplaceConfig};
 
 #[tokio::test]
 async fn test_initialize_marketplace() {

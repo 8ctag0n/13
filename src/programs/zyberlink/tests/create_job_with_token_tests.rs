@@ -1,11 +1,11 @@
 mod common;
 
 use common::{initialize_marketplace, setup_program_test};
-use zyberlink::instruction::MarketplaceInstruction;
-use zyberlink_types::{fhe::FheOperation, CircuitType, FheConsensusConfig};
 use solana_program::pubkey::Pubkey;
 use solana_program_test::*;
 use solana_sdk::signature::Signer;
+use zyberlink::instruction::MarketplaceInstruction;
+use zyberlink_types::{fhe::FheOperation, CircuitType, FheConsensusConfig};
 
 /// Test 1: Create FHE job with wZEC payment
 ///

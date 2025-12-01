@@ -1,19 +1,20 @@
 use anyhow::Result;
 use borsh::BorshDeserialize;
-use zyberlink_sdk::JobAccount;
 use solana_client::rpc_client::RpcClient;
 use solana_client::rpc_config::{RpcAccountInfoConfig, RpcProgramAccountsConfig};
 use solana_client::rpc_filter::RpcFilterType;
 use solana_sdk::commitment_config::CommitmentConfig;
 use solana_sdk::pubkey::Pubkey;
 use std::env;
+use zyberlink_sdk::JobAccount;
 
 /// Test script para validar que podemos leer y deserializar jobs desde la blockchain
 fn main() -> Result<()> {
     println!("=== Blockchain Sync Test ===\n");
 
     // Load config from env
-    let rpc_url = env::var("SOLANA_RPC_URL").unwrap_or_else(|_| "http://localhost:8899".to_string());
+    let rpc_url =
+        env::var("SOLANA_RPC_URL").unwrap_or_else(|_| "http://localhost:8899".to_string());
     let program_id_str = env::var("PROGRAM_ID").expect("PROGRAM_ID env var required");
     let program_id = program_id_str.parse::<Pubkey>()?;
 
@@ -21,10 +22,7 @@ fn main() -> Result<()> {
     println!("Program ID: {}\n", program_id);
 
     // Create RPC client
-    let rpc_client = RpcClient::new_with_commitment(
-        rpc_url.clone(),
-        CommitmentConfig::confirmed(),
-    );
+    let rpc_client = RpcClient::new_with_commitment(rpc_url.clone(), CommitmentConfig::confirmed());
 
     println!("Fetching all job accounts from blockchain...");
 
@@ -66,7 +64,11 @@ fn main() -> Result<()> {
                 println!("  Creator: {}", job.creator);
                 println!("  Status: {:?}", job.status);
                 println!("  Circuit: {:?}", job.circuit_type);
-                println!("  Price: {} lamports ({} SOL)", job.price_lamports, job.price_lamports as f64 / 1e9);
+                println!(
+                    "  Price: {} lamports ({} SOL)",
+                    job.price_lamports,
+                    job.price_lamports as f64 / 1e9
+                );
                 println!("  Created at: {}", job.created_at);
 
                 if let Some(prover) = job.prover {
@@ -99,7 +101,10 @@ fn main() -> Result<()> {
             }
             Err(e) => {
                 println!("✗ Failed to deserialize: {}", e);
-                println!("  First 50 bytes: {:?}", &account.data[..account.data.len().min(50)]);
+                println!(
+                    "  First 50 bytes: {:?}",
+                    &account.data[..account.data.len().min(50)]
+                );
             }
         }
         println!();
@@ -123,7 +128,10 @@ fn main() -> Result<()> {
     println!("Failed to deserialize: {}", fail_count);
 
     if fail_count > 0 {
-        println!("\n⚠ Warning: {} jobs failed to deserialize. Check program compatibility.", fail_count);
+        println!(
+            "\n⚠ Warning: {} jobs failed to deserialize. Check program compatibility.",
+            fail_count
+        );
     } else {
         println!("\n✓ All jobs deserialized successfully!");
         println!("✓ Ready to implement full sync!");

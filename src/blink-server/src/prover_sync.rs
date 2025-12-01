@@ -1,5 +1,4 @@
 use borsh::BorshDeserialize;
-use zyberlink_sdk::ProverAccount;
 use solana_client::rpc_client::RpcClient;
 use solana_client::rpc_config::{RpcAccountInfoConfig, RpcProgramAccountsConfig};
 use solana_client::rpc_filter::RpcFilterType;
@@ -7,6 +6,7 @@ use solana_sdk::commitment_config::CommitmentConfig;
 use solana_sdk::pubkey::Pubkey;
 use sqlx::PgPool;
 use std::time::Duration;
+use zyberlink_sdk::ProverAccount;
 
 /// ProverAccount size in bytes (must match on-chain program)
 const PROVER_ACCOUNT_SIZE: u64 = 114;

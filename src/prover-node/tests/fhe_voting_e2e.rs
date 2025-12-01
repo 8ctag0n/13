@@ -6,9 +6,9 @@
 /// 3. Provers reach consensus on vote tallies
 /// 4. Payment distribution and verification
 use anyhow::Result;
-use zyberlink_types::fhe::FhePredicate;
 use tfhe::prelude::*;
 use tfhe::{generate_keys, set_server_key, ConfigBuilder, FheUint8};
+use zyberlink_types::fhe::FhePredicate;
 
 #[test]
 fn test_fhe_voting_basic_count() -> Result<()> {

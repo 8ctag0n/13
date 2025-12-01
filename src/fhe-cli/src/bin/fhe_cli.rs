@@ -51,7 +51,11 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Encrypt { path, value, values } => encrypt_command(path, value, values),
+        Commands::Encrypt {
+            path,
+            value,
+            values,
+        } => encrypt_command(path, value, values),
         Commands::Decrypt { path, result } => decrypt_command(path, result),
     }
 }
@@ -99,17 +103,13 @@ fn encrypt_command(path: PathBuf, value: Option<u8>, values: Option<Vec<u8>>) ->
     };
     println!("[+] Encryption successful");
 
-
     // Save all files
     println!("\n[*] Saving files...");
 
     // 1. Client key (SECRET - for decryption)
     let client_key_path = path.join("client_key.bin");
     save_client_key(&client_key, &client_key_path)?;
-    println!(
-        "    [+] {} (KEEP SECRET)",
-        "client_key.bin".bright_red()
-    );
+    println!("    [+] {} (KEEP SECRET)", "client_key.bin".bright_red());
 
     // 2. Server key (for provers to compute)
     let server_key_path = path.join("server_key.bin");
@@ -156,10 +156,7 @@ fn encrypt_command(path: PathBuf, value: Option<u8>, values: Option<Vec<u8>>) ->
     );
 
     println!("\n2. After job completes, decrypt with:");
-    println!(
-        "   fhe-cli decrypt -p {}",
-        path.display()
-    );
+    println!("   fhe-cli decrypt -p {}", path.display());
 
     println!("\n{}", "=".repeat(50).bright_black());
     println!();
@@ -275,7 +272,8 @@ fn get_result_interactive() -> Result<String> {
         lines.push(input);
     }
 
-    let result = lines.join("")
+    let result = lines
+        .join("")
         .chars()
         .filter(|c| !c.is_whitespace())
         .collect::<String>();

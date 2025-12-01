@@ -1,11 +1,11 @@
 use anyhow::Result;
-use zyberlink_sdk::MarketplaceClient;
 use solana_sdk::{
     commitment_config::CommitmentConfig,
     signature::{read_keypair_file, Signer},
     transaction::Transaction,
 };
 use std::env;
+use zyberlink_sdk::MarketplaceClient;
 
 /// Initialize the ZyberLink program
 fn main() -> Result<()> {

@@ -108,7 +108,11 @@ impl CleanupService {
 
         let count = result.rows_affected();
         if count > 0 {
-            log::info!("Cleaned up {} old witnesses (~{}MB freed)", count, count * 123);
+            log::info!(
+                "Cleaned up {} old witnesses (~{}MB freed)",
+                count,
+                count * 123
+            );
         }
 
         Ok(())

@@ -73,6 +73,7 @@ impl std::fmt::Display for JobStatus {
 
 /// Represents a used nonce for anti-replay protection
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[allow(dead_code)]
 pub struct UsedNonce {
     pub nonce: String,
     pub used_at: DateTime<Utc>,

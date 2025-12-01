@@ -12,9 +12,9 @@ pub use zyberlink_types::{CircuitType, FheConsensusConfig, FheJobResult, JobStat
 
 // Account size constants (must match on-chain program)
 // These are used for RPC filtering to only fetch accounts of the correct type
-const JOB_ACCOUNT_SIZE: usize = 203; // JobAccount::LEN from programs/zyberlink/src/state/job.rs (max with all Options populated)
+const _JOB_ACCOUNT_SIZE: usize = 203; // JobAccount::LEN from programs/zyberlink/src/state/job.rs (max with all Options populated)
 const PROVER_ACCOUNT_SIZE: usize = 114; // ProverAccount::LEN from programs/zyberlink/src/state/prover.rs
-const FHE_CONSENSUS_DATA_SIZE: usize = 384; // FheConsensusData::LEN from programs/zyberlink/src/state/job.rs
+const _FHE_CONSENSUS_DATA_SIZE: usize = 384; // FheConsensusData::LEN from programs/zyberlink/src/state/job.rs
 
 /// Marketplace configuration account
 /// IMPORTANT: Field order must match programs/zyberlink/src/state/config.rs
@@ -56,20 +56,20 @@ pub struct ProverAccount {
 /// NOTE: FHE-specific fields (claimed_provers, fhe_results) are now in FheConsensusData account
 #[derive(Debug, Clone, BorshDeserialize)]
 pub struct JobAccount {
-    pub id: u64,                          // 8 bytes
-    pub creator: Pubkey,                  // 32 bytes
-    pub prover: Option<Pubkey>,           // 33 bytes (for ZK jobs: the single prover)
-    pub status: JobStatus,                // 1 byte
-    pub circuit_type: u8,                 // 1 byte (0-3 = ZK, 4-11 = FHE)
-    pub witness_hash: [u8; 32],           // 32 bytes
-    pub witness_size: u32,                // 4 bytes
-    pub proof_hash: Option<[u8; 32]>,     // 33 bytes
-    pub price_lamports: u64,              // 8 bytes
-    pub escrow_account: Pubkey,           // 32 bytes
-    pub created_at: i64,                  // 8 bytes
-    pub timeout_at: i64,                  // 8 bytes
-    pub bump: u8,                         // 1 byte
-    pub fhe_consensus_bump: Option<u8>,   // 2 bytes (bump for FheConsensusData PDA)
+    pub id: u64,                        // 8 bytes
+    pub creator: Pubkey,                // 32 bytes
+    pub prover: Option<Pubkey>,         // 33 bytes (for ZK jobs: the single prover)
+    pub status: JobStatus,              // 1 byte
+    pub circuit_type: u8,               // 1 byte (0-3 = ZK, 4-11 = FHE)
+    pub witness_hash: [u8; 32],         // 32 bytes
+    pub witness_size: u32,              // 4 bytes
+    pub proof_hash: Option<[u8; 32]>,   // 33 bytes
+    pub price_lamports: u64,            // 8 bytes
+    pub escrow_account: Pubkey,         // 32 bytes
+    pub created_at: i64,                // 8 bytes
+    pub timeout_at: i64,                // 8 bytes
+    pub bump: u8,                       // 1 byte
+    pub fhe_consensus_bump: Option<u8>, // 2 bytes (bump for FheConsensusData PDA)
 }
 
 /// FHE Consensus Data account (separate from JobAccount)
@@ -120,7 +120,10 @@ pub fn fetch_job(rpc_client: &RpcClient, job_pda: &Pubkey) -> Result<JobAccount>
 }
 
 /// Fetch and deserialize FHE consensus data account
-pub fn fetch_fhe_consensus(rpc_client: &RpcClient, fhe_consensus_pda: &Pubkey) -> Result<FheConsensusData> {
+pub fn fetch_fhe_consensus(
+    rpc_client: &RpcClient,
+    fhe_consensus_pda: &Pubkey,
+) -> Result<FheConsensusData> {
     let account = rpc_client.get_account(fhe_consensus_pda)?;
     let fhe_data = FheConsensusData::deserialize(&mut &account.data[..])?;
     Ok(fhe_data)
@@ -270,7 +273,8 @@ pub fn find_fhe_jobs_needing_provers(
     let accounts = rpc_client.get_program_accounts_with_config(program_id, config)?;
 
     // First, collect all FheConsensusData accounts by job_id
-    let mut fhe_data_by_job: std::collections::HashMap<u64, FheConsensusData> = std::collections::HashMap::new();
+    let mut fhe_data_by_job: std::collections::HashMap<u64, FheConsensusData> =
+        std::collections::HashMap::new();
     for (_pubkey, account) in &accounts {
         // FheConsensusData is ~384 bytes
         if account.data.len() >= 350 && account.data.len() <= 400 {
@@ -308,9 +312,10 @@ pub fn find_fhe_jobs_needing_provers(
                 // - Pending (no one claimed yet), OR
                 // - Claimed but still needs more provers
                 let needs_more_provers = fhe_data.claimed_count < fhe_data.required_provers;
-                if job.status == JobStatus::Pending ||
-                   (job.status == JobStatus::Claimed && needs_more_provers) {
-                    result.push((pubkey.clone(), job, fhe_data.clone()));
+                if job.status == JobStatus::Pending
+                    || (job.status == JobStatus::Claimed && needs_more_provers)
+                {
+                    result.push((*pubkey, job, fhe_data.clone()));
                 }
             }
         }

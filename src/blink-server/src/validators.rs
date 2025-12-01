@@ -5,6 +5,7 @@ use solana_sdk::{pubkey::Pubkey, signature::Signature};
 use sqlx::PgPool;
 use std::str::FromStr;
 use tfhe::ServerKey;
+use zyberlink_types::fhe::FhePredicate;
 
 use crate::db::NonceQueries;
 
@@ -24,6 +25,8 @@ pub struct ValidateJobRequest {
     pub consensus_threshold: u8,
     #[serde(default = "default_payment_method")]
     pub payment_method: String, // "SOL" | "wZEC" (defaults to "SOL")
+    pub expected_count: Option<u16>,
+    pub predicate: Option<FhePredicate>,
 }
 
 /// Default payment method if not specified
@@ -45,6 +48,8 @@ pub struct ValidatedJob {
     pub consensus_threshold: u8,
     pub payment_method: String,
     pub payment_token_mint: Option<String>,
+    pub expected_count: u16,
+    pub predicate: Option<FhePredicate>,
 }
 
 /// Job validator with size limits and security checks
@@ -83,8 +88,14 @@ impl JobValidator {
         let _server_key_obj: ServerKey = bincode::deserialize(&server_key)
             .map_err(|e| anyhow!("Invalid server_key format: {}", e))?;
 
-        // 7. Validate operation
+        // 7. Validate operation and related params
         Self::validate_operation(&req.operation)?;
+
+        // 7b. Extract FHE operation parameters (defaults)
+        let expected_count = req.expected_count.unwrap_or(1);
+        if req.operation == "count_if" && req.predicate.is_none() {
+            return Err(anyhow!("predicate is required for count_if operation"));
+        }
 
         // 8. Validate consensus config
         Self::validate_consensus_config(req.required_provers, req.consensus_threshold)?;
@@ -109,6 +120,8 @@ impl JobValidator {
             consensus_threshold: req.consensus_threshold,
             payment_method,
             payment_token_mint,
+            expected_count,
+            predicate: req.predicate.clone(),
         })
     }
 
@@ -240,9 +253,9 @@ impl JobValidator {
     /// Validate operation type
     fn validate_operation(operation: &str) -> Result<()> {
         match operation {
-            "add" | "multiply" => Ok(()),
+            "add" | "multiply" | "sum" | "count_if" => Ok(()),
             _ => Err(anyhow!(
-                "Invalid operation: {}. Must be 'add' or 'multiply'",
+                "Invalid operation: {}. Must be 'add', 'multiply', 'sum', or 'count_if'",
                 operation
             )),
         }
@@ -294,6 +307,8 @@ mod tests {
     fn test_validate_operation() {
         assert!(JobValidator::validate_operation("add").is_ok());
         assert!(JobValidator::validate_operation("multiply").is_ok());
+        assert!(JobValidator::validate_operation("sum").is_ok());
+        assert!(JobValidator::validate_operation("count_if").is_ok());
         assert!(JobValidator::validate_operation("divide").is_err());
     }
 

@@ -10,13 +10,13 @@ mod validators;
 
 use actix_cors::Cors;
 use actix_web::{get, middleware, web, App, HttpResponse, HttpServer, Responder};
-use zyberlink_sdk::instructions::InstructionBuilder;
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::signer::Signer;
 use sqlx::PgPool;
 use std::env;
 use std::str::FromStr;
 use std::sync::Arc;
+use zyberlink_sdk::instructions::InstructionBuilder;
 
 /// Application state shared across handlers
 pub struct AppState {
@@ -135,8 +135,8 @@ async fn main() -> std::io::Result<()> {
     log::info!("Prover sync task started");
 
     // Job finalizer (requires server keypair to sign finalize transactions)
-    let server_keypair_path = env::var("SERVER_KEYPAIR_PATH")
-        .unwrap_or_else(|_| "~/.config/solana/id.json".to_string());
+    let server_keypair_path =
+        env::var("SERVER_KEYPAIR_PATH").unwrap_or_else(|_| "~/.config/solana/id.json".to_string());
 
     match job_finalizer::load_server_keypair(&server_keypair_path) {
         Ok(keypair) => {

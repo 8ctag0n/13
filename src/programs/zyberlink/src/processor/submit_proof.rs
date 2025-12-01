@@ -1,5 +1,4 @@
 use borsh::BorshDeserialize;
-use zyberlink_types::JobStatus;
 use solana_program::{
     account_info::{next_account_info, AccountInfo},
     entrypoint::ProgramResult,
@@ -8,6 +7,7 @@ use solana_program::{
     pubkey::Pubkey,
     sysvar::{clock::Clock, Sysvar},
 };
+use zyberlink_types::JobStatus;
 
 use crate::{
     error::ZyberLinkProgramError,

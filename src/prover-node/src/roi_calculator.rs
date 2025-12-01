@@ -1,5 +1,5 @@
-use zyberlink_types::CircuitType;
 use log::{info, warn};
+use zyberlink_types::CircuitType;
 
 /// ROI calculation result for a job
 #[derive(Debug, Clone)]

@@ -1,13 +1,14 @@
-use zyberlink_sdk::{
-    calculate_platform_fee, calculate_prover_payout, get_time_remaining, is_job_timed_out,
-    CircuitType, JobStatus, MarketplaceClient, JobAccount,
-};
 use solana_program_test::{processor, ProgramTest};
+#[allow(deprecated)]
 use solana_sdk::{
     pubkey::Pubkey,
     signature::{Keypair, Signer},
     system_instruction,
     transaction::Transaction,
+};
+use zyberlink_sdk::{
+    calculate_platform_fee, calculate_prover_payout, get_time_remaining, is_job_timed_out,
+    CircuitType, JobAccount, JobStatus, MarketplaceClient,
 };
 
 fn program_id() -> solana_sdk::pubkey::Pubkey {

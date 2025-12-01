@@ -13,15 +13,16 @@
 /// - FheConsensusData: Fixed 384 bytes, stores multi-prover consensus state
 use anyhow::Result;
 use borsh::BorshDeserialize;
-use zyberlink_sdk::{FheConsensusData, JobAccount, MarketplaceClient, ProverAccount};
-use zyberlink_types::{FheConsensusConfig, FheOperation, JobStatus as TypesJobStatus};
 use solana_program_test::{processor, BanksClient, ProgramTest};
+#[allow(deprecated)]
 use solana_sdk::{
     pubkey::Pubkey,
     signature::{Keypair, Signer},
     system_instruction,
     transaction::Transaction,
 };
+use zyberlink_sdk::{FheConsensusData, JobAccount, MarketplaceClient, ProverAccount};
+use zyberlink_types::{FheConsensusConfig, FheOperation, JobStatus as TypesJobStatus};
 
 // ============================================================================
 // Test Helpers
@@ -193,7 +194,10 @@ async fn test_fhe_multi_prover_complete_flow() -> Result<()> {
     let job = JobAccount::deserialize(&mut &job_account.data[..])?;
     assert_eq!(job.status, TypesJobStatus::Pending);
     assert_eq!(job.price_lamports, 3_000_000);
-    assert!(job.fhe_consensus_bump.is_some(), "FHE job should have consensus bump");
+    assert!(
+        job.fhe_consensus_bump.is_some(),
+        "FHE job should have consensus bump"
+    );
 
     // Verify FheConsensusData created
     let fhe_data = fetch_fhe_consensus(&mut banks_client, &fhe_consensus_pda).await?;
@@ -236,8 +240,12 @@ async fn test_fhe_multi_prover_complete_flow() -> Result<()> {
     let consensus_hash = create_fhe_result_hash(100);
 
     for (i, prover) in [&prover1, &prover2].iter().enumerate() {
-        let submit_ix =
-            client.submit_fhe_result_instruction(&prover.pubkey(), &job_pda, job_id, consensus_hash)?;
+        let submit_ix = client.submit_fhe_result_instruction(
+            &prover.pubkey(),
+            &job_pda,
+            job_id,
+            consensus_hash,
+        )?;
 
         let recent_blockhash = banks_client.get_latest_blockhash().await?;
         let mut tx = Transaction::new_with_payer(&[submit_ix], Some(&prover.pubkey()));
@@ -270,8 +278,7 @@ async fn test_fhe_multi_prover_complete_flow() -> Result<()> {
     assert_eq!(fhe_data.results_count, 3);
 
     // Verify consensus pattern: 2 matching, 1 different
-    let matching_count = fhe_data
-        .result_hashes[0..fhe_data.results_count as usize]
+    let matching_count = fhe_data.result_hashes[0..fhe_data.results_count as usize]
         .iter()
         .filter(|r| **r == consensus_hash)
         .count();
@@ -299,7 +306,7 @@ async fn test_fhe_multi_prover_complete_flow() -> Result<()> {
         &job_pda,
         job_id,
         &job_creator.pubkey(),
-        &authority.pubkey(),                   // protocol fee recipient
+        &authority.pubkey(), // protocol fee recipient
         &[prover1.pubkey(), prover2.pubkey(), prover3.pubkey()], // ALL provers in claim order
     )?;
 
@@ -468,8 +475,12 @@ async fn test_fhe_consensus_threshold_not_met() -> Result<()> {
 
     for (i, prover) in [&prover1, &prover2, &prover3].iter().enumerate() {
         let different_hash = create_fhe_result_hash((i + 1) as u8 * 10);
-        let submit_ix =
-            client.submit_fhe_result_instruction(&prover.pubkey(), &job_pda, job_id, different_hash)?;
+        let submit_ix = client.submit_fhe_result_instruction(
+            &prover.pubkey(),
+            &job_pda,
+            job_id,
+            different_hash,
+        )?;
 
         let recent_blockhash = banks_client.get_latest_blockhash().await?;
         let mut tx = Transaction::new_with_payer(&[submit_ix], Some(&prover.pubkey()));
@@ -680,8 +691,12 @@ async fn test_fhe_insufficient_provers() -> Result<()> {
     let consensus_hash = create_fhe_result_hash(100);
 
     for (i, prover) in [&prover1, &prover2].iter().enumerate() {
-        let submit_ix =
-            client.submit_fhe_result_instruction(&prover.pubkey(), &job_pda, job_id, consensus_hash)?;
+        let submit_ix = client.submit_fhe_result_instruction(
+            &prover.pubkey(),
+            &job_pda,
+            job_id,
+            consensus_hash,
+        )?;
         let recent_blockhash = banks_client.get_latest_blockhash().await?;
         let mut tx = Transaction::new_with_payer(&[submit_ix], Some(&prover.pubkey()));
         tx.sign(&[prover], recent_blockhash);
@@ -834,8 +849,12 @@ async fn test_fhe_all_provers_agree() -> Result<()> {
     let consensus_hash = create_fhe_result_hash(100);
 
     for (i, prover) in [&prover1, &prover2, &prover3].iter().enumerate() {
-        let submit_ix =
-            client.submit_fhe_result_instruction(&prover.pubkey(), &job_pda, job_id, consensus_hash)?;
+        let submit_ix = client.submit_fhe_result_instruction(
+            &prover.pubkey(),
+            &job_pda,
+            job_id,
+            consensus_hash,
+        )?;
         let recent_blockhash = banks_client.get_latest_blockhash().await?;
         let mut tx = Transaction::new_with_payer(&[submit_ix], Some(&prover.pubkey()));
         tx.sign(&[prover], recent_blockhash);

@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
-use zyberlink_types::fhe::FheConsensusConfig;
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::{instruction::Instruction, pubkey::Pubkey};
+use zyberlink_types::fhe::FheConsensusConfig;
 
 use crate::instructions::InstructionBuilder;
 

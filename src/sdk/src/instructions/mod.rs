@@ -10,6 +10,7 @@ mod marketplace;
 pub use marketplace::InstructionBuilder;
 
 // Re-export common types
+#[allow(deprecated)]
 pub use solana_sdk::{
     instruction::{AccountMeta, Instruction},
     pubkey::Pubkey,

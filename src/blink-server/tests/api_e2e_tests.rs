@@ -472,13 +472,31 @@ async fn test_network_stats_has_required_fields() {
     let body: serde_json::Value = response.json().await.expect("Failed to parse JSON");
 
     // Verify all required fields exist
-    assert!(body.get("active_provers").is_some(), "Missing active_provers");
-    assert!(body.get("jobs_completed").is_some(), "Missing jobs_completed");
+    assert!(
+        body.get("active_provers").is_some(),
+        "Missing active_provers"
+    );
+    assert!(
+        body.get("jobs_completed").is_some(),
+        "Missing jobs_completed"
+    );
     assert!(body.get("jobs_total").is_some(), "Missing jobs_total");
-    assert!(body.get("data_encrypted_bytes").is_some(), "Missing data_encrypted_bytes");
-    assert!(body.get("data_encrypted_tb").is_some(), "Missing data_encrypted_tb");
-    assert!(body.get("uptime_seconds").is_some(), "Missing uptime_seconds");
-    assert!(body.get("uptime_percent").is_some(), "Missing uptime_percent");
+    assert!(
+        body.get("data_encrypted_bytes").is_some(),
+        "Missing data_encrypted_bytes"
+    );
+    assert!(
+        body.get("data_encrypted_tb").is_some(),
+        "Missing data_encrypted_tb"
+    );
+    assert!(
+        body.get("uptime_seconds").is_some(),
+        "Missing uptime_seconds"
+    );
+    assert!(
+        body.get("uptime_percent").is_some(),
+        "Missing uptime_percent"
+    );
 }
 
 #[tokio::test]
@@ -502,15 +520,25 @@ async fn test_network_stats_values_are_valid() {
 
     // jobs_total should be >= jobs_completed
     let jobs_total = body["jobs_total"].as_i64().unwrap();
-    assert!(jobs_total >= jobs_completed, "jobs_total should be >= jobs_completed");
+    assert!(
+        jobs_total >= jobs_completed,
+        "jobs_total should be >= jobs_completed"
+    );
 
     // uptime_percent should be between 0 and 100
     let uptime_percent = body["uptime_percent"].as_f64().unwrap();
-    assert!(uptime_percent >= 0.0 && uptime_percent <= 100.0, "uptime_percent should be 0-100");
+    assert!(
+        (0.0..=100.0).contains(&uptime_percent),
+        "uptime_percent should be 0-100"
+    );
 
     // data_encrypted_bytes should match jobs_total * 1024
     let data_bytes = body["data_encrypted_bytes"].as_i64().unwrap();
-    assert_eq!(data_bytes, jobs_total * 1024, "data_encrypted_bytes should be jobs_total * 1024");
+    assert_eq!(
+        data_bytes,
+        jobs_total * 1024,
+        "data_encrypted_bytes should be jobs_total * 1024"
+    );
 }
 
 #[tokio::test]
@@ -530,5 +558,10 @@ async fn test_network_stats_data_tb_calculation() {
     // Verify TB calculation: bytes / (1024^4)
     let expected_tb = data_bytes / (1024.0 * 1024.0 * 1024.0 * 1024.0);
     let diff = (data_tb - expected_tb).abs();
-    assert!(diff < 0.0001, "data_encrypted_tb calculation mismatch: {} vs {}", data_tb, expected_tb);
+    assert!(
+        diff < 0.0001,
+        "data_encrypted_tb calculation mismatch: {} vs {}",
+        data_tb,
+        expected_tb
+    );
 }

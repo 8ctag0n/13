@@ -1,3 +1,15 @@
+#![allow(
+    dead_code,
+    unused_imports,
+    unused_variables,
+    clippy::too_many_arguments,
+    clippy::manual_range_contains,
+    clippy::manual_contains,
+    clippy::unnecessary_cast,
+    clippy::needless_borrows_for_generic_args,
+    deprecated
+)]
+
 // Public modules for testing and external use
 pub mod circuits;
 pub mod fhe_engine;

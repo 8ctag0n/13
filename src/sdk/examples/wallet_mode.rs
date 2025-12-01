@@ -1,3 +1,5 @@
+use solana_sdk::pubkey::Pubkey;
+use std::str::FromStr;
 /// Example: Wallet Integration Mode
 ///
 /// This example demonstrates how to use the SDK with wallet integration.
@@ -5,8 +7,6 @@
 /// to handle the signing process.
 use zyberlink_sdk::MarketplaceClient;
 use zyberlink_types::{CircuitType, FheOperation};
-use solana_sdk::pubkey::Pubkey;
-use std::str::FromStr;
 
 fn main() -> anyhow::Result<()> {
     println!("=== ZyberLink SDK - Wallet Mode Example ===\n");
@@ -110,7 +110,7 @@ fn main() -> anyhow::Result<()> {
     println!("✅ Next job ID from chain: {}", job_id);
 
     // Build instruction with full control
-    let custom_ix = builder.create_job(
+    let _custom_ix = builder.create_job(
         wallet_pubkey,
         job_id,
         CircuitType::ZcashOrchard,
@@ -129,7 +129,7 @@ fn main() -> anyhow::Result<()> {
     println!("📋 Example 5: Register Prover (Wallet Mode)");
     println!("{}", "=".repeat(60));
 
-    let register_ix = client.register_prover_ix(
+    let _register_ix = client.register_prover_ix(
         wallet_pubkey,
         5_000_000_000, // 5 SOL stake
         [77u8; 32],    // Encryption key
