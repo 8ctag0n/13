@@ -12,7 +12,7 @@ import {
   compileTransaction,
   pipe
 } from '@solana/kit';
-import type { ChainAdapter, TxParams } from './types';
+import type { ChainAdapter, TxParams, Transaction } from './types';
 import type { DerivedKeypair } from '../crypto/keyring';
 import bs58 from 'bs58';
 
@@ -59,6 +59,70 @@ export class SolanaAdapter implements ChainAdapter {
     } catch (error) {
       console.error('[Solana Kit] Failed to fetch balance:', error);
       return '0';
+    }
+  }
+
+  async getTransactions(addressStr: string, rpcUrl: string, limit = 20): Promise<Transaction[]> {
+    try {
+      const rpc = createSolanaRpc(rpcUrl);
+      const addr = address(addressStr);
+
+      // Get signatures for address
+      const signaturesResponse = await rpc.getSignaturesForAddress(addr, { limit }).send();
+
+      const transactions: Transaction[] = [];
+
+      for (const sig of signaturesResponse) {
+        // Get transaction details
+        try {
+          const txResponse = await rpc.getTransaction(sig.signature, {
+            maxSupportedTransactionVersion: 0
+          }).send();
+
+          if (!txResponse) continue;
+
+          const meta = txResponse.meta;
+          const blockTime = txResponse.blockTime;
+
+          // Determine if send or receive based on balance changes
+          const preBalances = meta?.preBalances || [];
+          const postBalances = meta?.postBalances || [];
+
+          // Find our account index
+          const accountKeys = txResponse.transaction.message.accountKeys || [];
+          const ourIndex = accountKeys.findIndex((key: any) => key.toString() === addressStr);
+
+          if (ourIndex === -1) continue;
+
+          const balanceChange = (postBalances[ourIndex] || 0) - (preBalances[ourIndex] || 0);
+          const isReceive = balanceChange > 0;
+          const amountLamports = Math.abs(balanceChange);
+          const amountSol = amountLamports / Number(LAMPORTS_PER_SOL);
+
+          // Skip if no significant balance change (likely just fees)
+          if (amountSol < 0.000001) continue;
+
+          transactions.push({
+            id: sig.signature,
+            type: isReceive ? 'receive' : 'send',
+            chain: 'solana',
+            amount: amountSol.toFixed(6),
+            symbol: 'SOL',
+            from: isReceive ? (accountKeys[0]?.toString() || '') : addressStr,
+            to: isReceive ? addressStr : (accountKeys[1]?.toString() || ''),
+            timestamp: blockTime ? blockTime * 1000 : Date.now(),
+            status: sig.err ? 'failed' : 'confirmed',
+            signature: sig.signature
+          });
+        } catch (txError) {
+          console.warn('[Solana] Failed to fetch tx details:', txError);
+        }
+      }
+
+      return transactions;
+    } catch (error) {
+      console.error('[Solana] Failed to fetch transactions:', error);
+      return [];
     }
   }
 

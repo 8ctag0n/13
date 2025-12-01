@@ -396,10 +396,48 @@ export async function handleMessage(message: Message): Promise<any> {
       }
 
       case 'GET_TRANSACTIONS': {
-        // In production, this would fetch from blockchain explorers
-        // For now, return stored transactions from local storage
-        const result = await chrome.storage.local.get('zyberlink_transactions');
-        return result.zyberlink_transactions || [];
+        if (!walletState.isWalletUnlocked()) {
+          throw new Error('Wallet is locked');
+        }
+
+        const keys = walletState.getKeys();
+        if (!keys) {
+          throw new Error('No keys available');
+        }
+
+        const allTransactions: any[] = [];
+
+        // Fetch from all chains in parallel
+        const chains: Array<'solana' | 'starknet' | 'zcash'> = ['solana', 'starknet', 'zcash'];
+
+        await Promise.all(chains.map(async (chain) => {
+          try {
+            const adapter = getChainAdapter(chain);
+            const rpcUrl = rpcManager.getActiveEndpoint(chain);
+            const address = adapter.getAddress(keys[chain]);
+            const txs = await adapter.getTransactions(address, rpcUrl, 20);
+            allTransactions.push(...txs);
+          } catch (error) {
+            console.warn(`[Transactions] Failed to fetch ${chain}:`, error);
+          }
+        }));
+
+        // Sort by timestamp descending
+        allTransactions.sort((a, b) => b.timestamp - a.timestamp);
+
+        // Also merge with locally saved transactions
+        const localResult = await chrome.storage.local.get('zyberlink_transactions');
+        const localTxs = localResult.zyberlink_transactions || [];
+
+        // Merge and dedupe by id
+        const txMap = new Map();
+        for (const tx of [...allTransactions, ...localTxs]) {
+          if (!txMap.has(tx.id)) {
+            txMap.set(tx.id, tx);
+          }
+        }
+
+        return Array.from(txMap.values()).sort((a, b) => b.timestamp - a.timestamp).slice(0, 100);
       }
 
       case 'SAVE_TRANSACTION': {

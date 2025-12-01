@@ -1,5 +1,5 @@
 import { RpcProvider, stark, ec, hash, CallData, cairo } from 'starknet';
-import type { ChainAdapter, TxParams } from './types';
+import type { ChainAdapter, TxParams, Transaction } from './types';
 import type { DerivedKeypair } from '../crypto/keyring';
 
 // ETH contract address on Starknet
@@ -52,6 +52,69 @@ export class StarknetAdapter implements ChainAdapter {
     } catch (error) {
       console.error('[Starknet] Failed to fetch balance:', error);
       return '0';
+    }
+  }
+
+  async getTransactions(address: string, rpcUrl: string, limit = 20): Promise<Transaction[]> {
+    try {
+      const provider = new RpcProvider({ nodeUrl: rpcUrl });
+
+      // Get transaction receipts for account - Starknet RPC doesn't have direct tx history
+      // We use events from the ETH contract Transfer event
+      const events = await provider.getEvents({
+        address: ETH_CONTRACT,
+        from_block: { block_number: 0 },
+        to_block: 'latest',
+        keys: [
+          // Transfer event selector
+          ['0x99cd8bde557814842a3121e8ddfd433a539b8c9f14bf31ebf108d12e6196e9']
+        ],
+        chunk_size: limit
+      });
+
+      const transactions: Transaction[] = [];
+
+      for (const event of events.events) {
+        try {
+          const from = event.data[0];
+          const to = event.data[1];
+          const amountLow = BigInt(event.data[2] || '0');
+          const amountHigh = BigInt(event.data[3] || '0');
+          const amount = amountLow + (amountHigh << 128n);
+          const amountEth = Number(amount) / 1e18;
+
+          // Check if this address is sender or receiver
+          const normalizedAddress = address.toLowerCase();
+          const normalizedFrom = from?.toLowerCase();
+          const normalizedTo = to?.toLowerCase();
+
+          if (normalizedFrom !== normalizedAddress && normalizedTo !== normalizedAddress) {
+            continue;
+          }
+
+          const isReceive = normalizedTo === normalizedAddress;
+
+          transactions.push({
+            id: event.transaction_hash,
+            type: isReceive ? 'receive' : 'send',
+            chain: 'starknet',
+            amount: amountEth.toFixed(6),
+            symbol: 'ETH',
+            from: from || '',
+            to: to || '',
+            timestamp: Date.now(), // Starknet events don't include timestamp directly
+            status: 'confirmed',
+            signature: event.transaction_hash
+          });
+        } catch (parseError) {
+          console.warn('[Starknet] Failed to parse event:', parseError);
+        }
+      }
+
+      return transactions.slice(0, limit);
+    } catch (error) {
+      console.error('[Starknet] Failed to fetch transactions:', error);
+      return [];
     }
   }
 

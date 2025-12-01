@@ -1,4 +1,4 @@
-import type { ChainAdapter, TxParams } from './types';
+import type { ChainAdapter, TxParams, Transaction } from './types';
 import type { DerivedKeypair } from '../crypto/keyring';
 import bs58 from 'bs58';
 import { sha256 } from '@noble/hashes/sha256';
@@ -115,6 +115,42 @@ export class ZcashAdapter implements ChainAdapter {
     } catch (error) {
       console.error('[Zcash] Failed to get total balance:', error);
       return { transparent: '0', shielded: '0', total: '0' };
+    }
+  }
+
+  async getTransactions(address: string, rpcUrl: string, limit = 20): Promise<Transaction[]> {
+    try {
+      // Get recent transactions from wallet
+      const result = await this.rpcCall(rpcUrl, 'listtransactions', ['*', limit, 0]);
+
+      if (result.error) {
+        console.error('[Zcash] listtransactions error:', result.error);
+        return [];
+      }
+
+      const transactions: Transaction[] = [];
+
+      for (const tx of result.result || []) {
+        const isReceive = tx.category === 'receive' || tx.category === 'generate';
+
+        transactions.push({
+          id: tx.txid,
+          type: isReceive ? 'receive' : 'send',
+          chain: 'zcash',
+          amount: Math.abs(tx.amount || 0).toFixed(8),
+          symbol: 'ZEC',
+          from: isReceive ? (tx.address || '') : address,
+          to: isReceive ? address : (tx.address || ''),
+          timestamp: (tx.time || tx.blocktime || Date.now() / 1000) * 1000,
+          status: tx.confirmations > 0 ? 'confirmed' : 'pending',
+          signature: tx.txid
+        });
+      }
+
+      return transactions;
+    } catch (error) {
+      console.error('[Zcash] Failed to fetch transactions:', error);
+      return [];
     }
   }
 

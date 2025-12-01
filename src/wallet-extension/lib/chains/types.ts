@@ -1,3 +1,16 @@
+export interface Transaction {
+  id: string;
+  type: 'send' | 'receive' | 'swap' | 'contract';
+  chain: SupportedChain;
+  amount: string;
+  symbol: string;
+  to?: string;
+  from?: string;
+  timestamp: number;
+  status: 'pending' | 'confirmed' | 'failed';
+  signature?: string;
+}
+
 export interface ChainAdapter {
   chainId: string;
   name: string;
@@ -5,6 +18,7 @@ export interface ChainAdapter {
 
   getAddress(keypair: any): string;
   getBalance(address: string, rpcUrl: string): Promise<string>;
+  getTransactions(address: string, rpcUrl: string, limit?: number): Promise<Transaction[]>;
   buildTransaction(params: TxParams, rpcUrl?: string): Promise<any>;
   signTransaction(tx: any, keypair: any): Promise<any>;
   sendTransaction(signedTx: any, rpcUrl: string): Promise<string>;
