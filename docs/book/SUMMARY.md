@@ -14,6 +14,8 @@
   * [Tech Stack](en/architecture/tech-stack.md)
   * [wZEC Architecture](en/architecture/wzec-architecture.md)
 * [Guides](en/guides/README.md)
+  * [Private Analytics](en/guides/analytics-guide.md)
+  * [Proof of Innocence](en/guides/proof-of-innocence-guide.md)
   * [SDK Integration](en/guides/sdk-integration.md)
   * [API Reference](en/guides/api-reference.md)
   * [Full API Reference](en/guides/api-reference-full.md)
@@ -33,6 +35,11 @@
     * [API Reference](en/guides/wzec-api-reference.md)
     * [wZEC API](en/guides/wzec-api.md)
     * [Testing Guide](en/guides/wzec-testing-guide.md)
+* [Wallet Extension](en/wallet-extension/README.md)
+  * [Quickstart](en/wallet-extension/quickstart.md)
+  * [Development](en/wallet-extension/development.md)
+  * [Testing](en/wallet-extension/testing.md)
+  * [Testnets](en/wallet-extension/testnets.md)
 
 ## Español
 
