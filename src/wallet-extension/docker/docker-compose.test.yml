@@ -1,8 +1,11 @@
 # ZyberLink Wallet - E2E Test Environment
 # Runs extension e2e tests against local testnet
 #
-# Usage:
+# Usage (Docker):
 #   docker-compose -f docker-compose.test.yml up --build --abort-on-container-exit
+#
+# Usage (Podman):
+#   podman-compose -f docker-compose.test.yml up --build
 #
 
 services:
@@ -10,7 +13,7 @@ services:
   # SOLANA - Local Validator
   # ============================================
   solana:
-    image: solanalabs/solana:v1.18.22
+    image: docker.io/solanalabs/solana:v1.18.22
     container_name: test-solana
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8899/health"]
@@ -32,24 +35,20 @@ services:
     image: ghcr.io/dojoengine/katana:latest
     container_name: test-starknet
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:5050", "||", "exit", "0"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:5050 || exit 0"]
       interval: 5s
       timeout: 5s
       retries: 20
-    command: >
-      --host 0.0.0.0
-      --port 5050
-      --accounts 3
-      --seed 0
+    command: ["katana", "--dev", "--http.addr", "0.0.0.0", "--http.port", "5050", "--dev.accounts", "3", "--dev.seed", "0"]
 
   # ============================================
   # ZCASH - Regtest Node
   # ============================================
   zcash:
-    image: electriccoinco/zcashd:latest
+    image: docker.io/electriccoinco/zcashd:latest
     container_name: test-zcash
     volumes:
-      - ./zcash.conf:/root/.zcash/zcash.conf:ro
+      - ./zcash.conf:/srv/zcashd/.zcash/zcash.conf
     healthcheck:
       test: ["CMD", "zcash-cli", "-regtest", "-rpcuser=zyberlink", "-rpcpassword=testpass123", "getblockchaininfo"]
       interval: 10s
@@ -90,16 +89,13 @@ services:
       # Mount test results
       - ../test-results:/app/test-results
       - ../playwright-report:/app/playwright-report
-    # Override to wait for services
+    # Run API-only tests (no browser extension required)
     command: >
       sh -c "
         echo '[e2e] Waiting for services...'
-        sleep 10
-        echo '[e2e] Starting Xvfb...'
-        Xvfb :99 -screen 0 1280x720x24 &
-        sleep 2
-        echo '[e2e] Running tests...'
-        npm test -- --reporter=list
+        sleep 5
+        echo '[e2e] Running API integration tests...'
+        npx playwright test --config=playwright.api.config.ts --reporter=list
         EXIT_CODE=$$?
         echo '[e2e] Tests completed with exit code: '$$EXIT_CODE
         exit $$EXIT_CODE
