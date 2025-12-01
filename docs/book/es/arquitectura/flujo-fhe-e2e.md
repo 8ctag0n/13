@@ -607,8 +607,12 @@ engine.set_key_for_thread();
 
 ## Documentación Relacionada
 
-- [Referencia de API](./referencia-api.md) - Documentación completa de endpoints de API
-- [Guía de Integración del Slider de Precios](../guias/integracion-slider-precio.md) - Integración frontend
-- [Especificación de Operaciones FHE](./operaciones-fhe.md) - Especificaciones detalladas de operaciones
+### Guías de Usuario
+- [Analytics Privado](../guias/analytics-privado.md) - Guía paso a paso para usar Analytics
+- [Proof of Innocence](../guias/proof-of-innocence.md) - Guía paso a paso para verificación de compliance
+
+### Documentación Técnica
+- [Integración WebApp](./integracion-webapp.md) - Arquitectura frontend y componentes
+- [Referencia de API](../guias/referencia-api.md) - Documentación completa de endpoints de API
+- [Guía de Integración del Slider de Precios](../guias/integracion-slider-precios.md) - Integración frontend
 - [Configuración de Nodo Prover](../guias/configuracion-prover.md) - Ejecutar un nodo prover
-- [Guía de Job Creator](../guias/job-creator.md) - Crear y enviar trabajos

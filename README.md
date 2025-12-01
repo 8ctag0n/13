@@ -263,13 +263,18 @@ The `witness.bin` file combines server key and encrypted data:
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│ encrypted_data_len (4 bytes, u32 LE)                │
-├─────────────────────────────────────────────────────┤
-│ encrypted_data (variable length)                    │
+│ server_key_len (8 bytes, u64 LE)                    │
 ├─────────────────────────────────────────────────────┤
 │ server_key (bincode serialized, ~18 MB)             │
+├─────────────────────────────────────────────────────┤
+│ encrypted_data (variable length)                    │
 └─────────────────────────────────────────────────────┘
 ```
+
+**Format details:**
+- Header: 8-byte little-endian u64 indicating server_key length
+- Server key: Bincode-serialized TFHE server key
+- Encrypted data: Remaining bytes containing encrypted values
 
 ---
 
@@ -349,6 +354,25 @@ open http://localhost:5173
 
 # 5. After job completes, decrypt
 cargo run --release -- decrypt -p ./fhe-output
+```
+
+## Documentation
+
+Comprehensive documentation is available in the `/docs/book` directory:
+
+**User Guides:**
+- [Analytics Privado](docs/book/es/guias/analytics-privado.md) - Step-by-step guide for private analytics
+- [Proof of Innocence](docs/book/es/guias/proof-of-innocence.md) - Compliance verification without revealing data
+
+**Technical Documentation:**
+- [Flujo FHE E2E](docs/book/es/arquitectura/flujo-fhe-e2e.md) - End-to-end FHE flow architecture
+- [Integración WebApp](docs/book/es/arquitectura/integracion-webapp.md) - Frontend architecture and components
+- [API Reference](docs/book/es/guias/referencia-api.md) - Backend API documentation
+
+**Build and view the full documentation:**
+```bash
+cd docs/book
+mdbook serve --open
 ```
 
 ## License
