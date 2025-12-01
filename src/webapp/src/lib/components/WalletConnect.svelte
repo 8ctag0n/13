@@ -1,113 +1,230 @@
 <script>
   import { onMount, createEventDispatcher } from 'svelte';
-  import { walletStore } from '../stores/wallet';
+  import {
+    walletStore,
+    isZyberLinkAvailable,
+    waitForZyberLink,
+    CHAIN_CONFIG,
+    SUPPORTED_CHAINS
+  } from '../stores/wallet';
 
   const dispatch = createEventDispatcher();
 
+  // Props
+  export let mode = 'single'; // 'single' or 'multi' chain connect
+  export let defaultChain = 'solana';
+
   let detecting = true;
-  let availableWallets = [];
+  let zyberLinkAvailable = false;
+  let selectedChain = defaultChain;
 
   onMount(async () => {
-    // Detect available Solana wallets
-    const wallets = [];
-
-    if (window.solana && window.solana.isPhantom) {
-      wallets.push({ name: 'Phantom', provider: window.solana });
+    // Wait for ZyberLink to initialize
+    try {
+      await waitForZyberLink(2000);
+      zyberLinkAvailable = true;
+    } catch {
+      zyberLinkAvailable = false;
     }
-
-    if (window.solflare && window.solflare.isSolflare) {
-      wallets.push({ name: 'Solflare', provider: window.solflare });
-    }
-
-    availableWallets = wallets;
     detecting = false;
   });
 
-  async function connectWallet(wallet) {
+  async function connectSingleChain(chain) {
     try {
-      const response = await wallet.provider.connect();
-      const pubKey = response.publicKey.toString();
-      console.log('Wallet connected:', pubKey);
-
-      const walletData = {
-        connected: true,
-        publicKey: pubKey,
-        provider: wallet.provider,
-        name: wallet.name,
-        signMessage: wallet.provider.signMessage?.bind(wallet.provider),
-        signTransaction: wallet.provider.signTransaction?.bind(wallet.provider)
-      };
-
-      walletStore.set(walletData);
-
-      // Dispatch event for parent components
-      dispatch('connected', walletData);
+      await walletStore.connect(chain);
+      dispatch('connected', { chain, address: $walletStore.addresses[chain] });
     } catch (err) {
-      console.error('Failed to connect wallet:', err);
+      console.error('Failed to connect:', err);
+      dispatch('error', { message: err.message });
     }
   }
 
+  async function connectAllChains() {
+    try {
+      const addresses = await walletStore.connectAll();
+      dispatch('connected', { addresses, chains: $walletStore.connectedChains });
+    } catch (err) {
+      console.error('Failed to connect all:', err);
+      dispatch('error', { message: err.message });
+    }
+  }
+
+  function handleDisconnect() {
+    walletStore.disconnect();
+    dispatch('disconnected');
+  }
+
+  function switchChain(chain) {
+    walletStore.setActiveChain(chain);
+    dispatch('chainChanged', { chain });
+  }
+
+  function truncateAddress(addr) {
+    if (!addr) return '';
+    return `${addr.slice(0, 4)}...${addr.slice(-4)}`;
+  }
+
   $: isConnected = $walletStore.connected;
-  $: publicKey = $walletStore.publicKey;
+  $: connecting = $walletStore.connecting;
+  $: activeChain = $walletStore.activeChain;
+  $: activeAddress = $walletStore.addresses[activeChain];
+  $: connectedChains = $walletStore.connectedChains;
 </script>
 
 <div class="wallet-connect">
   {#if detecting}
+    <!-- Detecting wallet -->
     <div class="detecting text-mono text-muted">
-      <span class="spin">[⠋]</span> DETECTING_WALLETS...
+      <span class="spin">[⠋]</span> DETECTING_WALLET...
     </div>
-  {:else if isConnected}
-    <!-- Connected State with Better Visual Feedback -->
-    <button
-      class="wallet-button connected"
-      data-testid="wallet-connected-button"
-      on:click={() => {
-        walletStore.set({ connected: false, publicKey: null, provider: null, name: null });
-      }}
-      aria-label="Disconnect wallet - Currently connected as {publicKey.slice(0, 4)}...{publicKey.slice(-4)}"
-    >
-      <span class="wallet-indicator connected" aria-hidden="true"></span>
-      <span class="wallet-info">
-        <span class="wallet-status text-mono text-xs text-success" data-testid="wallet-status">CONNECTED</span>
-        <span class="wallet-address text-mono text-sm" data-testid="wallet-address">
-          {publicKey.slice(0, 4)}...{publicKey.slice(-4)}
-        </span>
-      </span>
-      <span class="wallet-action text-mono text-xs text-muted">Click to disconnect</span>
-    </button>
-  {:else}
-    <!-- Connect Buttons with Clear Visual State -->
-    <div class="connect-box tui-box">
-      <div class="connect-header text-mono text-uppercase mb-4">
-        &gt; CONNECT_WALLET_TO_START
-      </div>
 
-      {#if availableWallets.length === 0}
-        <div class="no-wallets text-mono text-muted text-sm">
-          <div class="mb-4">[⚠] NO_WALLET_DETECTED</div>
-          <div>
-            <a href="https://phantom.app" target="_blank" class="text-cyan">
-              INSTALL_PHANTOM
-            </a>
-            {' | '}
-            <a href="https://solflare.com" target="_blank" class="text-cyan">
-              INSTALL_SOLFLARE
-            </a>
-          </div>
-        </div>
-      {:else}
-        <div class="wallet-buttons">
-          {#each availableWallets as wallet}
+  {:else if isConnected}
+    <!-- Connected State -->
+    <div class="connected-panel">
+      <!-- Chain selector tabs -->
+      {#if connectedChains.length > 1}
+        <div class="chain-tabs">
+          {#each connectedChains as chain}
+            {@const config = CHAIN_CONFIG[chain]}
             <button
-              class="wallet-button disconnected"
-              data-testid="wallet-connect-button"
-              on:click={() => connectWallet(wallet)}
-              aria-label="Connect {wallet.name} wallet"
+              class="chain-tab"
+              class:active={activeChain === chain}
+              style="--chain-color: {config.color}"
+              on:click={() => switchChain(chain)}
             >
-              <span class="wallet-indicator disconnected" aria-hidden="true"></span>
-              <span class="wallet-text text-mono">[{wallet.name.toUpperCase()}]</span>
+              <span class="chain-icon">{config.icon}</span>
+              <span class="chain-name">{config.symbol}</span>
             </button>
           {/each}
+        </div>
+      {/if}
+
+      <!-- Active wallet info -->
+      <button
+        class="wallet-button connected"
+        on:click={handleDisconnect}
+        aria-label="Disconnect wallet"
+      >
+        <span class="wallet-indicator connected"></span>
+        <span class="wallet-info">
+          <span class="wallet-chain" style="color: {CHAIN_CONFIG[activeChain].color}">
+            {CHAIN_CONFIG[activeChain].icon} {CHAIN_CONFIG[activeChain].name}
+          </span>
+          <span class="wallet-address text-mono">
+            {truncateAddress(activeAddress)}
+          </span>
+        </span>
+        <span class="wallet-action text-mono text-xs text-muted">[DISCONNECT]</span>
+      </button>
+
+      <!-- Show all connected addresses -->
+      {#if connectedChains.length > 1}
+        <div class="all-addresses">
+          {#each connectedChains as chain}
+            {#if $walletStore.addresses[chain]}
+              <div class="address-row" style="--chain-color: {CHAIN_CONFIG[chain].color}">
+                <span class="addr-chain">{CHAIN_CONFIG[chain].icon}</span>
+                <span class="addr-value text-mono">{truncateAddress($walletStore.addresses[chain])}</span>
+              </div>
+            {/if}
+          {/each}
+        </div>
+      {/if}
+    </div>
+
+  {:else if !zyberLinkAvailable}
+    <!-- ZyberLink not installed -->
+    <div class="connect-box tui-box">
+      <div class="connect-header text-mono text-uppercase mb-4">
+        &gt; WALLET_NOT_DETECTED
+      </div>
+      <div class="no-wallet text-mono text-muted text-sm">
+        <div class="mb-4">[⚠] INSTALL_ZYBERLINK_WALLET</div>
+        <div class="install-hint">
+          Load the extension from:<br/>
+          <code class="text-cyan">chrome://extensions</code>
+        </div>
+      </div>
+    </div>
+
+  {:else}
+    <!-- Connect options -->
+    <div class="connect-box tui-box">
+      <div class="connect-header text-mono text-uppercase mb-4">
+        &gt; CONNECT_ZYBERLINK_WALLET
+      </div>
+
+      {#if mode === 'multi'}
+        <!-- Multi-chain connect -->
+        <div class="connect-options">
+          <button
+            class="wallet-button connect-all"
+            on:click={connectAllChains}
+            disabled={connecting}
+          >
+            <span class="wallet-indicator"></span>
+            <span class="wallet-text text-mono">
+              {connecting ? '[CONNECTING...]' : '[CONNECT ALL CHAINS]'}
+            </span>
+          </button>
+
+          <div class="divider">
+            <span>or select chain</span>
+          </div>
+
+          <div class="chain-buttons">
+            {#each SUPPORTED_CHAINS as chain}
+              {@const config = CHAIN_CONFIG[chain]}
+              <button
+                class="chain-button"
+                style="--chain-color: {config.color}"
+                on:click={() => connectSingleChain(chain)}
+                disabled={connecting}
+              >
+                <span class="chain-icon">{config.icon}</span>
+                <span class="chain-name">{config.name}</span>
+              </button>
+            {/each}
+          </div>
+        </div>
+
+      {:else}
+        <!-- Single chain connect -->
+        <div class="connect-options">
+          <div class="chain-selector mb-4">
+            <label class="text-mono text-muted text-sm">SELECT_CHAIN:</label>
+            <div class="chain-buttons">
+              {#each SUPPORTED_CHAINS as chain}
+                {@const config = CHAIN_CONFIG[chain]}
+                <button
+                  class="chain-button"
+                  class:selected={selectedChain === chain}
+                  style="--chain-color: {config.color}"
+                  on:click={() => selectedChain = chain}
+                >
+                  <span class="chain-icon">{config.icon}</span>
+                  <span class="chain-name">{config.symbol}</span>
+                </button>
+              {/each}
+            </div>
+          </div>
+
+          <button
+            class="wallet-button primary"
+            on:click={() => connectSingleChain(selectedChain)}
+            disabled={connecting}
+          >
+            <span class="wallet-indicator"></span>
+            <span class="wallet-text text-mono">
+              {connecting ? '[CONNECTING...]' : `[CONNECT ${CHAIN_CONFIG[selectedChain].name.toUpperCase()}]`}
+            </span>
+          </button>
+        </div>
+      {/if}
+
+      {#if $walletStore.error}
+        <div class="error-msg text-mono text-sm mt-4">
+          [ERROR] {$walletStore.error}
         </div>
       {/if}
     </div>
@@ -126,37 +243,91 @@
     font-size: var(--text-sm);
   }
 
+  .spin {
+    display: inline-block;
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    0% { content: '[⠋]'; }
+    12% { content: '[⠙]'; }
+    25% { content: '[⠹]'; }
+    37% { content: '[⠸]'; }
+    50% { content: '[⠼]'; }
+    62% { content: '[⠴]'; }
+    75% { content: '[⠦]'; }
+    87% { content: '[⠧]'; }
+    100% { content: '[⠇]'; }
+  }
+
   .connect-box {
     padding: var(--space-8);
     min-width: 400px;
     text-align: center;
   }
 
-  .connected-box {
-    padding: var(--space-6);
-    text-align: center;
-    border: 2px solid var(--zyber-border-secondary);
-    background: rgba(6, 182, 212, 0.1);
-    border-radius: var(--radius-md);
-  }
-
   .connect-header {
     font-size: var(--text-lg);
     font-weight: 600;
+    color: var(--zyber-cyber-cyan);
   }
 
-  .wallet-buttons {
+  .no-wallet {
+    text-align: center;
+  }
+
+  .install-hint {
+    margin-top: var(--space-4);
+    padding: var(--space-4);
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid var(--zyber-border-muted);
+  }
+
+  /* Chain buttons */
+  .chain-buttons {
     display: flex;
-    gap: var(--space-4);
+    gap: var(--space-3);
     justify-content: center;
     flex-wrap: wrap;
   }
 
-  .no-wallets {
-    text-align: center;
+  .chain-button {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-4);
+    background: transparent;
+    border: 2px solid var(--zyber-border-muted);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all 0.2s;
+    min-width: 80px;
   }
 
-  /* Wallet button states */
+  .chain-button:hover {
+    border-color: var(--chain-color);
+    background: rgba(0, 255, 159, 0.05);
+  }
+
+  .chain-button.selected {
+    border-color: var(--chain-color);
+    background: rgba(0, 255, 159, 0.1);
+    box-shadow: 0 0 15px color-mix(in srgb, var(--chain-color) 30%, transparent);
+  }
+
+  .chain-icon {
+    font-size: var(--text-xl);
+    color: var(--chain-color);
+  }
+
+  .chain-name {
+    font-size: var(--text-xs);
+    font-family: var(--font-mono);
+    color: var(--zyber-text-secondary);
+  }
+
+  /* Wallet button */
   .wallet-button {
     display: flex;
     align-items: center;
@@ -166,8 +337,24 @@
     border-radius: var(--radius-md);
     background: var(--zyber-bg-glass);
     cursor: pointer;
-    transition: all var(--transition-base);
+    transition: all 0.2s;
     width: 100%;
+    font-family: inherit;
+  }
+
+  .wallet-button:hover:not(:disabled) {
+    border-color: var(--zyber-cyber-cyan);
+    background: rgba(6, 182, 212, 0.1);
+  }
+
+  .wallet-button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .wallet-button.primary {
+    border-color: var(--zyber-cyber-cyan);
+    background: rgba(6, 182, 212, 0.1);
   }
 
   .wallet-button.connected {
@@ -176,23 +363,19 @@
   }
 
   .wallet-button.connected:hover {
-    background: rgba(16, 185, 129, 0.1);
-    box-shadow: 0 0 20px rgba(16, 185, 129, 0.3);
+    background: rgba(239, 68, 68, 0.1);
+    border-color: var(--zyber-error);
   }
 
-  .wallet-button.disconnected {
-    border-color: var(--zyber-cyber-cyan);
-  }
-
-  .wallet-button.disconnected:hover {
-    background: rgba(6, 182, 212, 0.1);
-    box-shadow: 0 0 20px rgba(6, 182, 212, 0.3);
+  .wallet-button.connect-all {
+    margin-bottom: var(--space-4);
   }
 
   .wallet-indicator {
     width: 12px;
     height: 12px;
     border-radius: 50%;
+    background: var(--zyber-border-muted);
     flex-shrink: 0;
   }
 
@@ -200,10 +383,6 @@
     background: var(--zyber-success);
     box-shadow: 0 0 8px var(--zyber-success);
     animation: pulse 2s ease-in-out infinite;
-  }
-
-  .wallet-indicator.disconnected {
-    background: var(--zyber-border-muted);
   }
 
   @keyframes pulse {
@@ -216,10 +395,118 @@
     flex-direction: column;
     gap: var(--space-1);
     flex: 1;
+    text-align: left;
+  }
+
+  .wallet-chain {
+    font-size: var(--text-sm);
+    font-weight: 600;
+  }
+
+  .wallet-address {
+    font-size: var(--text-sm);
+    color: var(--zyber-text-secondary);
   }
 
   .wallet-text {
     flex: 1;
+    text-align: left;
+  }
+
+  .wallet-action {
+    font-size: var(--text-xs);
+  }
+
+  /* Connected panel */
+  .connected-panel {
+    width: 100%;
+    max-width: 400px;
+  }
+
+  .chain-tabs {
+    display: flex;
+    gap: var(--space-2);
+    margin-bottom: var(--space-4);
+  }
+
+  .chain-tab {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    background: transparent;
+    border: 1px solid var(--zyber-border-muted);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    color: var(--zyber-text-secondary);
+  }
+
+  .chain-tab:hover {
+    border-color: var(--chain-color);
+    color: var(--chain-color);
+  }
+
+  .chain-tab.active {
+    border-color: var(--chain-color);
+    color: var(--chain-color);
+    background: rgba(0, 255, 159, 0.1);
+  }
+
+  .all-addresses {
+    margin-top: var(--space-4);
+    padding: var(--space-3);
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--zyber-border-muted);
+    border-radius: var(--radius-sm);
+  }
+
+  .address-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-2) 0;
+    font-size: var(--text-xs);
+  }
+
+  .addr-chain {
+    color: var(--chain-color);
+  }
+
+  .addr-value {
+    color: var(--zyber-text-muted);
+  }
+
+  /* Divider */
+  .divider {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    margin: var(--space-4) 0;
+    color: var(--zyber-text-muted);
+    font-size: var(--text-xs);
+    font-family: var(--font-mono);
+  }
+
+  .divider::before,
+  .divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--zyber-border-muted);
+  }
+
+  /* Error */
+  .error-msg {
+    color: var(--zyber-error);
+    padding: var(--space-3);
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid var(--zyber-error);
+    border-radius: var(--radius-sm);
   }
 
   /* Responsive */
@@ -230,12 +517,13 @@
       padding: var(--space-6);
     }
 
-    .wallet-buttons {
-      flex-direction: column;
+    .chain-buttons {
+      flex-direction: row;
     }
 
-    .btn {
-      width: 100%;
+    .chain-button {
+      min-width: 70px;
+      padding: var(--space-3);
     }
   }
 </style>
