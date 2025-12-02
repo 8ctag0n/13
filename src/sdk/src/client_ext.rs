@@ -89,6 +89,7 @@ impl MarketplaceClient {
     /// Create an FHE job instruction (wallet-compatible)
     ///
     /// Simplified method for creating FHE computation jobs with multi-prover consensus.
+    /// Timeout is automatically calculated based on operation complexity.
     ///
     /// # Arguments
     /// * `creator` - Job creator pubkey
@@ -111,14 +112,18 @@ impl MarketplaceClient {
     ) -> Result<Instruction> {
         let job_id = self.fetch_next_job_id()?;
 
+        // Get cost config for dynamic timeout based on operation complexity
+        let cost_config = operation.get_cost_config();
+
         let fhe_config = FheConsensusConfig {
             required_provers,
             consensus_threshold,
-            submission_timeout_secs: 300,
+            submission_timeout_secs: cost_config.timeout_seconds,
             operation: operation.clone(),
         };
 
-        let price = (required_provers as u64) * 1_000_000; // 0.001 SOL per prover
+        // Use dynamic pricing from cost config
+        let price = cost_config.min_payment_lamports * (required_provers as u64);
 
         self.instructions().create_job(
             creator,
@@ -127,7 +132,7 @@ impl MarketplaceClient {
             encrypted_input_commitment,
             encrypted_input_size,
             price,
-            600,
+            cost_config.timeout_seconds,
             Some(fhe_config),
         )
     }

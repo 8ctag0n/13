@@ -2,12 +2,15 @@ use actix_web::{delete, get, post, web, HttpResponse, Responder};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use solana_sdk::{message::Message, transaction::Transaction};
+use solana_sdk::{message::Message, pubkey::Pubkey, transaction::Transaction};
+use solana_client::rpc_client::RpcClient;
+use std::str::FromStr;
 
 use crate::db::{FheResultQueries, InsertJobData, JobQueries, JobStatus, WitnessQueries};
 use crate::validators::{JobValidator, ValidateJobRequest};
 use crate::AppState;
 use blake2::{Blake2s256, Digest};
+use zyberlink_sdk::{fetch_fhe_consensus, MarketplaceClient};
 
 // ============================================================================
 // Helper Functions
@@ -1497,13 +1500,32 @@ async fn get_witness(data: web::Data<AppState>, commitment: web::Path<String>) -
 // FHE Result Storage Endpoints
 // ============================================================================
 
+/// Query params for FHE result upload
+#[derive(Debug, Deserialize)]
+pub struct FheResultUploadQuery {
+    pub job_id: Option<i64>,
+    pub prover: Option<String>,
+}
+
 /// POST /fhe-result
 ///
 /// Upload FHE computation result.
+/// Query params:
+///   - job_id (optional): Associate result with a job
+///   - prover (optional): Prover pubkey that computed this result
 /// Returns the Blake2s256 commitment hash of the uploaded data.
 #[post("/fhe-result")]
-async fn upload_fhe_result(data: web::Data<AppState>, body: web::Bytes) -> impl Responder {
-    log::info!("Received FHE result upload, size: {} bytes", body.len());
+async fn upload_fhe_result(
+    data: web::Data<AppState>,
+    query: web::Query<FheResultUploadQuery>,
+    body: web::Bytes,
+) -> impl Responder {
+    log::info!(
+        "Received FHE result upload, size: {} bytes, job_id: {:?}, prover: {:?}",
+        body.len(),
+        query.job_id,
+        query.prover
+    );
 
     if body.is_empty() {
         return HttpResponse::BadRequest().json(json!({
@@ -1519,11 +1541,25 @@ async fn upload_fhe_result(data: web::Data<AppState>, body: web::Bytes) -> impl 
 
     log::info!("FHE result commitment: {}", commitment);
 
-    // Store in database
-    match FheResultQueries::store_result(&data.db_pool, &commitment, &body).await {
+    // Store in database with job_id and prover
+    match FheResultQueries::store_result_with_job(
+        &data.db_pool,
+        &commitment,
+        &body,
+        query.job_id,
+        query.prover.as_deref(),
+    )
+    .await
+    {
         Ok(_) => {
-            log::info!("FHE result stored successfully");
-            HttpResponse::Ok().json(json!({ "commitment": commitment }))
+            log::info!(
+                "FHE result stored successfully for job_id: {:?}",
+                query.job_id
+            );
+            HttpResponse::Ok().json(json!({
+                "commitment": commitment,
+                "job_id": query.job_id
+            }))
         }
         Err(e) => {
             log::error!("Failed to store FHE result: {}", e);
@@ -1566,6 +1602,44 @@ async fn get_fhe_result(
     }
 }
 
+/// GET /api/jobs/{job_id}/result
+///
+/// Get FHE computation result for a completed job.
+/// Searches fhe_results table by job_id directly.
+#[get("/api/jobs/{job_id}/result")]
+async fn get_job_result(data: web::Data<AppState>, job_id: web::Path<i64>) -> impl Responder {
+    log::info!("Fetching FHE result for job_id: {}", *job_id);
+
+    // Fetch result directly from fhe_results table by job_id
+    match FheResultQueries::get_first_result_by_job_id(&data.db_pool, *job_id).await {
+        Ok(Some(result_data)) => {
+            log::info!(
+                "FHE result found for job {}, returning {} bytes",
+                *job_id,
+                result_data.len()
+            );
+            // Return as base64-encoded JSON for job-creator compatibility
+            HttpResponse::Ok().json(json!({
+                "job_id": *job_id,
+                "encrypted_result": STANDARD.encode(&result_data)
+            }))
+        }
+        Ok(None) => {
+            log::warn!("FHE result not found for job_id: {}", *job_id);
+            HttpResponse::NotFound().json(json!({
+                "error": "Result not found for this job",
+                "job_id": *job_id
+            }))
+        }
+        Err(e) => {
+            log::error!("Failed to fetch FHE result: {}", e);
+            HttpResponse::InternalServerError().json(json!({
+                "error": format!("Database error: {}", e)
+            }))
+        }
+    }
+}
+
 // ============================================================================
 // Route Configuration
 // ============================================================================
@@ -1581,6 +1655,7 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         .service(confirm_job_transaction)
         .service(get_job_status)
         .service(get_job_details) // GET /api/jobs/{job_id} - full job details
+        .service(get_job_result)  // GET /api/jobs/{job_id}/result - FHE result
         .service(delete_job_data)
         .service(upload_witness)
         .service(get_witness)

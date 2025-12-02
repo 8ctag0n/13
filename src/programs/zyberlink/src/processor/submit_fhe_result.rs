@@ -68,9 +68,12 @@ pub fn process_submit_fhe_result(
         FheConsensusData::deserialize(&mut data_slice)?
     };
 
-    // Validate: job must be Claimed (all provers have claimed)
-    if job.status != JobStatus::Claimed {
-        msg!("Job must be in Claimed status, current: {:?}", job.status);
+    // Validate: job must be in Pending (partially claimed) or Claimed (fully claimed)
+    // This allows provers to submit results as soon as they finish processing,
+    // without waiting for all other provers to claim first.
+    // The prover's presence in claimed_provers is verified by fhe_data.submit_result()
+    if job.status != JobStatus::Pending && job.status != JobStatus::Claimed {
+        msg!("Job must be in Pending or Claimed status, current: {:?}", job.status);
         return Err(ZyberLinkProgramError::InvalidJobStatus.into());
     }
 

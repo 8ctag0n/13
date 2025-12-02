@@ -567,70 +567,8 @@ c0: ## [CONTAINER] Reset: stop containers + clean volumes
 	@rm -f .env.containers 2>/dev/null || true
 	@echo "$(GREEN)Container environment reset. Ready for 'make c1'$(NC)"
 
-c1: ## [CONTAINER] Start: validator + containers + prepare provers
-	@echo "$(BLUE)Starting production-like container stack...$(NC)"
-	@echo ""
-	@echo "Step 1/6: Building program..."
-	@cd src/programs && cargo build-sbf 2>/dev/null || (echo "$(RED)Program build failed$(NC)" && exit 1)
-	@echo "$(GREEN)  Program built$(NC)"
-	@echo ""
-	@echo "Step 2/6: Starting containers (validator + postgres + nginx + webapp)..."
-	@echo "DB_PASSWORD=dev_password" > .env.containers
-	@podman-compose up -d --build validator postgres
-	@echo "  Waiting for validator to be ready..."
-	@for i in $$(seq 1 30); do \
-		if curl -s http://localhost:8899/health 2>/dev/null | grep -q "ok"; then \
-			break; \
-		fi; \
-		sleep 2; \
-	done
-	@solana config set --url http://localhost:8899 > /dev/null
-	@echo "$(GREEN)  Validator ready$(NC)"
-	@echo ""
-	@echo "Step 3/6: Deploying program..."
-	@solana airdrop 10 --url http://localhost:8899 >/dev/null 2>&1 || true
-	@solana program deploy src/programs/target/deploy/zyberlink.so --output json > /tmp/deploy-output.json 2>&1 || (cat /tmp/deploy-output.json && exit 1)
-	@PROGRAM_ID=$$(cat /tmp/deploy-output.json | jq -r '.programId'); \
-	echo "$(GREEN)  Program deployed: $$PROGRAM_ID$(NC)"; \
-	echo "PROGRAM_ID=$$PROGRAM_ID" >> .env.containers
-	@echo ""
-	@echo "Step 4/7: Creating backend finalizer keypair..."
-	@if [ ! -f "/tmp/backend-keypair.json" ]; then \
-		solana-keygen new --no-bip39-passphrase --force --outfile /tmp/backend-keypair.json >/dev/null 2>&1; \
-	fi
-	@BACKEND_ADDR=$$(solana address --keypair /tmp/backend-keypair.json); \
-	solana airdrop 10 $$BACKEND_ADDR --url http://localhost:8899 >/dev/null 2>&1 || true; \
-	echo "  Backend finalizer: $$BACKEND_ADDR (funded 10 SOL)"
-	@echo ""
-	@echo "Step 5/7: Starting remaining containers (backend + nginx + webapp)..."
-	@podman-compose --env-file .env.containers up -d --build backend webapp nginx
-	@echo "$(GREEN)  All containers started$(NC)"
-	@echo ""
-	@echo "Step 6/7: Waiting for backend to sync..."
-	@sleep 5
-	@echo ""
-	@echo "Step 7/7: Preparing prover wallets..."
-	@for i in 1 2 3; do \
-		if [ ! -f "/tmp/prover-$$i-keypair.json" ]; then \
-			solana-keygen new --no-bip39-passphrase --force --outfile /tmp/prover-$$i-keypair.json >/dev/null 2>&1; \
-		fi; \
-		ADDR=$$(solana address --keypair /tmp/prover-$$i-keypair.json); \
-		solana airdrop 10 $$ADDR --url http://localhost:8899 >/dev/null 2>&1 || true; \
-		echo "  Prover $$i: $$ADDR (funded 10 SOL)"; \
-	done
-	@echo ""
-	@echo "$(GREEN)Container stack running!$(NC)"
-	@echo ""
-	@echo "  Services:"
-	@echo "    - Nginx LB:     http://localhost:9000"
-	@echo "    - Frontend:     http://localhost:9000"
-	@echo "    - API:          http://localhost:9000/api/"
-	@echo "    - Validator:    http://localhost:8899 (containerized)"
-	@echo ""
-	@echo "  Replicas:"
-	@podman-compose ps 2>/dev/null || echo "  Use 'podman ps' to see containers"
-	@echo ""
-	@echo "$(YELLOW)Next: make c2 (init marketplace + register provers)$(NC)"
+c1: ## [CONTAINER] Start: validator (host) + containers (postgres, backend, webapp, nginx)
+	@scripts/start-containers.sh
 
 c2: ## [CONTAINER] Initialize marketplace + register provers
 	@echo "$(BLUE)Initializing marketplace and registering provers...$(NC)"
@@ -758,3 +696,72 @@ c-restart: ## [CONTAINER] Restart containers (keep validator)
 	@echo "$(BLUE)Restarting containers...$(NC)"
 	@podman-compose restart
 	@echo "$(GREEN)Containers restarted$(NC)"
+
+# ============================================================================
+# E2E Verification Tests
+# ============================================================================
+
+e2e-poi: ## [E2E] Run PoI verification test: CountIf([15,20,25,17], >= 18) -> expect 2
+	@echo "$(BLUE)Running PoI E2E Verification Test...$(NC)"
+	@# Detect which env file to use (containers vs local)
+	@if [ -f ".env.containers" ]; then \
+		ENV_FILE=".env.containers"; \
+		BACKEND="http://localhost:9000"; \
+	elif [ -f "src/blink-server/.env" ]; then \
+		ENV_FILE="src/blink-server/.env"; \
+		BACKEND="http://localhost:8080"; \
+	else \
+		echo "$(RED)ERROR: No env file found. Run 'make c1' or 'make l1' first$(NC)"; \
+		exit 1; \
+	fi; \
+	echo "Using env: $$ENV_FILE, backend: $$BACKEND"; \
+	echo "Building job-creator..."; \
+	cargo build --release --manifest-path src/job-creator/Cargo.toml 2>&1 | tail -3; \
+	if [ ! -f "/tmp/job-creator-keypair.json" ]; then \
+		solana-keygen new --no-bip39-passphrase --force --outfile /tmp/job-creator-keypair.json >/dev/null 2>&1; \
+	fi; \
+	ADDR=$$(solana address --keypair /tmp/job-creator-keypair.json); \
+	solana airdrop 10 $$ADDR --url http://localhost:8899 2>/dev/null || true; \
+	export $$(grep -v '^#' $$ENV_FILE | xargs); \
+	RUST_LOG=info \
+	BACKEND_URL=$$BACKEND \
+	SOLANA_RPC_URL=http://localhost:8899 \
+	USER_KEYPAIR=/tmp/job-creator-keypair.json \
+	./src/job-creator/target/release/job-creator verify-poi
+
+e2e-sum: ## [E2E] Run Sum verification test: Sum([10,20,30]) -> expect 60
+	@echo "$(BLUE)Running Sum E2E Verification Test...$(NC)"
+	@# Detect which env file to use (containers vs local)
+	@if [ -f ".env.containers" ]; then \
+		ENV_FILE=".env.containers"; \
+		BACKEND="http://localhost:9000"; \
+	elif [ -f "src/blink-server/.env" ]; then \
+		ENV_FILE="src/blink-server/.env"; \
+		BACKEND="http://localhost:8080"; \
+	else \
+		echo "$(RED)ERROR: No env file found. Run 'make c1' or 'make l1' first$(NC)"; \
+		exit 1; \
+	fi; \
+	echo "Using env: $$ENV_FILE, backend: $$BACKEND"; \
+	echo "Building job-creator..."; \
+	cargo build --release --manifest-path src/job-creator/Cargo.toml 2>&1 | tail -3; \
+	if [ ! -f "/tmp/job-creator-keypair.json" ]; then \
+		solana-keygen new --no-bip39-passphrase --force --outfile /tmp/job-creator-keypair.json >/dev/null 2>&1; \
+	fi; \
+	ADDR=$$(solana address --keypair /tmp/job-creator-keypair.json); \
+	solana airdrop 10 $$ADDR --url http://localhost:8899 2>/dev/null || true; \
+	export $$(grep -v '^#' $$ENV_FILE | xargs); \
+	RUST_LOG=info \
+	BACKEND_URL=$$BACKEND \
+	SOLANA_RPC_URL=http://localhost:8899 \
+	USER_KEYPAIR=/tmp/job-creator-keypair.json \
+	./src/job-creator/target/release/job-creator verify-sum
+
+e2e-all: ## [E2E] Run all verification tests (sequential)
+	@echo "$(BLUE)Running ALL E2E Verification Tests (sequential)...$(NC)"
+	@echo ""
+	@$(MAKE) e2e-sum
+	@echo ""
+	@$(MAKE) e2e-poi
+	@echo ""
+	@echo "$(GREEN)All E2E tests completed!$(NC)"

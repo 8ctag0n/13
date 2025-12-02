@@ -22,6 +22,8 @@ use zyberlink_sdk::instructions::InstructionBuilder;
 pub struct AppState {
     pub db_pool: PgPool,
     pub sdk_builder: InstructionBuilder,
+    pub rpc_url: String,
+    pub program_id: Pubkey,
 }
 
 /// Health check endpoint
@@ -117,6 +119,8 @@ async fn main() -> std::io::Result<()> {
     let app_state = web::Data::new(AppState {
         db_pool: pool.clone(),
         sdk_builder,
+        rpc_url: rpc_url.clone(),
+        program_id,
     });
 
     // ========================================================================

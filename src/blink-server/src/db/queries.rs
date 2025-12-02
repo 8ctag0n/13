@@ -292,22 +292,37 @@ impl WitnessQueries {
 pub struct FheResultQueries;
 
 impl FheResultQueries {
-    /// Store FHE result data by commitment hash
-    pub async fn store_result(pool: &PgPool, commitment: &str, data: &[u8]) -> Result<()> {
+    /// Store FHE result data with job_id and optional prover info
+    pub async fn store_result_with_job(
+        pool: &PgPool,
+        commitment: &str,
+        data: &[u8],
+        job_id: Option<i64>,
+        prover_pubkey: Option<&str>,
+    ) -> Result<()> {
         sqlx::query(
             r#"
-            INSERT INTO fhe_results (commitment, data)
-            VALUES ($1, $2)
-            ON CONFLICT (commitment) DO NOTHING
+            INSERT INTO fhe_results (commitment, data, job_id, prover_pubkey)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (commitment) DO UPDATE SET
+                job_id = COALESCE(EXCLUDED.job_id, fhe_results.job_id),
+                prover_pubkey = COALESCE(EXCLUDED.prover_pubkey, fhe_results.prover_pubkey)
             "#,
         )
         .bind(commitment)
         .bind(data)
+        .bind(job_id)
+        .bind(prover_pubkey)
         .execute(pool)
         .await
         .map_err(|e| anyhow!("Failed to store FHE result: {}", e))?;
 
         Ok(())
+    }
+
+    /// Store FHE result data by commitment hash (legacy, without job_id)
+    pub async fn store_result(pool: &PgPool, commitment: &str, data: &[u8]) -> Result<()> {
+        Self::store_result_with_job(pool, commitment, data, None, None).await
     }
 
     /// Get FHE result data by commitment hash
@@ -322,6 +337,41 @@ impl FheResultQueries {
         .fetch_optional(pool)
         .await
         .map_err(|e| anyhow!("Failed to fetch FHE result: {}", e))?;
+
+        Ok(result.map(|(data,)| data))
+    }
+
+    /// Get FHE results by job_id (returns all results for multi-prover consensus)
+    pub async fn get_results_by_job_id(pool: &PgPool, job_id: i64) -> Result<Vec<(String, Vec<u8>)>> {
+        let results: Vec<(String, Vec<u8>)> = sqlx::query_as(
+            r#"
+            SELECT commitment, data FROM fhe_results
+            WHERE job_id = $1
+            ORDER BY created_at ASC
+            "#,
+        )
+        .bind(job_id)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| anyhow!("Failed to fetch FHE results by job_id: {}", e))?;
+
+        Ok(results)
+    }
+
+    /// Get first FHE result by job_id (for simple retrieval)
+    pub async fn get_first_result_by_job_id(pool: &PgPool, job_id: i64) -> Result<Option<Vec<u8>>> {
+        let result: Option<(Vec<u8>,)> = sqlx::query_as(
+            r#"
+            SELECT data FROM fhe_results
+            WHERE job_id = $1
+            ORDER BY created_at ASC
+            LIMIT 1
+            "#,
+        )
+        .bind(job_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| anyhow!("Failed to fetch FHE result by job_id: {}", e))?;
 
         Ok(result.map(|(data,)| data))
     }

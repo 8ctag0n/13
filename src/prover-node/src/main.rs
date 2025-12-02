@@ -852,7 +852,13 @@ impl ProverNode {
                 let witness_backend_url = std::env::var("WITNESS_BACKEND_URL")
                     .unwrap_or_else(|_| "http://localhost:8080".to_string());
 
-                let upload_url = format!("{}/fhe-result", witness_backend_url);
+                // Include job_id and prover pubkey as query params for result association
+                let upload_url = format!(
+                    "{}/fhe-result?job_id={}&prover={}",
+                    witness_backend_url,
+                    job_id,
+                    keypair.pubkey()
+                );
 
                 let response = reqwest::blocking::Client::new()
                     .post(&upload_url)
