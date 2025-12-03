@@ -26,8 +26,10 @@ log_info "Starting 3 prover nodes..."
 log_info "Program ID: $PROGRAM_ID"
 log_info "RPC URL: $SOLANA_RPC_URL"
 
-# Find the prover binary (use absolute path)
-PROVER_BIN="/home/deploy/experimental/zyberlink-demo/target/release/zyberlink-prover"
+# Find the prover binary (use relative path from project root)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+PROVER_BIN="$PROJECT_ROOT/target/release/zyberlink-prover"
 if [ ! -f "$PROVER_BIN" ]; then
     echo "ERROR: Prover binary not found at $PROVER_BIN"
     echo "Build it first: cargo build --release --bin zyberlink-prover"
@@ -35,10 +37,11 @@ if [ ! -f "$PROVER_BIN" ]; then
 fi
 
 for i in 1 2 3; do
-    PROVER_KEYPAIR="/tmp/prover-$i-keypair.json"
+    PROVER_KEYPAIR="$PROJECT_ROOT/keypairs/prover-$i.json"
 
     if [ ! -f "$PROVER_KEYPAIR" ]; then
-        echo "ERROR: Prover $i keypair not found. Run ./localnet-setup.sh first"
+        echo "ERROR: Prover $i keypair not found at $PROVER_KEYPAIR"
+        echo "Generate keypairs first: for i in 1 2 3; do solana-keygen new --no-bip39-passphrase -o keypairs/prover-\$i.json; done"
         exit 1
     fi
 

@@ -99,17 +99,25 @@ fn circuit_type_from_u8(circuit_type: u8, fhe_data: Option<&FheConsensusData>) -
         }
         CIRCUIT_FHE_COUNT_IF => {
             let count = fhe_data.map(|d| d.operation_param1).unwrap_or(0);
-            let predicate_value = fhe_data.map(|d| d.operation_param1 as u8).unwrap_or(0);
-            let predicate_type = fhe_data.map(|d| d.operation_param2 as u8).unwrap_or(0); // 0: EqualTo, 1: GreaterThan, 2: LessThan
+            // param2 = predicate type (0=Equals, 1=GreaterThan, 2=LessThan, 3=InRange, 4=NotEquals)
+            let predicate_type = fhe_data.map(|d| d.operation_param2).unwrap_or(0);
+            // param3 = predicate value (threshold)
+            let predicate_value = fhe_data.map(|d| d.operation_param3).unwrap_or(0);
 
-            let fhe_engine_predicate = match predicate_type {
-                1 => fhe_engine::FhePredicate::GreaterThan(predicate_value),
-                2 => fhe_engine::FhePredicate::LessThan(predicate_value),
-                _ => fhe_engine::FhePredicate::EqualTo(predicate_value), // Default to EqualTo
+            // Reconstruct predicate from packed params
+            let predicate = match predicate_type {
+                1 => zyberlink_types::fhe::FhePredicate::GreaterThan(predicate_value),
+                2 => zyberlink_types::fhe::FhePredicate::LessThan(predicate_value),
+                3 => zyberlink_types::fhe::FhePredicate::InRange {
+                    min: predicate_value,
+                    max: predicate_value,
+                }, // Note: max not fully stored, limitation of packed format
+                4 => zyberlink_types::fhe::FhePredicate::NotEquals(predicate_value),
+                _ => zyberlink_types::fhe::FhePredicate::Equals(predicate_value),
             };
 
             CircuitType::FheComputation(FheOperation::CountIf {
-                predicate: zyberlink_types::fhe::FhePredicate::Equals(predicate_value), // Keep zyberlink_types predicate for on-chain
+                predicate,
                 expected_count: count,
             })
         }

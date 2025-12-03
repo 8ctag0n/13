@@ -195,6 +195,9 @@ async fn upsert_job(db_pool: &PgPool, pubkey: &Pubkey, job: &JobAccount) -> anyh
         None
     };
 
+    // Convert witness_hash bytes to hex string for database storage
+    let witness_hash_hex = hex::encode(job.witness_hash);
+
     sqlx::query!(
         r#"
         INSERT INTO blockchain_jobs (
@@ -211,13 +214,15 @@ async fn upsert_job(db_pool: &PgPool, pubkey: &Pubkey, job: &JobAccount) -> anyh
             timeout_at,
             required_provers,
             consensus_threshold,
-            fhe_operation
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+            fhe_operation,
+            witness_hash
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
         ON CONFLICT (job_id) DO UPDATE SET
             prover_pubkey = EXCLUDED.prover_pubkey,
             status = EXCLUDED.status,
             claimed_at = EXCLUDED.claimed_at,
             completed_at = EXCLUDED.completed_at,
+            witness_hash = EXCLUDED.witness_hash,
             synced_at = NOW()
         "#,
         job.id as i64,
@@ -234,6 +239,7 @@ async fn upsert_job(db_pool: &PgPool, pubkey: &Pubkey, job: &JobAccount) -> anyh
         required_provers,
         consensus_threshold,
         fhe_operation,
+        witness_hash_hex,
     )
     .execute(db_pool)
     .await

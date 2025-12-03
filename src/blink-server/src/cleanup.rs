@@ -93,25 +93,72 @@ impl CleanupService {
         Ok(())
     }
 
-    /// Delete old witnesses (older than 24 hours) to save disk space
+    /// Smart cleanup of witnesses based on job status
     /// FHE witnesses are ~123 MB each, so this prevents disk from filling up
-    /// Note: Users retain their keys locally and can re-submit if needed
+    ///
+    /// Cleanup strategy:
+    /// 1. Delete witnesses for completed/failed/cancelled jobs (with 2h grace period)
+    /// 2. Delete witnesses for timed-out jobs
+    /// 3. Fallback: delete orphaned witnesses older than 48h (no associated job)
     async fn cleanup_old_witnesses(&self) -> Result<(), sqlx::Error> {
+        // Strategy 1: Delete witnesses for completed/failed/cancelled jobs
+        // Grace period of 2 hours to ensure all provers have downloaded
         let result = sqlx::query!(
             r#"
             DELETE FROM witnesses
-            WHERE created_at < NOW() - INTERVAL '24 hours'
+            WHERE commitment IN (
+                SELECT witness_hash FROM blockchain_jobs
+                WHERE status IN ('completed', 'failed', 'cancelled')
+                AND completed_at < NOW() - INTERVAL '2 hours'
+            )
             "#
         )
         .execute(&self.pool)
         .await?;
 
-        let count = result.rows_affected();
-        if count > 0 {
+        let completed_count = result.rows_affected();
+
+        // Strategy 2: Delete witnesses for timed-out jobs (not completed)
+        let result = sqlx::query!(
+            r#"
+            DELETE FROM witnesses
+            WHERE commitment IN (
+                SELECT witness_hash FROM blockchain_jobs
+                WHERE timeout_at < NOW()
+                AND status NOT IN ('completed')
+            )
+            "#
+        )
+        .execute(&self.pool)
+        .await?;
+
+        let timeout_count = result.rows_affected();
+
+        // Strategy 3: Fallback - delete orphaned witnesses older than 48h
+        // These are witnesses without an associated job in blockchain_jobs
+        let result = sqlx::query!(
+            r#"
+            DELETE FROM witnesses
+            WHERE created_at < NOW() - INTERVAL '48 hours'
+            AND commitment NOT IN (
+                SELECT COALESCE(witness_hash, '') FROM blockchain_jobs
+            )
+            "#
+        )
+        .execute(&self.pool)
+        .await?;
+
+        let orphan_count = result.rows_affected();
+
+        let total = completed_count + timeout_count + orphan_count;
+        if total > 0 {
             log::info!(
-                "Cleaned up {} old witnesses (~{}MB freed)",
-                count,
-                count * 123
+                "Cleaned up {} witnesses (~{}MB freed): {} from completed/failed jobs, {} from timed-out, {} orphaned",
+                total,
+                total * 123,
+                completed_count,
+                timeout_count,
+                orphan_count
             );
         }
 

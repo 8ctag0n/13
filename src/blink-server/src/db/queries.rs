@@ -342,7 +342,10 @@ impl FheResultQueries {
     }
 
     /// Get FHE results by job_id (returns all results for multi-prover consensus)
-    pub async fn get_results_by_job_id(pool: &PgPool, job_id: i64) -> Result<Vec<(String, Vec<u8>)>> {
+    pub async fn get_results_by_job_id(
+        pool: &PgPool,
+        job_id: i64,
+    ) -> Result<Vec<(String, Vec<u8>)>> {
         let results: Vec<(String, Vec<u8>)> = sqlx::query_as(
             r#"
             SELECT commitment, data FROM fhe_results

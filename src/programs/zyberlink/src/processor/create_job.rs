@@ -53,7 +53,21 @@ fn pack_fhe_params(op: &FheOperation) -> (u16, u8, u8) {
         } => (*threshold as u16, if *greater_or_equal { 1 } else { 0 }, 0),
         FheOperation::RangeCheck { min, max } => (0, *min, *max),
         FheOperation::Average { expected_count } => (*expected_count, 0, 0),
-        FheOperation::CountIf { expected_count, .. } => (*expected_count, 0, 0),
+        FheOperation::CountIf {
+            predicate,
+            expected_count,
+        } => {
+            // Pack predicate: param2 = type (0=Equals, 1=GreaterThan, 2=LessThan, 3=InRange, 4=NotEquals)
+            //                 param3 = value (for InRange, only min is stored - limitation)
+            let (pred_type, pred_value) = match predicate {
+                zyberlink_types::fhe::FhePredicate::Equals(v) => (0u8, *v),
+                zyberlink_types::fhe::FhePredicate::GreaterThan(v) => (1u8, *v),
+                zyberlink_types::fhe::FhePredicate::LessThan(v) => (2u8, *v),
+                zyberlink_types::fhe::FhePredicate::InRange { min, .. } => (3u8, *min),
+                zyberlink_types::fhe::FhePredicate::NotEquals(v) => (4u8, *v),
+            };
+            (*expected_count, pred_type, pred_value)
+        }
         FheOperation::Histogram { bins } => (bins.len() as u16, 0, 0),
     }
 }

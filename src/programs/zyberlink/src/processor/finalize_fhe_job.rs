@@ -90,7 +90,10 @@ pub fn process_finalize_fhe_job(program_id: &Pubkey, accounts: &[AccountInfo]) -
     // The check for all results submitted (results_count >= required_provers) below
     // ensures all provers have actually submitted their results.
     if job.status != JobStatus::Pending && job.status != JobStatus::Claimed {
-        msg!("Job must be in Pending or Claimed status, current: {:?}", job.status);
+        msg!(
+            "Job must be in Pending or Claimed status, current: {:?}",
+            job.status
+        );
         return Err(ZyberLinkProgramError::InvalidJobStatus.into());
     }
 

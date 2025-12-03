@@ -73,7 +73,10 @@ pub fn process_submit_fhe_result(
     // without waiting for all other provers to claim first.
     // The prover's presence in claimed_provers is verified by fhe_data.submit_result()
     if job.status != JobStatus::Pending && job.status != JobStatus::Claimed {
-        msg!("Job must be in Pending or Claimed status, current: {:?}", job.status);
+        msg!(
+            "Job must be in Pending or Claimed status, current: {:?}",
+            job.status
+        );
         return Err(ZyberLinkProgramError::InvalidJobStatus.into());
     }
 

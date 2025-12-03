@@ -2,15 +2,13 @@ use actix_web::{delete, get, post, web, HttpResponse, Responder};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use solana_sdk::{message::Message, pubkey::Pubkey, transaction::Transaction};
-use solana_client::rpc_client::RpcClient;
+use solana_sdk::{message::Message, transaction::Transaction};
 use std::str::FromStr;
 
 use crate::db::{FheResultQueries, InsertJobData, JobQueries, JobStatus, WitnessQueries};
 use crate::validators::{JobValidator, ValidateJobRequest};
 use crate::AppState;
 use blake2::{Blake2s256, Digest};
-use zyberlink_sdk::{fetch_fhe_consensus, MarketplaceClient};
 
 // ============================================================================
 // Helper Functions
@@ -1655,7 +1653,7 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         .service(confirm_job_transaction)
         .service(get_job_status)
         .service(get_job_details) // GET /api/jobs/{job_id} - full job details
-        .service(get_job_result)  // GET /api/jobs/{job_id}/result - FHE result
+        .service(get_job_result) // GET /api/jobs/{job_id}/result - FHE result
         .service(delete_job_data)
         .service(upload_witness)
         .service(get_witness)
