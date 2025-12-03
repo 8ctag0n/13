@@ -1,387 +1,158 @@
 # ZyberLink
 
-**Decentralized ZK & FHE Compute Marketplace on Solana**
+**Decentralized Privacy-Preserving Compute Marketplace on Solana**
 
-> Multi-prover consensus network for privacy-preserving computations
+> First FHE marketplace with multi-prover consensus - compute on encrypted data without trusting anyone
+
+[![Status](https://img.shields.io/badge/status-v0.0.1--zypherpunk-blue)]()
+[![Tests](https://img.shields.io/badge/tests-55%2F56%20passing-green)]()
+[![Season](https://img.shields.io/badge/season-S0%20Solana%20SZN-purple)]()
+
+## Live Demo
+
+**https://demo.zyberlink.fun**
 
 ## Overview
 
-ZyberLink is a decentralized marketplace for ZK and FHE computations on Solana. Multiple independent provers compete to execute cryptographic computations, with on-chain consensus ensuring correctness.
+ZyberLink enables computations on encrypted data using Fully Homomorphic Encryption (FHE). Multiple independent provers compute on ciphertext, with on-chain consensus ensuring correctness. Users' data is **never** exposed - not even to the compute nodes.
 
-**Current Status:** Zypherpunk Hackathon (Nov 10 - Dec 1, 2025)
+**Repository:** https://github.com/8ctag0n/13/
 
 ## Key Features
 
-- **Multi-Prover Consensus** - 2-of-3 or 3-of-5 consensus ensures computation correctness
-- **FHE Computations** - Fully homomorphic encryption support via TFHE-rs
-- **Privacy Preserved** - Encrypted witness data, provers never see plaintext
-- **Dynamic Pricing** - Market-based job pricing
-- **Automated Payments** - On-chain verification with trustless payment distribution
+- **Multi-Prover Consensus** - 2-of-3 or 3-of-5 verification eliminates single point of trust
+- **FHE Operations** - Sum, Average, CountIf, Threshold, Histogram via TFHE-rs
+- **Privacy Preserved** - Data encrypted client-side, provers never see plaintext
+- **On-Chain Settlement** - Solana smart contracts handle payments and verification
+- **Smart Cleanup** - Automatic witness data deletion after job completion
+
+## Quick Start
+
+### Localnet (Development)
+```bash
+make c1   # Start containers (validator + postgres + backend + nginx)
+make c2   # Initialize marketplace + register provers
+make c3   # Start provers
+
+# Run tests
+make e2e-poi   # Proof of Innocence test
+make e2e-sum   # Census Sum test
+
+make c0   # Stop all
+```
+
+### Devnet (Production-like)
+```bash
+# Setup (one time)
+./scripts/setup-devnet.sh --funder ./keypair-with-sol.json
+
+make d1   # Start containers (no validator, uses devnet)
+make d2   # Initialize marketplace
+make d3   # Start provers
+
+make d0   # Stop all
+```
 
 ## Architecture
 
 ```
-┌──────────────┐
-│    Client    │ (Any application needing ZK/FHE compute)
-└──────┬───────┘
-       │ 1. Encrypt witness, create job
-       ▼
-┌─────────────────────────┐
-│   Solana Program        │
-│   (Marketplace)         │
-└────┬────────────────────┘
-     │ 2. Job broadcast
-     ▼
-┌────────────────────────────────────────────┐
-│           Prover Network                   │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐ │
-│  │ Prover A │  │ Prover B │  │ Prover C │ │
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘ │
-└───────│─────────────│─────────────│────────┘
-        │ 3. Claim    │             │
-        │ 4. Compute  │ Compute     │ Compute
-        ▼             ▼             ▼
-┌────────────────────────────────────────────┐
-│   Result Submission + Consensus            │
-│   2/3 matching results = verified          │
-└────────────────┬───────────────────────────┘
-                 │ 5. Payment distributed
-                 ▼
-┌────────────────────────────────────────────┐
-│   On-Chain Verification & Payment          │
-│   - Pay matching provers                   │
-│   - Penalize dishonest provers             │
-└────────────────────────────────────────────┘
+┌─────────────┐     ┌──────────────┐     ┌─────────────┐
+│   Client    │────▶│   Backend    │────▶│   Provers   │
+│  (SDK/CLI)  │     │  (Rust API)  │     │  (FHE/ZK)   │
+└─────────────┘     └──────────────┘     └─────────────┘
+       │                   │                    │
+       │            ┌──────┴──────┐            │
+       │            │  PostgreSQL │            │
+       │            │  (Witnesses)│            │
+       │            └─────────────┘            │
+       │                                       │
+       └──────────────┬────────────────────────┘
+                      ▼
+              ┌───────────────┐
+              │    Solana     │
+              │  (Jobs/Pay)   │
+              └───────────────┘
 ```
 
-## Quick Start
+## Use Cases
 
-```bash
-# Full setup from scratch (recommended)
-make localnet-setup    # or: make l1 - Setup validator + db + deploy
-make localnet-init     # or: make l2 - Initialize marketplace
-make localnet-run      # or: make l3 - Start backend + provers + frontend
-
-# Optional: auto-generate test jobs
-make localnet-jobs     # or: make l4
-
-# Stop everything
-make localnet-stop     # or: make l0
-
-# Check status
-make health
-make status
+### Proof of Innocence
+Verify wallet has no sanctioned interactions without revealing transaction history:
+```
+CountIf(sanctions_list, == user_id) → 0 means innocent
 ```
 
-### Prerequisites
+### Private Analytics
+Aggregate encrypted data without seeing individual values:
+```
+Sum([encrypted_values]) → total without exposure
+```
 
-- Rust 1.75+
-- Solana CLI 2.1+
-- Node.js 18+ (for frontend)
-- Podman or Docker (for PostgreSQL)
+### Age Verification
+Prove age >= 18 without revealing exact age:
+```
+Threshold(encrypted_age, >= 18) → true/false
+```
+
+## Tech Stack
+
+| Component | Technology |
+|-----------|------------|
+| FHE Engine | TFHE-rs 0.10 |
+| ZK Proofs | Halo2 |
+| Blockchain | Solana |
+| Backend | Rust + Axum |
+| Frontend | Svelte |
+| Database | PostgreSQL |
 
 ## Project Structure
 
 ```
-zyberlink/
-├── src/                    # All source code
-│   ├── programs/           # Solana smart contracts
-│   ├── sdk/                # Client SDK (Rust)
-│   ├── prover-node/        # Prover daemon
-│   ├── blink-server/       # Backend API
-│   ├── webapp/             # Frontend (Svelte)
-│   ├── shared/             # Shared types & crypto
-│   ├── witness-storage/    # Encrypted witness storage
-│   └── fhe-cli/            # FHE command line tools
-├── tests/                  # E2E tests
-├── docs/                   # Documentation
-│   ├── book/               # GitBook (public)
-│   └── private/            # Internal docs
-├── infra/                  # Infrastructure
-│   ├── docker/             # Docker compose files
-│   ├── demo/               # Demo scripts
-│   └── dev/                # Development tools
-├── scripts/                # Automation scripts
-├── Makefile                # Build & run commands
-└── Cargo.toml              # Workspace config
+src/
+├── programs/        # Solana smart contracts
+├── sdk/             # Rust client library
+├── prover-node/     # Prover daemon
+├── blink-server/    # Backend API
+├── webapp/          # Frontend (Svelte)
+├── fhe-cli/         # CLI encryption tool
+└── shared/          # Shared types
 ```
 
-## Development
+## Roadmap
 
-```bash
-# Build all
-cargo build --release
+| Season | Focus | Status |
+|--------|-------|--------|
+| **S0** | Solana Foundation | Active |
+| S0.5 | Operational Improvements | Planned |
+| S1 | Multi-chain Interoperability | Planned |
+| S1.5 | Third-party Adoption | Future |
+| S2 | Consumer Applications | Vision |
 
-# Run tests
-cargo test --all
-make test-e2e
-
-# Check service health
-make health
-
-# View logs
-make logs              # All logs
-make logs-backend      # Backend only
-make logs-provers      # Provers only
-```
-
-### Make Commands
-
-| Command | Alias | Description |
-|---------|-------|-------------|
-| `make localnet-setup` | `l1` | Setup validator + db + deploy program |
-| `make localnet-init` | `l2` | Initialize marketplace on-chain |
-| `make localnet-run` | `l3` | Start backend + provers + frontend |
-| `make localnet-jobs` | `l4` | Auto-generate test jobs |
-| `make localnet-stop` | `l0` | Stop all services |
-| `make health` | - | Check service status |
-| `make logs` | - | Tail all logs |
-
-Run `make help` for full list of commands.
-
-## Technology Stack
-
-- **Smart Contracts:** Solana (bare metal, no Anchor)
-- **Backend:** Rust + Axum + PostgreSQL
-- **Frontend:** Svelte + Vite
-- **Prover:** Rust + TFHE-rs (FHE) + Halo2 (ZK)
-- **SDK:** Rust client library
-- **Encryption:** Post-quantum key exchange (ML-KEM)
+See [ROADMAP.md](ROADMAP.md) for details.
 
 ## Status
 
-- E2E Tests: 55/56 passing (98%)
-- Backend API: 100% coverage
-- Security Audit: 6/6 checks passing
+- **Tests:** 55/56 passing (98%)
+- **E2E PoI CountIf:** Passing
+- **E2E Census Sum:** Passing
 
-See [ROADMAP.md](ROADMAP.md) for full status and planned features.
+## Commands Reference
 
-## Use Cases
-
-- **Private DeFi:** Encrypted swaps without revealing amounts
-- **Confidential DAOs:** Private voting with verifiable results
-- **Wallet Proving:** Offload mobile ZK proof generation
-- **Privacy Analytics:** Compute on encrypted datasets
-
----
-
-## Demo Features (Hackathon)
-
-### Private Analytics (Zcash-ready)
-Compute aggregations over encrypted transaction data without revealing amounts.
-
-**Supported Operations:**
-- `Sum` - Total of encrypted values
-- `Average` - Mean of encrypted values
-- `CountIf` - Count values matching a predicate
-
-**Flow:**
-1. User encrypts transaction amounts locally with `fhe-cli encrypt`
-2. Uploads `witness.bin` to webapp
-3. Selects operation (Sum/Average)
-4. Multi-prover network computes on encrypted data
-5. User decrypts final result locally
-
-### Proof of Innocence (FHE)
-Verify wallet has no interactions with sanctioned addresses - without revealing transaction history.
-
-**How it works:**
-1. User encrypts their transaction counterparty addresses
-2. Backend runs `count_if` with `EqualTo` predicate against OFAC list
-3. If result = 0, wallet is verified innocent
-4. User never reveals their actual transaction data
-
-### Verification Panel
-Visual consensus verification for FHE jobs:
-
-- **Witness Hash** - Blake2s256 hash of input data (proves all provers worked on same input)
-- **Result Hash** - Blake2s256 hash of encrypted output (deterministic commitment)
-- **Prover Table** - Shows each prover's commitment and match status
-- **Consensus Badge** - N-of-M consensus indicator
-
----
-
-## FHE CLI Tool
-
-The `fhe-cli` is the user's offline encryption/decryption tool. **No WASM in browser** - all FHE operations happen locally.
-
-### Installation
-
-```bash
-# Build from source
-cd src/fhe-cli
-cargo build --release
-
-# Binary at: target/release/fhe-cli
-```
-
-### Commands
-
-#### Encrypt Single Value
-```bash
-# Interactive
-fhe-cli encrypt
-
-# With value
-fhe-cli encrypt -v 42
-
-# Custom output path
-fhe-cli encrypt -v 42 -p ./my-job
-```
-
-#### Encrypt Multiple Values (for Sum/Average)
-```bash
-# Comma-separated values
-fhe-cli encrypt --values 10,20,30,40,50
-
-# For analytics demo
-fhe-cli encrypt --values 100,250,75,300,125
-```
-
-#### Decrypt Result
-```bash
-# Interactive (prompts for base64 result)
-fhe-cli decrypt -p ./fhe-output
-
-# With result
-fhe-cli decrypt -p ./fhe-output -r "base64_encrypted_result..."
-```
-
-### Generated Files
-
-| File | Size | Purpose |
-|------|------|---------|
-| `client_key.bin` | ~2.5 MB | **SECRET** - Keep locally for decryption |
-| `server_key.bin` | ~18 MB | Public - Sent to provers |
-| `encrypted_data.bin` | ~200 bytes | Encrypted values |
-| `witness.bin` | ~18 MB | **Upload this** - Combined package for job creation |
-| `metadata.json` | ~200 bytes | Job metadata (original values for reference) |
-
-### Witness Format
-
-The `witness.bin` file combines server key and encrypted data:
-
-```
-┌─────────────────────────────────────────────────────┐
-│ server_key_len (8 bytes, u64 LE)                    │
-├─────────────────────────────────────────────────────┤
-│ server_key (bincode serialized, ~18 MB)             │
-├─────────────────────────────────────────────────────┤
-│ encrypted_data (variable length)                    │
-└─────────────────────────────────────────────────────┘
-```
-
-**Format details:**
-- Header: 8-byte little-endian u64 indicating server_key length
-- Server key: Bincode-serialized TFHE server key
-- Encrypted data: Remaining bytes containing encrypted values
-
----
-
-## API Endpoints
-
-### Job Management
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/api/jobs/create` | Create new FHE job |
-| `GET` | `/api/jobs/{id}` | Get job details |
-| `GET` | `/api/jobs/{id}/status` | Get job status |
-| `GET` | `/api/jobs/{id}/result` | Get job result (when completed) |
-| `GET` | `/api/jobs/list` | List all jobs |
-| `GET` | `/api/jobs/by-wallet/{pubkey}` | Jobs by wallet |
-
-### Job Creation Request
-
-```json
-{
-  "operation": "sum",
-  "predicate": null,
-  "server_key": "base64...",
-  "encrypted_data": "base64...",
-  "signature": "base64...",
-  "user_pubkey": "solana_pubkey",
-  "payment_method": "sol",
-  "price_lamports": 1000000,
-  "required_provers": 3,
-  "consensus_threshold": 2
-}
-```
-
-### Operations
-
-| Operation | Predicate | Description |
-|-----------|-----------|-------------|
-| `sum` | - | Sum all encrypted values |
-| `average` | - | Average of encrypted values |
-| `count_if` | `EqualTo(n)` | Count values equal to n |
-| `count_if` | `GreaterThan(n)` | Count values > n |
-| `count_if` | `LessThan(n)` | Count values < n |
-
----
-
-## Webapp Pages
-
-| Route | Page | Description |
-|-------|------|-------------|
-| `/` | Landing | Hero + features |
-| `/#dashboard` | Dashboard | Quick actions + recent jobs |
-| `/#analytics` | Analytics | Private sum/average computations |
-| `/#proof-of-innocence` | PoI | Sanctions verification |
-| `/#create-job` | CreateJob | Full custom job creation |
-| `/#my-jobs` | MyJobs | User's job history |
-| `/#job-details/{id}` | JobDetails | Single job details |
-
----
-
-## Demo Quickstart
-
-```bash
-# 1. Start local environment
-make localnet-setup && make localnet-init && make localnet-run
-
-# 2. Generate test data (in another terminal)
-cd src/fhe-cli
-cargo run --release -- encrypt --values 100,200,150,300,250
-
-# 3. Open webapp
-open http://localhost:5173
-
-# 4. Go to Analytics page
-#    - Upload witness.bin from ./fhe-output
-#    - Select "Sum" operation
-#    - Connect wallet and submit
-
-# 5. After job completes, decrypt
-cargo run --release -- decrypt -p ./fhe-output
-```
-
-## Documentation
-
-Comprehensive documentation is available in the `/docs/book` directory:
-
-**User Guides:**
-- [Analytics Privado](docs/book/es/guias/analytics-privado.md) - Step-by-step guide for private analytics
-- [Proof of Innocence](docs/book/es/guias/proof-of-innocence.md) - Compliance verification without revealing data
-
-**Technical Documentation:**
-- [Flujo FHE E2E](docs/book/es/arquitectura/flujo-fhe-e2e.md) - End-to-end FHE flow architecture
-- [Integración WebApp](docs/book/es/arquitectura/integracion-webapp.md) - Frontend architecture and components
-- [API Reference](docs/book/es/guias/referencia-api.md) - Backend API documentation
-
-**Build and view the full documentation:**
-```bash
-cd docs/book
-mdbook serve --open
-```
+| Command | Description |
+|---------|-------------|
+| `make c0` | Stop localnet |
+| `make c1` | Start localnet containers |
+| `make c2` | Init marketplace + register provers |
+| `make c3` | Start provers |
+| `make d0-d3` | Same for devnet |
+| `make e2e-poi` | Run PoI test |
+| `make e2e-sum` | Run Sum test |
+| `make help` | Full command list |
 
 ## License
 
-MIT OR Apache-2.0
+MIT
 
-## Acknowledgments
+---
 
-- **Solana Foundation** - High-performance blockchain
-- **ZAMA (TFHE-rs)** - FHE library
-- **Zcash Foundation** - Halo2 circuits
-- **Zypherpunk Hackathon** - Catalyst for this project
+**Zypherpunk Hackathon** - December 2025
