@@ -76,6 +76,7 @@ make d0   # Stop all
 
 ## Use Cases
 
+
 ### Proof of Innocence
 Verify wallet has no sanctioned interactions without revealing transaction history:
 ```
@@ -93,7 +94,40 @@ Prove age >= 18 without revealing exact age:
 ```
 Threshold(encrypted_age, >= 18) → true/false
 ```
+## FHE CLI Tool
 
+Encrypt data locally before sending to the marketplace.
+
+```bash
+# Build
+cd src/fhe-cli
+cargo build --release
+
+# Encrypt values
+./target/release/fhe-cli encrypt --values 100,200,300,400,500
+
+# Output files in ./fhe-output:
+# - client_key.bin (SECRET - keep local for decryption)
+# - witness.bin (upload this to marketplace)
+
+# Decrypt result after job completes
+./target/release/fhe-cli decrypt -p ./fhe-output -r "BASE64_RESULT"
+```
+
+## Job Creator (Testing)
+
+Create and verify jobs programmatically.
+
+```bash
+# Build
+cargo build --release --manifest-path src/job-creator/Cargo.toml
+
+# Run PoI test (CountIf >= 18 on [15,20,25,17] → expects 2)
+./target/release/job-creator verify-poi
+
+# Run Sum test (Sum [10,20,30] → expects 60)
+./target/release/job-creator verify-sum
+```
 ## Tech Stack
 
 | Component | Technology |
