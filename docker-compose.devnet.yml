@@ -1,0 +1,98 @@
+# ZyberLink Docker Compose - DEVNET
+# Sin validator local, usa Solana Devnet remoto
+
+services:
+  # ============================================
+  # NGINX Load Balancer
+  # ============================================
+  nginx:
+    image: docker.io/library/nginx:alpine
+    ports:
+      - "9000:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - webapp
+      - backend
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+  # ============================================
+  # Frontend (Svelte) - 2 replicas
+  # ============================================
+  webapp:
+    build:
+      context: ./src/webapp
+      args:
+        VITE_API_URL: ""
+        VITE_SOLANA_RPC_URL: ${SOLANA_RPC_URL:-https://api.devnet.solana.com}
+    deploy:
+      replicas: 2
+    expose:
+      - "80"
+    restart: unless-stopped
+
+  # ============================================
+  # Backend API (Rust) - 2 replicas
+  # ============================================
+  backend:
+    build:
+      context: .
+      dockerfile: src/blink-server/Dockerfile
+    deploy:
+      replicas: 2
+    expose:
+      - "8080"
+    volumes:
+      - ./keypairs/backend.json:/app/keypair.json:ro
+    environment:
+      - RUST_LOG=info
+      - DATABASE_URL=postgresql://zyberlink:${DB_PASSWORD:-zyberlink_devnet}@postgres:5432/zyberlink
+      - SOLANA_RPC_URL=${SOLANA_RPC_URL:-https://api.devnet.solana.com}
+      - PROGRAM_ID=${PROGRAM_ID}
+      - HOST=0.0.0.0
+      - PORT=8080
+      - SERVER_KEYPAIR_PATH=/app/keypair.json
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ============================================
+  # PostgreSQL Database
+  # ============================================
+  postgres:
+    image: docker.io/library/postgres:16-alpine
+    environment:
+      - POSTGRES_USER=zyberlink
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-zyberlink_devnet}
+      - POSTGRES_DB=zyberlink
+    volumes:
+      - postgres_devnet_data:/var/lib/postgresql/data
+    expose:
+      - "5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zyberlink"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_devnet_data:
+
+networks:
+  default:
+    name: zyberlink-devnet
+    driver: bridge
+
+# Uso:
+# 1. Copiar funder.json con SOL a ./keypairs/
+# 2. ./scripts/setup-devnet.sh --funder ./keypairs/funder.json
+# 3. make d1 (levanta containers)
+# 4. make d2 (init marketplace)
+# 5. make d3 (start provers)

@@ -765,3 +765,118 @@ e2e-all: ## [E2E] Run all verification tests (sequential)
 	@$(MAKE) e2e-poi
 	@echo ""
 	@echo "$(GREEN)All E2E tests completed!$(NC)"
+
+# ============================================================================
+# DEVNET Deployment (d0-d3)
+# ============================================================================
+
+d0: ## [DEVNET] Reset: stop containers + clean volumes
+	@echo "$(BLUE)Resetting devnet environment...$(NC)"
+	@-pkill -f "job-creator" 2>/dev/null || true
+	@-pkill -f "zyberlink-prover" 2>/dev/null || true
+	@podman-compose -f docker-compose.devnet.yml down -v 2>/dev/null || true
+	@echo "$(GREEN)Devnet environment reset. Ready for 'make d1'$(NC)"
+
+d1: ## [DEVNET] Start containers (postgres, backend, webapp, nginx) - NO validator
+	@echo "$(BLUE)Starting devnet containers (no validator)...$(NC)"
+	@if [ ! -f ".env.devnet" ]; then \
+		echo "$(RED)ERROR: .env.devnet not found. Run './scripts/setup-devnet.sh' first$(NC)"; \
+		exit 1; \
+	fi
+	@export $$(grep -v '^#' .env.devnet | xargs) && \
+	podman-compose -f docker-compose.devnet.yml up -d --build
+	@echo ""
+	@echo "$(GREEN)Devnet containers started!$(NC)"
+	@echo "  Frontend: http://localhost:9000"
+	@echo "  API: http://localhost:9000/api"
+	@echo ""
+	@echo "$(YELLOW)Next: make d2 (init marketplace)$(NC)"
+
+d2: ## [DEVNET] Initialize marketplace + register provers on devnet
+	@echo "$(BLUE)Initializing marketplace on devnet...$(NC)"
+	@if [ ! -f ".env.devnet" ]; then \
+		echo "$(RED)ERROR: .env.devnet not found. Run './scripts/setup-devnet.sh' first$(NC)"; \
+		exit 1; \
+	fi
+	@export $$(grep -v '^#' .env.devnet | xargs) && \
+	echo "Program ID: $$PROGRAM_ID" && \
+	echo "RPC: $$SOLANA_RPC_URL"
+	@echo ""
+	@echo "Step 1/3: Initializing marketplace..."
+	@export $$(grep -v '^#' .env.devnet | xargs) && \
+	cargo run --manifest-path src/sdk/Cargo.toml --example initialize_program 2>&1 | tail -5
+	@echo "$(GREEN)  Marketplace initialized$(NC)"
+	@echo ""
+	@echo "Step 2/3: Building prover binary..."
+	@cargo build --release --bin zyberlink-prover 2>&1 | tail -3
+	@echo "$(GREEN)  Prover built$(NC)"
+	@echo ""
+	@echo "Step 3/3: Registering provers on devnet..."
+	@export $$(grep -v '^#' .env.devnet | xargs) && \
+	for i in 1 2 3; do \
+		KEYPAIR="keypairs/prover-$$i.json"; \
+		if [ -f "$$KEYPAIR" ]; then \
+			ADDR=$$(solana address --keypair $$KEYPAIR); \
+			./target/release/zyberlink-prover register \
+				--program-id $$PROGRAM_ID \
+				--rpc-url $$SOLANA_RPC_URL \
+				--keypair $$KEYPAIR \
+				--stake-amount 5000000000 2>&1 | tail -1 || true; \
+			echo "  Prover $$i registered: $$ADDR"; \
+		fi; \
+	done
+	@echo ""
+	@echo "$(GREEN)Marketplace ready on devnet with 3 provers!$(NC)"
+	@echo "$(YELLOW)Next: make d3 (start provers)$(NC)"
+
+d3: ## [DEVNET] Start provers (connect to devnet)
+	@echo "$(BLUE)Starting provers for devnet...$(NC)"
+	@if [ ! -f ".env.devnet" ]; then \
+		echo "$(RED)ERROR: .env.devnet not found. Run './scripts/setup-devnet.sh' first$(NC)"; \
+		exit 1; \
+	fi
+	@-pkill -f "zyberlink-prover" 2>/dev/null || true
+	@echo ""
+	@echo "Starting 3 prover nodes..."
+	@export $$(grep -v '^#' .env.devnet | xargs) && \
+	for i in 1 2 3; do \
+		KEYPAIR="keypairs/prover-$$i.json"; \
+		if [ -f "$$KEYPAIR" ]; then \
+			RUST_LOG=info \
+			./target/release/zyberlink-prover \
+				--program-id $$PROGRAM_ID \
+				--rpc-url $$SOLANA_RPC_URL \
+				--witness-backend-url http://localhost:9000 \
+				--keypair $$KEYPAIR \
+				run > /tmp/prover-devnet-$$i.log 2>&1 & \
+			echo "  Prover $$i started (PID: $$!)"; \
+		fi; \
+	done
+	@sleep 2
+	@RUNNING=$$(pgrep -c -f "zyberlink-prover" || echo 0); \
+	echo "$(GREEN)  $$RUNNING provers running$(NC)"
+	@echo ""
+	@echo "$(GREEN)=== DEVNET RUNNING ===$(NC)"
+	@echo "  Frontend: http://localhost:9000"
+	@echo "  API: http://localhost:9000/api"
+	@echo ""
+	@echo "  Logs:"
+	@echo "    - Provers: tail -f /tmp/prover-devnet-*.log"
+	@echo "    - Backend: podman-compose -f docker-compose.devnet.yml logs -f backend"
+
+d-status: ## [DEVNET] Show status
+	@echo "$(BLUE)Devnet Status:$(NC)"
+	@echo ""
+	@if [ -f ".env.devnet" ]; then \
+		export $$(grep -v '^#' .env.devnet | xargs) && \
+		echo "Program ID: $$PROGRAM_ID" && \
+		echo "RPC URL: $$SOLANA_RPC_URL"; \
+	else \
+		echo "$(RED).env.devnet not found$(NC)"; \
+	fi
+	@echo ""
+	@echo "Containers:"
+	@podman-compose -f docker-compose.devnet.yml ps 2>/dev/null || echo "  No containers running"
+	@echo ""
+	@echo "Provers:"
+	@pgrep -a -f "zyberlink-prover" 2>/dev/null || echo "  No provers running"

@@ -1,119 +1,238 @@
 # ZyberLink Roadmap
 
-## Overview
+## Vision
 
-ZyberLink is a decentralized ZK and FHE compute marketplace on Solana. This roadmap reflects the current state of development for the Zypherpunk Hackathon (Nov 10 - Dec 1, 2025).
+ZyberLink is building the decentralized infrastructure for privacy-preserving computation. Our goal is to enable anyone to perform computations on encrypted data without trusting a single party.
 
 ---
 
-## Done
+## Season Structure
 
-### Solana Program (Marketplace)
-- Job lifecycle management (Create, Claim, Submit, Verify)
-- Multi-prover job claiming for FHE computations
-- On-chain consensus algorithm (hash-based result verification)
-- Automated payment distribution to matching provers
-- Prover registration and stake management
+Development is organized in seasons, each with a specific focus:
+
+```
+S0   → Solana SZN         (Foundation)
+S0.5 → Ops SZN            (Decentralization)
+S1   → Interop SZN        (Expansion)
+S1.5 → 3rd Party SZN      (Adoption)
+S2   → Consumer SZN       (Mass Market)
+```
+
+---
+
+## S0: Solana SZN
+
+**Status:** Active
+**Focus:** Establish foundation on Solana, optimize core infrastructure
+
+### Completed (v0.0.1-zypherpunk)
+
+**Solana Program**
+- Job lifecycle (Create, Claim, Submit, Verify)
+- Multi-prover consensus (2-of-3, 3-of-5)
+- Automated payment distribution
 - Dynamic pricing system
+- Prover registration & staking
 
-### SDK (Rust Client Library)
-- 3-layer architecture (state, instructions, helpers)
-- MarketplaceClient for program interactions
-- Job creation and querying
-- Event parsing and monitoring
-
-### FHE Computation Engine
-- TFHE-rs integration for encrypted computations
-- Support for Add, Multiply, Subtract operations
-- Server key caching and management
+**FHE Engine**
+- TFHE-rs integration
+- Operations: Sum, Average, CountIf, Threshold, Histogram, Add, Multiply
+- Server key caching
 - Result hashing for consensus
 
-### Prover Node Infrastructure
-- Job polling and automatic claiming
-- Halo2 ZK proof generation (~15s average)
+**Prover Network**
+- Job polling & auto-claiming
+- Halo2 ZK proofs (~15s)
 - FHE computation execution
-- Multi-prover consensus validation
+- Multi-prover validation
 
-### Backend API (blink-server)
-- REST API for job management
+**Backend & API**
+- REST API (Rust/Axum)
 - PostgreSQL persistence
-- Blockchain synchronization
-- Health monitoring endpoints
+- Blockchain sync (chain_sync)
+- Smart witness cleanup
 
-### Frontend (webapp)
-- Svelte-based SPA
-- Wallet connection (Phantom/Solflare)
-- Job creation interface
-- Real-time job status
+**SDK & Tools**
+- Rust client library
+- fhe-cli for local encryption
+- MarketplaceClient
 
-### Testing & Infrastructure
-- E2E test suite: 55/56 tests passing (98%)
-- Backend API: 100% coverage
-- Security audit: 6/6 checks passing
-- Docker infrastructure (dev + prod)
-- Make automation (localnet-setup, run, stop)
+**Testing**
+- 55/56 tests passing (98%)
+- E2E: PoI CountIf, Census Sum
 
-### Project Organization
-- Reorganized to `src/`, `tests/`, `docs/`, `infra/`, `scripts/`
-- GitBook documentation structure
-- Comprehensive Makefile with aliases (l1-l4)
+### In Progress
 
----
+- Performance optimizations (reduce FHE time)
+- Additional operations (comparison, conditional)
+- Prover reputation system (basic)
+- UI/UX improvements
 
-## In Progress
+### Targets
 
-### Documentation
-- Deployment guides
-- Architecture documentation
-- Demo reproduction guides
-
-### UI Polish
-- Fix remaining UI test (1 failing)
-- Improve error handling in frontend
-- Better loading states
+- [ ] Win/place in Solana hackathons
+- [ ] 5+ independent provers running
+- [ ] 100+ jobs executed on testnet
+- [ ] FHE compute time < 3 min
 
 ---
 
-## Post-Hackathon Ideas
+## S0.5: Ops SZN
 
-These are ideas for future development, not committed features:
+**Status:** Planned
+**Focus:** Operational improvements, decentralization of infrastructure
 
-### Near-term
-- Light Protocol integration (ZK compression for cheaper state)
-- Reputation system for provers
-- More FHE operations (comparison, division)
+### Goals
 
-### Medium-term
-- GPU acceleration for faster proofs
-- Mobile wallet SDK
-- Dynamic pricing based on demand
+**Data Decentralization**
+- Witness storage on decentralized network (IPFS/Arweave)
+- Remove single backend dependency
+- Prover-to-prover data sharing
 
-### Long-term Vision
-- Multi-chain support
-- DAO governance
-- Enterprise API with SLAs
+**Network Resilience**
+- Multiple backend instances
+- Load balancing
+- Failover mechanisms
+- Geographic distribution
+
+**Monitoring & Observability**
+- Prover health dashboards
+- Job success rate metrics
+- Network latency tracking
+- Alert systems
+
+**Security Hardening**
+- Full security audit
+- Formal verification of critical paths
+- Bug bounty program
+- Rate limiting & DDoS protection
+
+### Targets
+
+- [ ] Zero single points of failure
+- [ ] 99.9% uptime SLA capability
+- [ ] Decentralized witness storage
+- [ ] Security audit completed
+
+---
+
+## S1: Interop SZN
+
+**Status:** Planned
+**Focus:** Multi-chain expansion, developer experience, zero-barrier UX
+
+### Goals
+
+**Cross-Chain Support**
+- Ethereum bridge (Wormhole/Axelar)
+- Starknet integration
+- Zcash shielded pool bridge
+- Chain-agnostic job submission
+
+**SDK v2**
+- TypeScript bindings
+- Python bindings
+- Improved documentation
+- Interactive tutorials
+- Example applications
+
+**Zero-Barrier UX (x402)**
+- Email-to-wallet onboarding
+- Fiat onramp integration
+- Gasless transactions
+- Mobile-first experience
+
+**Wallet Extension**
+- Multi-chain support (SOL/ETH/STRK/ZEC)
+- Browser extension
+- Mobile SDK
+
+### Targets
+
+- [ ] 3+ chains integrated
+- [ ] SDK downloads: 100+/week
+- [ ] 10+ external developers building
+- [ ] x402 integration live
+
+---
+
+## S1.5: 3rd Party SZN
+
+**Status:** Future
+**Focus:** Enable third-party adoption and integrations
+
+### Goals
+
+**Developer Ecosystem**
+- Plugin architecture
+- Marketplace for custom operations
+- Revenue sharing for operation creators
+- Developer grants program
+
+**Enterprise Features**
+- SLA-backed compute guarantees
+- White-label solutions
+- Compliance integrations (KYC/AML ready)
+- Enterprise API tier
+
+**Partnerships**
+- DeFi protocol integrations
+- Data provider partnerships
+- Wallet partnerships
+- Chain partnerships
+
+### Targets
+
+- [ ] 5+ third-party integrations live
+- [ ] Enterprise pilot customers
+- [ ] Partner-built operations in marketplace
+
+---
+
+## S2: Consumer SZN
+
+**Status:** Vision
+**Focus:** Consumer-facing applications
+
+The details of S2 will be defined based on learnings from previous seasons. Potential directions include:
+
+- Privacy-preserving consumer apps
+- B2C products built on ZyberLink infrastructure
+- Mobile-first experiences
+- Social/community features
+
+More details will be shared as we approach this phase.
 
 ---
 
 ## Quick Start
 
 ```bash
-# Full setup from scratch
-make localnet-setup    # or: make l1
-make localnet-init     # or: make l2
-make localnet-run      # or: make l3
+# Full setup
+make c1    # Start containers
+make c2    # Init marketplace + register provers
+make c3    # Start provers
 
-# Optional: auto-generate test jobs
-make localnet-jobs     # or: make l4
+# Run tests
+make e2e-poi   # Proof of Innocence test
+make e2e-sum   # Census Sum test
 
-# Stop everything
-make localnet-stop     # or: make l0
+# Stop
+make c0    # Stop all
 ```
+
+---
+
+## Links
+
+- [GitHub](https://github.com/8ctag0n/13/)
+- [Tag: v0.0.1-zypherpunk](https://github.com/8ctag0n/13/releases/tag/v0.0.1-zypherpunk)
 
 ---
 
 ## Changelog
 
-- **2025-11-25:** Simplified roadmap, updated test counts (55/56), documented new structure
-- **2025-11-16:** Initial roadmap created
+- **2025-12-03:** Restructured roadmap with season-based strategy
+- **2025-12-03:** Tagged v0.0.1-zypherpunk for Zypherpunk Hackathon
+- **2025-11-25:** Simplified roadmap, updated test counts
 - **2025-11-10:** Project started for Zypherpunk Hackathon
