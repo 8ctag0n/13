@@ -6,7 +6,7 @@
   import WalletConnect from '../components/WalletConnect.svelte';
   import Loading from '../components/Loading.svelte';
   import PriceSlider from '../components/PriceSlider.svelte';
-  import { createFheJobFromWitness, pollJobStatus, getJobResult } from '../utils/job_creator.js';
+  import { createFheJobFromWitness } from '../utils/job_creator.js';
 
   // API config
   const API_BASE = import.meta.env.VITE_API_URL || '';
@@ -24,7 +24,11 @@
   let jobId = null;
   let jobStatus = null;
   let jobResult = null;
+  let txSignature = null;  // Store TX signature for explorer link
   let error = null;
+
+  // Explorer URL for Solana devnet
+  const EXPLORER_URL = 'https://explorer.solana.com';
 
   // Wallet modal
   let showWalletModal = false;
@@ -155,31 +159,15 @@
       });
 
       jobId = result.jobId;
+      txSignature = result.signature;
       toastStore.add(`Job created: ${jobId}`, 'success');
 
-      processingStep = 'polling';
-      processingMessage = 'Waiting for FHE computation...';
-
-      const finalStatus = await pollJobStatus(
-        jobId,
-        API_BASE,
-        60,
-        2000,
-        (progress) => {
-          jobStatus = progress.status;
-          processingMessage = `Job status: ${progress.status} (attempt ${progress.attempt}/${progress.maxAttempts})`;
-        }
-      );
-
-      jobStatus = 'completed';
-
-      processingStep = 'fetching_result';
-      processingMessage = 'Fetching encrypted result...';
-
-      jobResult = await getJobResult(jobId, API_BASE);
+      // Instead of polling (which can fail due to sync delays),
+      // show the explorer link and let user track progress there
+      jobStatus = 'submitted';
       currentStep = 4;
 
-      toastStore.add('Analytics computation completed!', 'success');
+      toastStore.add('Job submitted! Track progress on Solana Explorer', 'success');
 
     } catch (err) {
       console.error('Analytics error:', err);
@@ -462,7 +450,7 @@
           <div class="result-header mb-6 text-center">
             <div class="text-4xl text-mono text-violet mb-4">[OK]</div>
             <h2 class="text-mono text-uppercase text-violet">
-              COMPUTATION_COMPLETE
+              JOB_SUBMITTED
             </h2>
           </div>
 
@@ -477,22 +465,36 @@
             </div>
             <div class="result-row">
               <span class="result-label text-mono text-muted">Status:</span>
-              <span class="result-value text-mono text-success">{jobStatus}</span>
+              <span class="result-value text-mono text-success">SUBMITTED_ON_CHAIN</span>
             </div>
           </div>
 
-          <div class="encrypted-result tui-box mb-6">
-            <h4 class="text-mono mb-3">ENCRYPTED_RESULT:</h4>
-            <div class="result-hash text-mono text-xs">
-              {#if jobResult?.encrypted_result}
-                {jobResult.encrypted_result.slice(0, 100)}...
-              {:else}
-                [Result available for download]
-              {/if}
-            </div>
-            <p class="text-mono text-xs text-muted mt-3">
-              To decrypt this result, use: <span class="text-cyan">fhe-cli decrypt -k client_key.bin -r result.bin</span>
+          <!-- Explorer Link -->
+          <div class="explorer-link-box tui-box mb-6">
+            <h4 class="text-mono mb-3">TRACK_PROGRESS:</h4>
+            <p class="text-mono text-sm text-muted mb-4">
+              Your FHE computation job is now on-chain. Provers will pick it up and process it.
+              Track the transaction in real-time:
             </p>
+            <a
+              href="{EXPLORER_URL}/tx/{txSignature}?cluster=devnet"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="explorer-link text-mono"
+            >
+              [VIEW_ON_SOLANA_EXPLORER]
+            </a>
+            <div class="tx-signature text-mono text-xs mt-4">
+              TX: {txSignature ? txSignature.slice(0, 20) + '...' + txSignature.slice(-20) : 'N/A'}
+            </div>
+          </div>
+
+          <div class="info-box-violet">
+            <div class="text-mono text-sm">
+              [i] NEXT_STEPS<br/>
+              Once provers complete the computation, you can fetch the encrypted result from the Dashboard or use:<br/>
+              <span class="text-cyan">fhe-cli decrypt -k client_key.bin -r result.bin</span>
+            </div>
           </div>
         </div>
       {/if}
@@ -902,6 +904,33 @@
     border-radius: var(--radius-sm);
     word-break: break-all;
     color: var(--zyber-cyber-cyan);
+  }
+
+  /* Explorer Link */
+  .explorer-link-box {
+    padding: var(--space-6);
+    text-align: center;
+  }
+
+  .explorer-link {
+    display: inline-block;
+    padding: var(--space-3) var(--space-6);
+    background: linear-gradient(135deg, var(--zyber-quantum-violet), var(--zyber-cyber-cyan));
+    border-radius: var(--radius-md);
+    color: white;
+    text-decoration: none;
+    font-weight: 600;
+    transition: all var(--transition-fast);
+  }
+
+  .explorer-link:hover {
+    box-shadow: var(--zyber-glow-violet);
+    transform: translateY(-2px);
+  }
+
+  .tx-signature {
+    color: var(--zyber-text-muted);
+    word-break: break-all;
   }
 
   /* Navigation */

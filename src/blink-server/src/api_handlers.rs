@@ -753,9 +753,12 @@ async fn list_jobs(data: web::Data<AppState>, query: web::Query<ListJobsQuery>) 
     // Combined query from both temp_job_data and blockchain_jobs
     // This ensures jobs created from frontend appear immediately
     // Shows ALL historical jobs (including expired) for full visibility
+    // IMPORTANT: temp_job_data is excluded if job already exists in blockchain_jobs
+    // to avoid duplicates (blockchain_jobs is the source of truth)
     let jobs_query = sqlx::query_as::<_, JobListItem>(
         r#"
         SELECT * FROM (
+            -- temp_job_data: ONLY jobs not yet synced to blockchain_jobs
             SELECT
                 job_id,
                 creator_pubkey,
@@ -768,11 +771,13 @@ async fn list_jobs(data: web::Data<AppState>, query: web::Query<ListJobsQuery>) 
                 COALESCE(payment_method, 'SOL') as payment_method,
                 to_char(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at,
                 tx_signature
-            FROM temp_job_data
-            WHERE status IN ('pending_tx', 'active')
+            FROM temp_job_data t
+            WHERE t.status IN ('pending_tx', 'active')
+            AND NOT EXISTS (SELECT 1 FROM blockchain_jobs b WHERE b.job_id = t.job_id)
 
             UNION ALL
 
+            -- blockchain_jobs: source of truth for all synced jobs
             SELECT
                 job_id,
                 creator_pubkey,

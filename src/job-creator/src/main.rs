@@ -46,6 +46,8 @@ enum Commands {
     WebappFlow,
     /// Webapp flow + wait for completion + decrypt and verify result
     WebappFlowVerify,
+    /// Webapp flow for Proof of Innocence (count_if with Equals predicate)
+    WebappFlowPoi,
 }
 
 #[derive(Debug, Deserialize)]
@@ -156,6 +158,9 @@ async fn main() -> Result<()> {
         }
         Commands::WebappFlowVerify => {
             run_webapp_flow(&sdk, &rpc_client, &http_client, &user_keypair, &backend_url, true).await
+        }
+        Commands::WebappFlowPoi => {
+            run_webapp_flow_poi(&rpc_client, &http_client, &user_keypair, &backend_url).await
         }
     }
 }
@@ -1215,6 +1220,215 @@ async fn run_webapp_flow(
     } else {
         log::error!("===========================================");
         log::error!("  FAILED! Result mismatch");
+        log::error!("  Expected: {}, Got: {}", expected_result, decrypted);
+        log::error!("===========================================");
+        anyhow::bail!("Result verification failed");
+    }
+    log::info!("");
+
+    Ok(())
+}
+
+/// Simulate webapp Proof of Innocence flow
+/// This tests count_if with Equals predicate - exactly what the PoI page does
+/// Flow:
+/// 1. Generate encrypted "transaction history" data
+/// 2. Upload server_key to /api/server-key/upload
+/// 3. Call /api/jobs/validate-and-build with operation=count_if and predicate={Equals: X}
+/// 4. Sign and submit transaction
+/// 5. Wait for result and verify
+async fn run_webapp_flow_poi(
+    rpc_client: &RpcClient,
+    http_client: &reqwest::Client,
+    user_keypair: &Keypair,
+    backend_url: &str,
+) -> Result<()> {
+    log::info!("");
+    log::info!("===========================================");
+    log::info!("  Webapp Proof of Innocence Flow");
+    log::info!("  Testing: count_if with Equals predicate");
+    log::info!("===========================================");
+    log::info!("");
+
+    // Simulated transaction history (indices the user has interacted with)
+    // Demo sanctioned list: [66, 77, 88, 99, 111, 122, 133, 144, 155, 166]
+    let user_history: Vec<u8> = vec![10, 20, 30, 40, 50]; // User's "clean" history - none are sanctioned
+    let sanctioned_index: u8 = 66; // Check if user interacted with sanctioned index 66
+
+    // Expected result: 0 (user did NOT interact with sanctioned index 66 = INNOCENT)
+    let expected_result: u8 = 0;
+
+    log::info!("  User history: {:?}", user_history);
+    log::info!("  Sanctioned index to check: {}", sanctioned_index);
+    log::info!("  Expected result: {} (0 = innocent, >0 = guilty)", expected_result);
+    log::info!("");
+
+    // Step 1: Generate FHE keys and encrypt user history
+    log::info!("[1/8] Generating FHE keys and encrypting user history...");
+    let operation = FheOperation::CountIf {
+        predicate: FhePredicate::Equals(sanctioned_index),
+        expected_count: user_history.len() as u16,
+    };
+
+    let (encrypted_data, server_key, client_key) = create_fhe_data_with_values(&user_history, &operation)?;
+    log::info!(
+        "  Encrypted {} history entries: {} bytes data, {:.1} MB server_key",
+        user_history.len(),
+        encrypted_data.len(),
+        server_key.len() as f64 / 1024.0 / 1024.0
+    );
+
+    // Step 2: Upload server_key
+    log::info!("[2/8] Uploading server_key to /api/server-key/upload...");
+    let upload_url = format!("{}/api/server-key/upload", backend_url);
+    let upload_start = std::time::Instant::now();
+
+    let upload_response = http_client
+        .post(&upload_url)
+        .header("Content-Type", "application/octet-stream")
+        .body(server_key.clone())
+        .timeout(Duration::from_secs(600))
+        .send()
+        .await
+        .context("Failed to upload server key")?;
+
+    if !upload_response.status().is_success() {
+        let error_text = upload_response.text().await.unwrap_or_default();
+        anyhow::bail!("Server key upload failed: {}", error_text);
+    }
+
+    let upload_result: ServerKeyUploadResponse = upload_response.json().await?;
+    log::info!(
+        "  Uploaded in {:.1}s, hash: {}",
+        upload_start.elapsed().as_secs_f64(),
+        upload_result.server_key_hash
+    );
+
+    // Step 3: Create signature
+    log::info!("[3/8] Creating signature for job creation...");
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs();
+    let nonce = format!("{:x}", rand::random::<u64>());
+    let job_id_placeholder = timestamp * 1000 + rand::random::<u64>() % 1000;
+    let message = format!("create_job:{}:{}:{}", job_id_placeholder, timestamp, nonce);
+
+    let signature = user_keypair.sign_message(message.as_bytes());
+    let signature_base58 = bs58::encode(signature.as_ref()).into_string();
+    log::info!("  Message: {}", message);
+
+    // Step 4: Call validate-and-build with count_if and Equals predicate
+    log::info!("[4/8] Calling /api/jobs/validate-and-build with count_if...");
+    let encrypted_data_base64 = BASE64.encode(&encrypted_data);
+    let validate_url = format!("{}/api/jobs/validate-and-build", backend_url);
+
+    // This is the exact format the frontend sends
+    let validate_body = serde_json::json!({
+        "creator_pubkey": user_keypair.pubkey().to_string(),
+        "encrypted_data": encrypted_data_base64,
+        "server_key_hash": upload_result.server_key_hash,
+        "message": message,
+        "signature": signature_base58,
+        "nonce": nonce,
+        "operation": "count_if",
+        "operation_value": sanctioned_index,
+        "expected_count": user_history.len(),
+        "price_lamports": 50000000,  // 0.05 SOL (count_if is tier 4)
+        "required_provers": 3,
+        "consensus_threshold": 2,
+        "payment_method": "SOL",
+        // Rust enum format for serde: {"Equals": value}
+        "predicate": {
+            "Equals": sanctioned_index
+        }
+    });
+
+    log::info!("  Request body (predicate): {:?}", validate_body["predicate"]);
+
+    let validate_response = http_client
+        .post(&validate_url)
+        .header("Content-Type", "application/json")
+        .json(&validate_body)
+        .send()
+        .await
+        .context("Failed to call validate-and-build")?;
+
+    if !validate_response.status().is_success() {
+        let status = validate_response.status();
+        let error_text = validate_response.text().await.unwrap_or_default();
+        anyhow::bail!("validate-and-build failed ({}): {}", status, error_text);
+    }
+
+    let validate_result: ValidateAndBuildResponse = validate_response.json().await?;
+    log::info!("  Job ID: {}", validate_result.job_id);
+
+    // Step 5: Sign and submit transaction
+    log::info!("[5/8] Signing and submitting transaction...");
+    let tx_bytes = BASE64.decode(&validate_result.transaction)?;
+    let mut tx: Transaction = bincode::deserialize(&tx_bytes)?;
+
+    let recent_blockhash = rpc_client.get_latest_blockhash()?;
+    tx.sign(&[user_keypair], recent_blockhash);
+
+    let tx_signature = rpc_client
+        .send_and_confirm_transaction(&tx)
+        .context("Failed to submit transaction")?;
+    log::info!("  Transaction confirmed: {}", tx_signature);
+
+    // Step 6: Confirm with backend
+    log::info!("[6/8] Confirming job with backend...");
+    let confirm_url = format!("{}/api/jobs/{}/confirm", backend_url, validate_result.job_id);
+    let _ = http_client
+        .post(&confirm_url)
+        .header("Content-Type", "application/json")
+        .json(&serde_json::json!({ "signature": tx_signature.to_string() }))
+        .send()
+        .await;
+    log::info!("  Job confirmed");
+
+    // Step 7: Wait for completion
+    log::info!("[7/8] Waiting for job completion...");
+    let poll_interval = Duration::from_secs(10);
+    let max_wait = Duration::from_secs(400); // CountIf has longer timeout
+    let start = std::time::Instant::now();
+
+    loop {
+        if start.elapsed() > max_wait {
+            anyhow::bail!("Timeout waiting for job completion");
+        }
+
+        let result_url = format!("{}/api/jobs/{}/result", backend_url, validate_result.job_id);
+        if let Ok(resp) = http_client.get(&result_url).send().await {
+            if resp.status().is_success() {
+                log::info!("  Job completed! (elapsed: {:?})", start.elapsed());
+                break;
+            }
+        }
+
+        log::info!("  Waiting... (elapsed: {:?})", start.elapsed());
+        tokio::time::sleep(poll_interval).await;
+    }
+
+    // Step 8: Decrypt and verify
+    log::info!("[8/8] Decrypting and verifying result...");
+    let encrypted_result = fetch_result(http_client, backend_url, validate_result.job_id).await?;
+    log::info!("  Got encrypted result ({} bytes)", encrypted_result.len());
+
+    let decrypted = decrypt_result(&encrypted_result, &client_key, &operation)?;
+    log::info!("  Decrypted result: {}", decrypted);
+    log::info!("  Expected result:  {}", expected_result);
+
+    log::info!("");
+    if decrypted == expected_result {
+        log::info!("===========================================");
+        log::info!("  PROOF OF INNOCENCE: VERIFIED");
+        log::info!("  User history: {:?}", user_history);
+        log::info!("  Sanctioned index checked: {}", sanctioned_index);
+        log::info!("  Count of matches: {} (0 = INNOCENT)", decrypted);
+        log::info!("===========================================");
+    } else {
+        log::error!("===========================================");
+        log::error!("  RESULT MISMATCH");
         log::error!("  Expected: {}, Got: {}", expected_result, decrypted);
         log::error!("===========================================");
         anyhow::bail!("Result verification failed");
