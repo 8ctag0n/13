@@ -1,0 +1,59 @@
+# ZyberLink Backend Dockerfile
+# =============================
+# Multi-stage build for the Rust backend server
+#
+# Build context: project root (zyberlink-demo/)
+
+# Stage 1: Build
+FROM rust:1.75-bookworm AS builder
+
+WORKDIR /app
+
+# Install required system dependencies
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy workspace Cargo files first (for dependency caching)
+COPY Cargo.toml Cargo.lock ./
+
+# Copy source directories
+COPY src/blink-server ./src/blink-server
+COPY src/sdk ./src/sdk
+COPY src/programs ./src/programs
+
+# Build the backend server
+RUN cargo build --release --bin blink-server
+
+# Prepare migrations for runtime
+RUN mkdir -p /app/migrations && cp -r src/blink-server/migrations/* /app/migrations/
+
+# Stage 2: Runtime
+FROM debian:bookworm-slim
+
+WORKDIR /app
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    libssl3 \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy the built binary
+COPY --from=builder /app/target/release/blink-server /app/blink-server
+
+# Copy migrations for runtime execution
+COPY --from=builder /app/migrations ./blink-server/migrations
+
+# Expose port
+EXPOSE 8080
+
+# Set environment defaults
+ENV RUST_LOG=info
+ENV PORT=8080
+ENV HOST=0.0.0.0
+
+# Run the server
+CMD ["./blink-server"]

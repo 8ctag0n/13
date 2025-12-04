@@ -1,0 +1,109 @@
+<!-- ZyberLink Full Logo - Primary -->
+<svg width="300" height="80" viewBox="0 0 300 80" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Brand Gradient -->
+    <linearGradient id="brandGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#8B5CF6;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#A855F7;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#06B6D4;stop-opacity:1" />
+    </linearGradient>
+
+    <!-- Glow Filter -->
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="4" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Inner Glow -->
+    <filter id="innerGlow">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feComposite in="blur" in2="SourceAlpha" operator="in" result="innerGlow"/>
+      <feComposite in="innerGlow" in2="SourceGraphic" operator="over"/>
+    </filter>
+  </defs>
+
+  <!-- Background Card (optional, for dark backgrounds) -->
+  <rect x="0" y="0" width="300" height="80" fill="none" opacity="0"/>
+
+  <!-- Icon Container -->
+  <g id="icon" transform="translate(10, 10)">
+    <!-- Outer frame -->
+    <rect
+      x="0" y="0"
+      width="60" height="60"
+      rx="12"
+      fill="url(#brandGradient)"
+      opacity="0.15"
+      filter="url(#glow)"
+    />
+
+    <!-- Border -->
+    <rect
+      x="0" y="0"
+      width="60" height="60"
+      rx="12"
+      fill="none"
+      stroke="url(#brandGradient)"
+      stroke-width="2"
+      opacity="0.6"
+    />
+
+    <!-- "Z" Letter - Pixelated/Encrypted style -->
+    <g id="letter-z" filter="url(#glow)">
+      <!-- Top bar of Z -->
+      <rect x="12" y="15" width="36" height="6" fill="url(#brandGradient)" rx="1"/>
+
+      <!-- Diagonal of Z -->
+      <path
+        d="M 46 21 L 14 45 L 18 51 L 50 27 Z"
+        fill="url(#brandGradient)"
+      />
+
+      <!-- Bottom bar of Z -->
+      <rect x="12" y="45" width="36" height="6" fill="url(#brandGradient)" rx="1"/>
+
+      <!-- Encrypted pixels effect -->
+      <rect x="24" y="28" width="4" height="4" fill="#06B6D4" opacity="0.8"/>
+      <rect x="32" y="32" width="4" height="4" fill="#8B5CF6" opacity="0.8"/>
+      <rect x="28" y="36" width="4" height="4" fill="#A855F7" opacity="0.8"/>
+    </g>
+  </g>
+
+  <!-- Text: "ZyberLink" -->
+  <g id="brand-text" transform="translate(85, 28)">
+    <text
+      font-family="Space Grotesk, sans-serif"
+      font-size="32"
+      font-weight="700"
+      letter-spacing="-0.02em"
+      fill="url(#brandGradient)"
+    >
+      ZyberLink
+    </text>
+  </g>
+
+  <!-- Tagline: "ENCRYPTED COMPUTE" -->
+  <g id="tagline" transform="translate(85, 55)">
+    <text
+      font-family="JetBrains Mono, monospace"
+      font-size="9"
+      font-weight="500"
+      letter-spacing="0.15em"
+      fill="#A78BFA"
+      opacity="0.8"
+    >
+      ENCRYPTED COMPUTE
+    </text>
+  </g>
+
+  <!-- Lock icon (subtle privacy indicator) -->
+  <g id="lock-icon" transform="translate(265, 50)" opacity="0.3">
+    <path
+      d="M 8 6 L 8 4 C 8 1.8 6.2 0 4 0 C 1.8 0 0 1.8 0 4 L 0 6 L -1 6 L -1 12 L 9 12 L 9 6 Z M 2 4 C 2 2.9 2.9 2 4 2 C 5.1 2 6 2.9 6 4 L 6 6 L 2 6 Z"
+      fill="#8B5CF6"
+    />
+  </g>
+</svg>
