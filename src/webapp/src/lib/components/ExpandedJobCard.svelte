@@ -9,47 +9,95 @@
   // Determine if this is user's job
   $: isOwner = isMyJob || ($walletStore.connected && $walletStore.publicKey?.toString() === job.creator_pubkey);
 
+  const API_BASE = import.meta.env.VITE_API_URL || '';
+
   // Expanded state (still used for quick preview, but click goes to full page)
   let expanded = false;
-  let provers = []; // Initialized once, not reactive
+  let provers = [];
+  let proversLoading = false;
 
-  // Seeded random for consistent addresses
+  // Fetch real prover data from API when expanded
+  async function fetchProvers() {
+    if (!job || job.status === 'pending' || job.status === 'pending_tx') {
+      provers = [];
+      return;
+    }
+
+    proversLoading = true;
+    try {
+      const response = await fetch(`${API_BASE}/api/jobs/${job.job_id}/provers`);
+      if (response.ok) {
+        const data = await response.json();
+        provers = (data.provers || []).map(p => ({
+          address: p.prover_pubkey
+            ? p.prover_pubkey.slice(0, 8)
+            : 'Unknown',
+          fullAddress: p.prover_pubkey || 'Unknown',
+          progress: 100,
+          status: 'verified',
+          commitment: p.commitment
+        }));
+      }
+    } catch (e) {
+      console.error('Failed to fetch provers:', e);
+      provers = [];
+    } finally {
+      proversLoading = false;
+    }
+  }
+
+  // Fetch provers when expanded and job has results
+  $: if (expanded && job?.job_id && (job.status === 'completed' || job.status === 'active' || job.status === 'claimed')) {
+    fetchProvers();
+  }
+
+  // Seeded random for consistent hashes
   function seededRandom(seed) {
     const x = Math.sin(seed) * 10000;
     return x - Math.floor(x);
   }
 
-  function generateProverAddress(jobId, index) {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz123456789';
-    let addr = '';
-    for (let i = 0; i < 8; i++) {
-      const seed = (jobId * 1000) + (index * 100) + i;
-      const charIndex = Math.floor(seededRandom(seed) * chars.length);
-      addr += chars.charAt(charIndex);
+  // Download result
+  let downloading = false;
+  async function downloadResult(event) {
+    event.stopPropagation();
+    if (!job || downloading) return;
+
+    downloading = true;
+    try {
+      const response = await fetch(`${API_BASE}/api/jobs/${job.job_id}/result`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch result');
+      }
+
+      const data = await response.json();
+      if (!data.encrypted_result) {
+        throw new Error('No result available');
+      }
+
+      // Decode base64 to binary
+      const binaryString = atob(data.encrypted_result);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+
+      // Create blob and download
+      const blob = new Blob([bytes], { type: 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `fhe_result_${job.job_id}.bin`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('Download failed:', e);
+      alert('Download failed: ' + e.message);
+    } finally {
+      downloading = false;
     }
-    return addr;
-  }
-
-  // Initialize provers once based on job state (not reactive to avoid re-renders)
-  function initProvers() {
-    if (!job || job.status === 'pending' || job.status === 'pending_tx') {
-      return [];
-    }
-
-    const count = job.required_provers || 3;
-    const isCompleted = job.status === 'completed';
-    const isFailed = job.status === 'failed';
-
-    return Array(count).fill(null).map((_, i) => ({
-      address: generateProverAddress(job.job_id, i),
-      progress: isCompleted ? 100 : isFailed ? 25 + (i * 10) : 40 + (i * 20),
-      status: isCompleted ? 'verified' : isFailed && i === 0 ? 'failed' : 'computing'
-    }));
-  }
-
-  // Only update provers when job.job_id changes, not on every prop update
-  $: if (job?.job_id) {
-    provers = initProvers();
   }
 
   // Status styles
@@ -316,8 +364,10 @@
 
       <!-- Actions -->
       <div class="job-actions">
-        {#if isOwner && job.status === 'completed'}
-          <button class="btn btn-sm btn-primary">[DOWNLOAD_RESULT]</button>
+        {#if isOwner && (job.status === 'completed' || job.has_result)}
+          <button class="btn btn-sm btn-primary" on:click={downloadResult} disabled={downloading}>
+            {downloading ? '[DOWNLOADING...]' : '[DOWNLOAD_RESULT]'}
+          </button>
         {/if}
         {#if isOwner && (job.status === 'pending_tx' || job.status === 'pending')}
           <button class="btn btn-sm btn-ghost text-error">[CANCEL]</button>

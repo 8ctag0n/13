@@ -112,58 +112,89 @@
     }
   }
 
-  // Generate prover data - use real prover_pubkey if available
-  function generateProvers() {
+  // Prover data from API
+  let provers = [];
+  let proversLoading = false;
+
+  // Fetch real prover data from API
+  async function fetchProvers() {
     if (!job || job.status === 'pending' || job.status === 'pending_tx') {
-      return [];
+      provers = [];
+      return;
     }
 
-    const count = job.required_provers || 1;
-    const isCompleted = job.status === 'completed';
-    const isFailed = job.status === 'failed';
-    const isClaimed = job.status === 'claimed' || job.status === 'computing';
-
-    // If we have a real prover_pubkey from the backend, use it
-    if (job.prover_pubkey) {
-      return [{
-        address: job.prover_pubkey,
-        shortAddress: job.prover_pubkey.slice(0, 6) + '...' + job.prover_pubkey.slice(-4),
-        progress: isCompleted ? 100 : isFailed ? 0 : 75,
-        status: isCompleted ? 'verified' : isFailed ? 'failed' : 'computing',
-        commitment: isCompleted ? `verified` : null
-      }];
-    }
-
-    // Seeded random for consistent mock values
-    function seededRandom(seed) {
-      const x = Math.sin(seed) * 10000;
-      return x - Math.floor(x);
-    }
-
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz123456789';
-
-    return Array(count).fill(null).map((_, i) => {
-      let addr = '';
-      for (let j = 0; j < 44; j++) {
-        const seed = (job.job_id * 1000) + (i * 100) + j;
-        const charIndex = Math.floor(seededRandom(seed) * chars.length);
-        addr += chars.charAt(charIndex);
+    proversLoading = true;
+    try {
+      const response = await fetch(`${API_BASE}/api/jobs/${job.job_id}/provers`);
+      if (response.ok) {
+        const data = await response.json();
+        provers = (data.provers || []).map(p => ({
+          address: p.prover_pubkey || 'Unknown',
+          shortAddress: p.prover_pubkey
+            ? p.prover_pubkey.slice(0, 6) + '...' + p.prover_pubkey.slice(-4)
+            : 'Unknown',
+          progress: 100,
+          status: 'verified',
+          commitment: p.commitment ? p.commitment.slice(0, 16) + '...' : null,
+          submittedAt: p.submitted_at
+        }));
       }
-
-      return {
-        address: addr,
-        shortAddress: addr.slice(0, 6) + '...' + addr.slice(-4),
-        progress: isCompleted ? 100 : isFailed && i === 0 ? 25 : isClaimed ? 60 + (i * 15) : 0,
-        status: isCompleted ? 'verified' : isFailed && i === 0 ? 'failed' : isClaimed ? 'computing' : 'pending',
-        commitment: isCompleted ? `commit_${job.job_id}_${i}` : null
-      };
-    });
+    } catch (e) {
+      console.error('Failed to fetch provers:', e);
+    } finally {
+      proversLoading = false;
+    }
   }
 
-  $: provers = job ? generateProvers() : [];
+  // Fetch provers when job changes
+  $: if (job?.job_id) {
+    fetchProvers();
+  }
 
   // Use real has_result from backend
   $: hasResult = job?.has_result || false;
+
+  // Download encrypted result
+  let downloading = false;
+  async function downloadResult() {
+    if (!job || downloading) return;
+
+    downloading = true;
+    try {
+      const response = await fetch(`${API_BASE}/api/jobs/${job.job_id}/result`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch result');
+      }
+
+      const data = await response.json();
+      if (!data.encrypted_result) {
+        throw new Error('No result available');
+      }
+
+      // Decode base64 to binary
+      const binaryString = atob(data.encrypted_result);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+
+      // Create blob and download
+      const blob = new Blob([bytes], { type: 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `fhe_result_${job.job_id}.bin`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('Download failed:', e);
+      alert('Download failed: ' + e.message);
+    } finally {
+      downloading = false;
+    }
+  }
 
   // Go back
   function goBack() {
@@ -444,7 +475,7 @@
       </section>
 
       <!-- Result Section (Owner Only, when result exists) -->
-      {#if isOwner && job.status === 'completed' && hasResult}
+      {#if isOwner && hasResult}
         <section class="result-section">
           <div class="section-header">
             <span class="text-muted">{'>'}</span> COMPUTATION_RESULT
@@ -452,12 +483,12 @@
           </div>
           <div class="terminal-box result-box">
             <div class="result-info text-muted text-sm mb-4">
-              Only you (the job creator) can decrypt this result.
+              Only you (the job creator) can decrypt this result with your client key.
             </div>
             <div class="result-placeholder">
               <span class="text-cyan">[ENCRYPTED_RESULT_AVAILABLE]</span>
-              <button class="btn btn-primary">
-                [DECRYPT_&_DOWNLOAD]
+              <button class="btn btn-primary" on:click={downloadResult} disabled={downloading}>
+                {downloading ? '[DOWNLOADING...]' : '[DOWNLOAD_RESULT]'}
               </button>
             </div>
           </div>

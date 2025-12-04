@@ -24,6 +24,7 @@
   let currentStep = 1;
   let witnessData = null;
   let selectedIndex = null;  // The sanctioned index to check against
+  let expectedCount = 1;  // Number of encrypted values in witness
   let isProcessing = false;
   let processingStep = '';
   let processingMessage = '';
@@ -57,7 +58,7 @@
         body: JSON.stringify({
           operation: 'countif',  // Note: no underscore for price-recommendation endpoint
           operation_value: selectedIndex || 0,
-          expected_count: 10,
+          expected_count: expectedCount,
           required_provers: requiredProvers
         })
       });
@@ -153,6 +154,7 @@
       const result = await createFheJobFromWitness({
         operation: 'count_if',
         operationValue: selectedIndex,
+        expectedCount: expectedCount,
         serverKeyBytes: witnessData.serverKeyBytes,
         encryptedData: witnessData.encryptedData,
         wallet: $walletStore,
@@ -322,6 +324,28 @@
           {#if witnessData}
             <div class="upload-success mt-4">
               <span class="text-success">[OK]</span> Witness file loaded successfully
+            </div>
+
+            <!-- Expected Count Input -->
+            <div class="count-input-section mt-6">
+              <label class="text-mono text-sm mb-2 block">
+                VALUE_COUNT: How many values did you encrypt?
+              </label>
+              <input
+                type="number"
+                min="1"
+                max="1000"
+                bind:value={expectedCount}
+                class="input text-mono"
+                style="max-width: 200px;"
+              />
+              <div class="text-xs text-muted mt-2">
+                If you used <code>fhe-cli encrypt --values 10,20,30,40,50</code>, enter <strong>5</strong>
+              </div>
+              <div class="warning-box mt-3">
+                <span class="text-warning">[!]</span>
+                <span class="text-xs">This must match the actual count. Incorrect values will cause computation to fail.</span>
+              </div>
             </div>
           {/if}
         </div>
@@ -783,7 +807,19 @@
   .upload-success {
     padding: var(--space-3);
     background: rgba(16, 185, 129, 0.1);
-    border: 1px solid rgba(16, 185, 129, 0.3);
+  }
+
+  .warning-box {
+    padding: var(--space-2) var(--space-3);
+    background: rgba(245, 158, 11, 0.1);
+    border: 1px dashed rgba(245, 158, 11, 0.5);
+    border-radius: var(--radius-md);
+  }
+
+  .count-input-section {
+    padding: var(--space-4);
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--zyber-border-muted);
     border-radius: var(--radius-md);
   }
 
