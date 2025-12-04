@@ -1,6 +1,6 @@
 # GitBook Configuration for ZyberLink
 
-root: ./docs/
+root: .
 
 structure:
   readme: README.md
