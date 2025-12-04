@@ -1,0 +1,461 @@
+# ZyberLink / ZyberLink - Gitignore
+
+# ============================================
+# Rust / Cargo
+# ============================================
+
+# Compiled files
+target/
+**/*.rs.bk
+*.pdb
+test-witnesses/
+# Cargo lock file (keep for applications, ignore for libraries)
+# Uncomment if this is a library:
+# Cargo.lock
+
+# Cargo build artifacts
+*.so
+*.dylib
+*.dll
+*.rlib
+
+# Cargo local config
+.cargo/config.toml
+
+# ============================================
+# Solana
+# ============================================
+
+# Solana CLI local config
+.config/
+
+# Deployed program artifacts
+*.so
+deploy/
+dist/
+
+# Solana test validator ledger
+test-ledger/
+ledger/
+
+# Solana keypairs (CRITICAL - never commit!)
+*.json
+!package.json
+!tsconfig.json
+!vercel.json
+deploy-keypair.json
+id.json
+keypair.json
+*-keypair.json
+
+# Program keys (keep public keys, exclude secret keys)
+program-keypair.json
+authority-keypair.json
+payer-keypair.json
+internal
+
+# IntelliJ related
+zyberlink-wallet/*.iml
+zyberlink-wallet/*.ipr
+zyberlink-wallet/*.iws
+zyberlink-wallet/.idea/
+
+# ============================================
+# Rust FFI Bridge
+# ============================================
+
+# Generated FFI bindings
+zyberlink-wallet/lib/bridge_generated.dart
+zyberlink-wallet/rust/target/
+
+# ============================================
+# Node / JavaScript (if used for testing)
+# ============================================
+
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+
+# ============================================
+# Python (if used for scripts)
+# ============================================
+
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# ============================================
+# IDEs and Editors
+# ============================================
+
+# VSCode
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+
+# Eclipse
+.project
+.classpath
+.settings/
+
+# Vim
+*.swp
+*.swo
+*~
+
+# Emacs
+*~
+\#*\#
+.\#*
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# ============================================
+# Operating System Files
+# ============================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Linux
+*~
+.directory
+.Trash-*
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# ============================================
+# Logs and Databases
+# ============================================
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Databases
+*.db
+*.sqlite
+*.sqlite3
+
+# ============================================
+# Environment and Secrets
+# ============================================
+
+# Environment files
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+.env.containers
+.envrc
+
+# Secret files
+secrets/
+*.key
+*.pem
+*.p12
+*.secret
+
+# API keys and credentials
+credentials.json
+service-account.json
+
+# ============================================
+# Build and Distribution
+# ============================================
+
+# Build artifacts
+build/
+dist/
+out/
+release/
+
+# Dependency directories
+vendor/
+
+# ============================================
+# Testing
+# ============================================
+
+# Test coverage
+coverage/
+*.lcov
+.nyc_output/
+
+# Test artifacts
+test-results/
+test-output/
+
+# ============================================
+# Solana Specific
+# ============================================
+
+# Program dump files
+*.dump
+
+# Anchor (if we migrate to it later)
+.anchor/
+src/programs/*/target/
+
+# ============================================
+# Zcash / ZK Proving
+# ============================================
+
+# Proving and verifying keys (large files, don't commit)
+*.pk
+*.vk
+*.params
+proving-keys/
+verification-keys/
+
+# But allow .gitkeep in empty directories
+!.gitkeep
+
+# Generated proofs (examples only)
+proofs/
+*.proof
+
+# Witness files (sensitive data)
+*.witness
+
+# ============================================
+# Prover Node
+# ============================================
+
+# Prover node runtime data
+src/prover-node/runtime/
+src/prover-node/jobs/
+src/prover-node/state/
+
+# Prover configuration (may contain sensitive data)
+src/prover-node/config.local.toml
+
+# ============================================
+# Docker
+# ============================================
+
+# Docker
+*.dockerignore
+docker-compose.override.yml
+
+# ============================================
+# Temporary Files
+# ============================================
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+*.cache
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# ============================================
+# Documentation Build Artifacts
+# ============================================
+
+# mdBook
+book/
+# But track docs/book/ (GitBook source files)
+!docs/book/
+docs-private
+# Sphinx
+docs/_build/
+docs/_static/
+docs/_templates/
+
+# ============================================
+# CI/CD
+# ============================================
+
+# GitHub Actions
+.github/workflows/*.log
+
+# ============================================
+# Benchmarking and Profiling
+# ============================================
+
+# Criterion benchmarks
+criterion/
+benches/target/
+
+# Profiling data
+*.prof
+*.perf
+flamegraph.svg
+
+# ============================================
+# Mobile Development
+# ============================================
+
+# Android signing
+*.jks
+*.keystore
+key.properties
+google-services.json
+
+# iOS signing
+*.mobileprovision
+*.p12
+*.cer
+*.certSigningRequest
+exportOptions.plist
+GoogleService-Info.plist
+
+# ============================================
+# Project Specific
+# ============================================
+
+# Demo recordings
+demo/
+recordings/
+*.mp4
+*.mov
+*.avi
+
+# Screenshots
+screenshots/
+*.png
+*.jpg
+*.jpeg
+!docs/images/*.png
+!docs/images/*.jpg
+
+# Large test files
+test-data/large/
+*.bin
+
+# Local development databases
+local-db/
+*.leveldb/
+
+# ============================================
+# Keep Important Files
+# ============================================
+
+# Keep these even if they match patterns above
+!.gitkeep
+!.gitignore
+!.github/
+!README.md
+!LICENSE*
+
+# ============================================
+# Generated Documentation
+# ============================================
+
+# Auto-generated API docs
+api-docs/generated/
+docs/api/
+
+# ============================================
+# Internal Planning & Strategy Docs
+# ============================================
+
+# Internal planning documents (not for public repo)
+docs/internal/
+docs/planning/
+docs/strategy-internal/
+docs/strategy/
+docs/private/
+
+# ============================================
+# Misc
+# ============================================
+
+# Misc
+.cache/
+.parcel-cache/
+*.pid
+*.seed
+*.pid.lock
+.grunt/
+lib-cov/
+.lock-wscript
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Optional REPL history
+.node_repl_history
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# ============================================
+# End of .gitignore
+# ============================================
+
+# Archived/deprecated code (not for production)
+___dump/
+docs-private/
+
+# ============================================
+# Development & Testing (local only)
+# ============================================
+
+# Private development folder (experiments, notes, test scripts)
+dev/
+
+# Test validator ledger (already covered above but explicit)
+test-ledger/
+
+# Temporary log files
+*.log
+logs/
+
+releases/

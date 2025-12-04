@@ -1,0 +1,37 @@
+FROM docker.io/library/debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y \
+    curl \
+    ca-certificates \
+    bzip2 \
+    iproute2 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Solana CLI (latest stable)
+RUN sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)" && \
+    ln -s /root/.local/share/solana/install/active_release/bin/solana* /usr/local/bin/
+
+# Ledger volume
+VOLUME /ledger
+
+EXPOSE 8899 8900
+
+# Entrypoint script to get container IP and start validator
+# Only use --reset if ledger is empty (first run)
+RUN echo '#!/bin/bash\n\
+CONTAINER_IP=$(ip -4 addr show eth0 2>/dev/null | grep inet | awk "{print \$2}" | cut -d/ -f1)\n\
+if [ -z "$CONTAINER_IP" ]; then\n\
+  CONTAINER_IP="127.0.0.1"\n\
+fi\n\
+RESET_FLAG=""\n\
+if [ ! -f /ledger/rocksdb/CURRENT ]; then\n\
+  echo "First run: will reset ledger"\n\
+  RESET_FLAG="--reset"\n\
+else\n\
+  echo "Existing ledger found: preserving state"\n\
+fi\n\
+echo "Starting validator with IP: $CONTAINER_IP"\n\
+exec solana-test-validator $RESET_FLAG --ledger /ledger --limit-ledger-size 10000000 --rpc-port 8899 --bind-address "$CONTAINER_IP"\n\
+' > /entrypoint.sh && chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]

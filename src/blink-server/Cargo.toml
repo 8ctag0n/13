@@ -1,0 +1,59 @@
+[package]
+name = "zyberlink-blink-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "blink-server"
+path = "src/main.rs"
+
+[dependencies]
+# Web framework
+actix-web = "4.5"
+actix-cors = "0.7"
+
+# Async runtime
+tokio = { workspace = true, features = ["full"] }
+
+# Serialization
+serde = { workspace = true, features = ["derive"] }
+serde_json = "1.0"
+
+# Solana
+solana-sdk = { workspace = true }
+solana-client = { workspace = true }
+solana-account-decoder = { workspace = true }
+
+# Logging
+log = { workspace = true }
+env_logger = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+
+# Encoding
+bs58 = "0.5"
+base64 = "0.22"
+bincode = "1.3"
+
+# FHE (Fully Homomorphic Encryption)
+tfhe = { version = "0.10", default-features = false, features = ["integer", "x86_64-unix"] }
+
+# Hashing
+sha3 = "0.10"
+blake2 = "0.10"
+hex = "0.4"
+
+# Database
+sqlx = { version = "0.7", features = ["runtime-tokio-native-tls", "postgres", "chrono", "migrate"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+# SDK and types
+zyberlink-sdk = { path = "../sdk" }
+zyberlink-types = { path = "../shared/types" }
+borsh = { workspace = true }
+
+[dev-dependencies]
+reqwest = { version = "0.11", features = ["json"] }

@@ -1,10 +1,10 @@
 #!/bin/bash
-# Setup script for CypherLink development environment
+# Setup script for ZyberLink development environment
 
 set -e
 
 echo "======================================"
-echo "CypherLink Development Setup"
+echo "ZyberLink Development Setup"
 echo "======================================"
 echo ""
 

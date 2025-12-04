@@ -1,0 +1,100 @@
+version: '3.8'
+
+# ZyberLink Development Stack
+# ===========================
+# Stack completo para desarrollo local.
+#
+# Prerequisito: Solana validator corriendo en host
+#   solana-test-validator --reset
+#
+# Uso:
+#   docker-compose -f docker-compose.full.yml up -d --build
+#   docker-compose -f docker-compose.full.yml logs -f
+#   docker-compose -f docker-compose.full.yml down
+
+services:
+  # ─────────────────────────────────────────────────────────────────────────
+  # PostgreSQL Database
+  # ─────────────────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    container_name: zyberlink-postgres
+    environment:
+      POSTGRES_DB: zyberlink
+      POSTGRES_USER: zyberlink
+      POSTGRES_PASSWORD: dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zyberlink -d zyberlink"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - zyberlink-dev
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Backend API Server (Rust)
+  # ─────────────────────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: zyberlink-backend
+    environment:
+      RUST_LOG: info
+      DATABASE_URL: postgresql://zyberlink:dev_password@postgres:5432/zyberlink
+      # Conecta al validator en el host
+      SOLANA_RPC_URL: http://host.docker.internal:8899
+      PROGRAM_ID: ${PROGRAM_ID:-CypherLinkProgram11111111111111111111111111}
+      PORT: 8080
+      HOST: 0.0.0.0
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - zyberlink-dev
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Frontend Dev Server (Vite + Svelte)
+  # ─────────────────────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./webapp
+      dockerfile: Dockerfile
+    container_name: zyberlink-frontend
+    environment:
+      # Estas se usan en runtime (vite dev server)
+      VITE_API_URL: http://localhost:8080
+      VITE_SOLANA_RPC_URL: http://localhost:8899
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    volumes:
+      # Hot reload: montar source code
+      - ./webapp/src:/app/src:ro
+      - ./webapp/public:/app/public:ro
+    networks:
+      - zyberlink-dev
+
+networks:
+  zyberlink-dev:
+    driver: bridge
+    name: zyberlink-dev
+
+volumes:
+  postgres_data:
+    name: zyberlink-postgres-data

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Deploy CypherLink program to local validator
+# Deploy ZyberLink program to local validator
 
 set -e
 
@@ -16,14 +16,14 @@ if ! pgrep -x "solana-test-validator" > /dev/null; then
 fi
 
 echo "[1/2] Building program..."
-cd programs/cypherlink
+cd programs/zyberlink
 cargo build-sbf
 cd ../..
 echo "✅ Program built"
 echo ""
 
 echo "[2/2] Deploying program..."
-PROGRAM_PATH="target/deploy/cypherlink.so"
+PROGRAM_PATH="target/deploy/zyberlink.so"
 
 if [ ! -f "$PROGRAM_PATH" ]; then
     echo "❌ Program binary not found at $PROGRAM_PATH"

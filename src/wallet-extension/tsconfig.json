@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "lib": ["ESNext", "DOM"],
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "allowJs": true,
+    "checkJs": false,
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "types": ["chrome", "vite/client"],
+    "baseUrl": ".",
+    "paths": {
+      "$lib/*": ["lib/*"]
+    }
+  },
+  "include": [
+    "**/*.ts",
+    "**/*.svelte"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
+}
