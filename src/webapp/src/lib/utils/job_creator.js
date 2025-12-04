@@ -60,6 +60,7 @@ export async function createFheJobFromWitness(options) {
   const {
     operation,
     operationValue = 0,
+    expectedCount = 1,  // Number of encrypted values (must match actual count)
     serverKeyBytes,  // New: raw bytes for pre-upload
     serverKey,       // Legacy: base64 string
     encryptedData,
@@ -168,6 +169,7 @@ export async function createFheJobFromWitness(options) {
       nonce: nonce,
       operation: operation.toLowerCase(),
       operation_value: operationValue,
+      expected_count: expectedCount,
       price_lamports: priceLamports,
       required_provers: requiredProvers,
       consensus_threshold: consensusThreshold,

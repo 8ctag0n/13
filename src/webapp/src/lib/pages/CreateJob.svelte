@@ -8,6 +8,7 @@
   import { ensureTokenAccount, WZEC_MINT } from '../utils/tokenAccountManager';
   import { createSolanaRpc } from '@solana/kit';
   import { toastStore } from '../stores/toast';
+  import { createFheJobFromWitness } from '../utils/job_creator';
 
   // Wallet connection state - use store directly for reactivity
   let showWalletModal = false;
@@ -49,6 +50,7 @@
   let witnessFile = null;
   let witnessParseError = null;
   let isDragging = false;
+  let serverKeyBytes = null;  // Raw bytes for pre-upload
 
   // Dynamic pricing estimation
   let estimatedCost = null;
@@ -232,8 +234,10 @@
         throw new Error(`Invalid server_key length: ${serverKeyLen}`);
       }
 
-      // Extract server_key bytes
-      const serverKeyBytes = new Uint8Array(buffer, 8, serverKeyLen);
+      // Extract server_key bytes - keep raw for pre-upload
+      const skBytes = new Uint8Array(buffer, 8, serverKeyLen);
+      // Copy to avoid issues with buffer views
+      serverKeyBytes = new Uint8Array(skBytes);
 
       // Extract encrypted_data bytes (rest of the file)
       const encryptedDataStart = 8 + serverKeyLen;
@@ -243,19 +247,21 @@
         throw new Error('No encrypted data found in witness');
       }
 
-      // Convert to base64 using chunked approach (memory efficient)
-      jobData.serverKey = arrayBufferToBase64(serverKeyBytes);
+      // Only encode encrypted_data to base64 (small, ~KB)
+      // Server key will be uploaded separately via pre-upload
+      jobData.serverKey = null;  // No longer used - using serverKeyBytes instead
 
       // Small delay to keep UI responsive
       await new Promise(r => setTimeout(r, 10));
 
       jobData.encryptedData = arrayBufferToBase64(encryptedDataBytes);
 
-      console.log(`Parsed witness: server_key=${(serverKeyLen / 1024 / 1024).toFixed(1)}MB, encrypted_data=${(encryptedDataBytes.length / 1024).toFixed(1)}KB`);
+      console.log(`Parsed witness: server_key=${(serverKeyLen / 1024 / 1024).toFixed(1)}MB (raw bytes), encrypted_data=${(encryptedDataBytes.length / 1024).toFixed(1)}KB`);
 
     } catch (error) {
       console.error('Failed to parse witness file:', error);
       witnessParseError = error.message || 'Invalid witness file format';
+      serverKeyBytes = null;
       jobData.serverKey = null;
       jobData.encryptedData = null;
     } finally {
@@ -296,13 +302,17 @@
     navigateTo('dashboard');
   }
 
+  // Track job result for showing explorer link
+  let createdJobId = null;
+  let txSignature = null;
+
   async function handleSubmit() {
     if (!$walletStore || !$walletStore.publicKey) {
       toastStore.add('Please connect your wallet first', 'error');
       return;
     }
 
-    if (!witnessFile || !jobData.serverKey || !jobData.encryptedData) {
+    if (!witnessFile || !serverKeyBytes || !jobData.encryptedData) {
       toastStore.add('Please upload a valid witness.bin file', 'error');
       return;
     }
@@ -313,6 +323,8 @@
     }
 
     isProcessing = true;
+    createdJobId = null;
+    txSignature = null;
 
     try {
       // If paying with wZEC, ensure token account exists
@@ -335,118 +347,47 @@
           }
         );
 
-        // If needs creation, the instruction will be included in the job transaction
         if (tokenResult.needsCreation) {
           console.log('Token account needs creation, instruction prepared');
         }
       }
 
-      // Step 1: Use already parsed data from witness.bin
-      processingMessage = 'Preparing encrypted data...';
-      const encryptedDataBase64 = jobData.encryptedData;
-      const serverKeyBase64 = jobData.serverKey;
-
-      // Step 2: Generate signature
-      processingMessage = 'Generating signature...';
-      const timestamp = Math.floor(Date.now() / 1000);
-      const nonce = Math.random().toString(36).substring(2, 15);
-      const jobId = timestamp * 1000 + Math.floor(Math.random() * 1000);
-      const message = `create_job:${jobId}:${timestamp}:${nonce}`;
-
-      const messageBytes = new TextEncoder().encode(message);
-      const signatureBytes = await $walletStore.signMessage(messageBytes);
-      const signatureBase64 = btoa(
-        String.fromCharCode(...signatureBytes)
-      );
-
-      // Step 3: Call validate-and-build endpoint
-      processingMessage = 'Validating job with backend...';
-      const validateResponse = await fetch(`${API_BASE}/api/jobs/validate-and-build`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          creator_pubkey: $walletStore.publicKey.toString(),
-          encrypted_data: encryptedDataBase64,
-          server_key: serverKeyBase64,
-          message: message,
-          signature: signatureBase64,
-          nonce: nonce,
-          operation: jobData.operation.toLowerCase(),
-          operation_value: jobData.operationValue,
-          price_lamports: jobData.priceLamports,
-          required_provers: jobData.requiredProvers,
-          consensus_threshold: jobData.consensusThreshold,
-          payment_method: jobData.paymentMethod.toUpperCase()
-        })
-      });
-
-      if (!validateResponse.ok) {
-        const errorData = await validateResponse.json();
-        throw new Error(errorData.error || 'Failed to validate job');
-      }
-
-      const { job_id, transaction } = await validateResponse.json();
-      console.log('Job validated with ID:', job_id);
-
-      // Step 4: Deserialize unsigned transaction
-      processingMessage = 'Preparing transaction for signing...';
-      const { Transaction } = await import('@solana/web3.js');
-      const txBytes = Uint8Array.from(atob(transaction), c => c.charCodeAt(0));
-      const tx = Transaction.from(txBytes);
-
-      // Step 5: Get recent blockhash and set fee payer (using kit RPC)
-      const rpc = createSolanaRpc(RPC_URL);
-      const { value: latestBlockhash } = await rpc.getLatestBlockhash({ commitment: 'confirmed' }).send();
-      tx.recentBlockhash = latestBlockhash.blockhash;
-      tx.feePayer = $walletStore.publicKey;
-
-      // Step 6: Sign transaction with wallet
-      processingMessage = 'Waiting for wallet signature...';
-      toastStore.add('Please sign the transaction in your wallet', 'info');
-      const signedTx = await $walletStore.signTransaction(tx);
-
-      // Step 7: Send transaction to Solana network (using kit RPC)
-      processingMessage = 'Sending transaction to Solana...';
-      const txBase64 = btoa(String.fromCharCode(...signedTx.serialize()));
-      const sendResult = await rpc.sendTransaction(txBase64, {
-        encoding: 'base64',
-        skipPreflight: false,
-        preflightCommitment: 'confirmed'
-      }).send();
-      const signature = sendResult;
-
-      // Step 8: Wait for confirmation
-      processingMessage = 'Confirming transaction...';
-      // Poll for confirmation
-      let confirmed = false;
-      for (let i = 0; i < 30 && !confirmed; i++) {
-        await new Promise(r => setTimeout(r, 1000));
-        const statusResult = await rpc.getSignatureStatuses([signature]).send();
-        if (statusResult.value[0]?.confirmationStatus === 'confirmed' ||
-            statusResult.value[0]?.confirmationStatus === 'finalized') {
-          confirmed = true;
+      // Use createFheJobFromWitness which handles:
+      // 1. Pre-upload of server key (streaming with progress)
+      // 2. Signature generation
+      // 3. Transaction signing and sending
+      // 4. Backend confirmation
+      const result = await createFheJobFromWitness({
+        operation: jobData.operation,
+        operationValue: jobData.operationValue,
+        expectedCount: 5,  // Default for custom jobs
+        serverKeyBytes: serverKeyBytes,  // Raw bytes for pre-upload
+        encryptedData: jobData.encryptedData,
+        wallet: $walletStore,
+        apiBaseUrl: API_BASE,
+        rpcUrl: RPC_URL,
+        priceLamports: jobData.priceLamports,
+        requiredProvers: jobData.requiredProvers,
+        consensusThreshold: jobData.consensusThreshold,
+        paymentMethod: jobData.paymentMethod.toUpperCase(),
+        onProgress: (progress) => {
+          processingMessage = progress.message;
+          // Show upload progress details
+          if (progress.uploadDetails) {
+            const { loadedMB, totalMB, speedKBps, etaFormatted } = progress.uploadDetails;
+            processingMessage = `Uploading: ${loadedMB}/${totalMB} MB @ ${speedKBps} KB/s (ETA: ${etaFormatted})`;
+          }
         }
-      }
-      if (!confirmed) throw new Error('Transaction confirmation timeout');
-      console.log('Transaction confirmed:', signature);
-
-      // Step 9: Confirm with backend
-      processingMessage = 'Finalizing job creation...';
-      const confirmResponse = await fetch(`${API_BASE}/api/jobs/${job_id}/confirm`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          signature: signature
-        })
       });
 
-      if (!confirmResponse.ok) {
-        throw new Error('Failed to confirm job with backend');
-      }
+      createdJobId = result.jobId;
+      txSignature = result.signature;
 
-      // Success!
-      toastStore.add(`Job created successfully! ID: ${job_id}`, 'success');
-      navigateTo('dashboard');
+      // Success - show explorer link
+      toastStore.add(`Job created! ID: ${createdJobId}`, 'success');
+
+      // Move to step 4 (success) instead of navigating away
+      currentStep = 4;
 
     } catch (error) {
       console.error('Error during job creation:', error);
@@ -457,11 +398,16 @@
     }
   }
 
+  // Get explorer URL for transaction
+  function getExplorerUrl(signature) {
+    return `https://explorer.solana.com/tx/${signature}?cluster=devnet`;
+  }
+
   function handlePaymentMethodChange(event) {
     jobData.paymentMethod = event.detail.payment_method;
   }
 
-  $: canProceedStep1 = jobData.witness && jobData.serverKey && jobData.encryptedData && !witnessParseError;
+  $: canProceedStep1 = jobData.witness && serverKeyBytes && jobData.encryptedData && !witnessParseError;
   $: canProceedStep2 = jobData.operation && jobData.operationValue;
 </script>
 
