@@ -5,4 +5,4 @@ pub mod queries;
 // Re-export commonly used types
 pub use connection::{create_pool, run_migrations};
 pub use models::{InsertJobData, JobStatus};
-pub use queries::{FheResultQueries, JobQueries, NonceQueries, ServerKeyQueries, WitnessQueries};
+pub use queries::{FheResultQueries, JobQueries, NetworkMetricsQueries, NonceQueries, ServerKeyQueries, WitnessQueries};

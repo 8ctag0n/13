@@ -461,6 +461,107 @@ impl FheResultQueries {
     }
 }
 
+/// Database operations for network metrics (historical/cumulative stats)
+pub struct NetworkMetricsQueries;
+
+/// Network metrics data structure
+#[derive(Debug, Clone)]
+pub struct NetworkMetrics {
+    pub total_data_processed_bytes: i64,
+    pub total_jobs_processed: i64,
+    pub total_fhe_computations: i64,
+    pub total_zk_proofs: i64,
+}
+
+impl NetworkMetricsQueries {
+    /// Get current network metrics
+    pub async fn get_metrics(pool: &PgPool) -> Result<NetworkMetrics> {
+        let result: Option<(i64, i64, i64, i64)> = sqlx::query_as(
+            r#"
+            SELECT
+                total_data_processed_bytes,
+                total_jobs_processed,
+                total_fhe_computations,
+                total_zk_proofs
+            FROM network_metrics
+            WHERE id = 1
+            "#,
+        )
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| anyhow!("Failed to fetch network metrics: {}", e))?;
+
+        Ok(result
+            .map(|(bytes, jobs, fhe, zk)| NetworkMetrics {
+                total_data_processed_bytes: bytes,
+                total_jobs_processed: jobs,
+                total_fhe_computations: fhe,
+                total_zk_proofs: zk,
+            })
+            .unwrap_or(NetworkMetrics {
+                total_data_processed_bytes: 0,
+                total_jobs_processed: 0,
+                total_fhe_computations: 0,
+                total_zk_proofs: 0,
+            }))
+    }
+
+    /// Increment data processed (called when a job completes)
+    pub async fn increment_data_processed(pool: &PgPool, bytes: i64) -> Result<()> {
+        sqlx::query(
+            r#"
+            UPDATE network_metrics
+            SET total_data_processed_bytes = total_data_processed_bytes + $1
+            WHERE id = 1
+            "#,
+        )
+        .bind(bytes)
+        .execute(pool)
+        .await
+        .map_err(|e| anyhow!("Failed to increment data processed: {}", e))?;
+
+        Ok(())
+    }
+
+    /// Increment job counter (called when a job completes)
+    pub async fn increment_jobs_processed(pool: &PgPool, is_fhe: bool) -> Result<()> {
+        if is_fhe {
+            sqlx::query(
+                r#"
+                UPDATE network_metrics
+                SET total_jobs_processed = total_jobs_processed + 1,
+                    total_fhe_computations = total_fhe_computations + 1
+                WHERE id = 1
+                "#,
+            )
+            .execute(pool)
+            .await
+            .map_err(|e| anyhow!("Failed to increment FHE job counter: {}", e))?;
+        } else {
+            sqlx::query(
+                r#"
+                UPDATE network_metrics
+                SET total_jobs_processed = total_jobs_processed + 1,
+                    total_zk_proofs = total_zk_proofs + 1
+                WHERE id = 1
+                "#,
+            )
+            .execute(pool)
+            .await
+            .map_err(|e| anyhow!("Failed to increment ZK job counter: {}", e))?;
+        }
+
+        Ok(())
+    }
+
+    /// Record a completed job with data size (convenience method)
+    pub async fn record_completed_job(pool: &PgPool, data_bytes: i64, is_fhe: bool) -> Result<()> {
+        Self::increment_data_processed(pool, data_bytes).await?;
+        Self::increment_jobs_processed(pool, is_fhe).await?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
 

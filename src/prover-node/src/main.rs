@@ -906,8 +906,22 @@ impl ProverNode {
                         );
                     }
                     Err(e) => {
-                        error!("[Job {}] Failed to submit FHE result: {}", job_id, e);
-                        return Err(e);
+                        let err_str = e.to_string();
+                        // Check if job was already completed by other provers (race condition)
+                        // Error 32 (0x20) = InvalidJobStatus - job is no longer in Pending/Claimed
+                        if err_str.contains("custom program error: 0x20")
+                            || err_str.contains("InvalidJobStatus")
+                            || err_str.contains("Job must be in Pending or Claimed")
+                        {
+                            info!(
+                                "[Job {}] Job already completed by other provers, skipping submit",
+                                job_id
+                            );
+                            // Continue - this is not a failure, just a race condition
+                        } else {
+                            error!("[Job {}] Failed to submit FHE result: {}", job_id, e);
+                            return Err(e);
+                        }
                     }
                 }
             }
