@@ -44,6 +44,8 @@ enum Commands {
     VerifyAll,
     /// Simulate webapp flow: upload server_key separately, then validate-and-build
     WebappFlow,
+    /// Webapp flow + wait for completion + decrypt and verify result
+    WebappFlowVerify,
 }
 
 #[derive(Debug, Deserialize)]
@@ -150,7 +152,10 @@ async fn main() -> Result<()> {
             run_verify_all(&sdk, &rpc_client, &http_client, &user_keypair, &backend_url).await
         }
         Commands::WebappFlow => {
-            run_webapp_flow(&sdk, &rpc_client, &http_client, &user_keypair, &backend_url).await
+            run_webapp_flow(&sdk, &rpc_client, &http_client, &user_keypair, &backend_url, false).await
+        }
+        Commands::WebappFlowVerify => {
+            run_webapp_flow(&sdk, &rpc_client, &http_client, &user_keypair, &backend_url, true).await
         }
     }
 }
@@ -1006,27 +1011,35 @@ fn write_keypair_file(keypair: &Keypair, path: &str) -> Result<()> {
 /// 1. Upload server_key to /api/server-key/upload
 /// 2. Call /api/jobs/validate-and-build with server_key_hash + encrypted_data
 /// 3. Sign and submit the transaction
-/// 4. Verify the witness can be downloaded in correct format
+/// 4. Confirm with backend
+/// 5. (Optional) Wait for job completion and verify decrypted result
 async fn run_webapp_flow(
-    sdk: &MarketplaceSDK,
+    _sdk: &MarketplaceSDK,
     rpc_client: &RpcClient,
     http_client: &reqwest::Client,
     user_keypair: &Keypair,
     backend_url: &str,
+    verify_result: bool,
 ) -> Result<()> {
+    let total_steps = if verify_result { 8 } else { 6 };
+
     log::info!("");
     log::info!("===========================================");
-    log::info!("  Webapp Flow Simulation");
+    log::info!("  Webapp Flow Simulation{}", if verify_result { " + Verification" } else { "" });
     log::info!("  Testing: server_key pre-upload + validate-and-build");
+    if verify_result {
+        log::info!("  + Wait for completion + Decrypt & verify result");
+    }
     log::info!("===========================================");
     log::info!("");
 
     // Step 1: Generate FHE keys and encrypt test data
-    log::info!("[1/7] Generating FHE keys and encrypting data...");
+    log::info!("[1/{}] Generating FHE keys and encrypting data...", total_steps);
     let test_values: Vec<u8> = vec![10, 20, 30];
+    let expected_result: u8 = test_values.iter().map(|&x| x as u16).sum::<u16>() as u8; // 60
     let operation = FheOperation::Sum { expected_count: 3 };
 
-    let (encrypted_data, server_key, _client_key) = create_fhe_data_with_values(&test_values, &operation)?;
+    let (encrypted_data, server_key, client_key) = create_fhe_data_with_values(&test_values, &operation)?;
     log::info!(
         "  Encrypted {} values: {} bytes encrypted_data, {} bytes server_key ({:.1} MB)",
         test_values.len(),
@@ -1036,7 +1049,7 @@ async fn run_webapp_flow(
     );
 
     // Step 2: Upload server_key to /api/server-key/upload
-    log::info!("[2/7] Uploading server_key to /api/server-key/upload...");
+    log::info!("[2/{}] Uploading server_key to /api/server-key/upload...", total_steps);
     let upload_url = format!("{}/api/server-key/upload", backend_url);
 
     let upload_start = std::time::Instant::now();
@@ -1063,7 +1076,7 @@ async fn run_webapp_flow(
     );
 
     // Step 3: Create signature for validate-and-build (simulating wallet.signMessage)
-    log::info!("[3/7] Creating signature for job creation...");
+    log::info!("[3/{}] Creating signature for job creation...", total_steps);
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)?
         .as_secs();
@@ -1077,7 +1090,7 @@ async fn run_webapp_flow(
     log::info!("  Signature: {}...", &signature_base58[..20]);
 
     // Step 4: Call /api/jobs/validate-and-build
-    log::info!("[4/7] Calling /api/jobs/validate-and-build...");
+    log::info!("[4/{}] Calling /api/jobs/validate-and-build...", total_steps);
     let encrypted_data_base64 = BASE64.encode(&encrypted_data);
 
     let validate_url = format!("{}/api/jobs/validate-and-build", backend_url);
@@ -1115,7 +1128,7 @@ async fn run_webapp_flow(
     log::info!("  Transaction received ({} bytes base64)", validate_result.transaction.len());
 
     // Step 5: Deserialize, sign, and submit transaction
-    log::info!("[5/7] Signing and submitting transaction...");
+    log::info!("[5/{}] Signing and submitting transaction...", total_steps);
     let tx_bytes = BASE64.decode(&validate_result.transaction)?;
     let mut tx: Transaction = bincode::deserialize(&tx_bytes)?;
 
@@ -1128,7 +1141,7 @@ async fn run_webapp_flow(
     log::info!("  Transaction confirmed: {}", signature);
 
     // Step 6: Confirm with backend
-    log::info!("[6/7] Confirming job with backend...");
+    log::info!("[6/{}] Confirming job with backend...", total_steps);
     let confirm_url = format!("{}/api/jobs/{}/confirm", backend_url, validate_result.job_id);
     let confirm_response = http_client
         .post(&confirm_url)
@@ -1143,75 +1156,69 @@ async fn run_webapp_flow(
         log::info!("  Job confirmed with backend");
     }
 
-    // Step 7: Verify witness can be downloaded
-    log::info!("[7/7] Verifying witness download...");
-
-    // Wait a moment for chain sync to pick up the job and get witness_hash from on-chain
-    log::info!("  Waiting for chain sync to pick up witness_hash...");
-    tokio::time::sleep(Duration::from_secs(5)).await;
-
-    // Fetch the witness_hash from the job status (this comes from blockchain_jobs via chain sync)
-    let status_url = format!("{}/api/jobs/{}/status", backend_url, validate_result.job_id);
-    let status_response = http_client.get(&status_url).send().await?;
-    let status_text = status_response.text().await?;
-    let status_json: serde_json::Value = serde_json::from_str(&status_text)?;
-
-    let witness_hash = status_json["witness_hash"]
-        .as_str()
-        .ok_or_else(|| anyhow::anyhow!("witness_hash not found in job status"))?;
-
-    log::info!("  Got witness_hash from chain: {}", witness_hash);
-
-    // Use /witness/ endpoint (not /api/witness/)
-    let witness_url = format!("{}/witness/{}", backend_url, witness_hash);
-    let witness_response = http_client.get(&witness_url).send().await?;
-
-    if !witness_response.status().is_success() {
-        log::error!("  FAILED to download witness: {}", witness_response.status());
-        let error_text = witness_response.text().await.unwrap_or_default();
-        log::error!("  Error: {}", error_text);
-        anyhow::bail!("Witness download failed");
+    // If not verifying, we're done
+    if !verify_result {
+        log::info!("");
+        log::info!("===========================================");
+        log::info!("  SUCCESS! Webapp flow works correctly");
+        log::info!("  Job ID: {}", validate_result.job_id);
+        log::info!("===========================================");
+        log::info!("");
+        return Ok(());
     }
 
-    let witness_data = witness_response.bytes().await?;
-    log::info!("  Downloaded witness: {} bytes", witness_data.len());
+    // Step 7: Wait for job completion
+    log::info!("[7/{}] Waiting for job completion...", total_steps);
+    log::info!("  Test values: {:?} -> expected sum: {}", test_values, expected_result);
 
-    // Verify format: [encrypted_data_len (4 bytes LE)][encrypted_data][server_key]
-    if witness_data.len() < 4 {
-        anyhow::bail!("Witness too short");
+    let poll_interval = Duration::from_secs(5);
+    let max_wait = Duration::from_secs(180); // 3 minutes max
+    let start = std::time::Instant::now();
+
+    loop {
+        if start.elapsed() > max_wait {
+            anyhow::bail!("Timeout waiting for job completion after {:?}", max_wait);
+        }
+
+        // Check if result is available (more reliable than status)
+        let result_url = format!("{}/api/jobs/{}/result", backend_url, validate_result.job_id);
+        if let Ok(resp) = http_client.get(&result_url).send().await {
+            if resp.status().is_success() {
+                log::info!("  Job completed! (result available, elapsed: {:?})", start.elapsed());
+                break;
+            }
+        }
+
+        log::info!("  Waiting for result... (elapsed: {:?})", start.elapsed());
+        tokio::time::sleep(poll_interval).await;
     }
 
-    let enc_len = u32::from_le_bytes([
-        witness_data[0], witness_data[1], witness_data[2], witness_data[3]
-    ]) as usize;
+    // Step 8: Fetch and decrypt result
+    log::info!("[8/{}] Fetching and verifying result...", total_steps);
 
-    let downloaded_enc_data = &witness_data[4..4+enc_len];
-    let downloaded_server_key = &witness_data[4+enc_len..];
+    let encrypted_result = fetch_result(http_client, backend_url, validate_result.job_id).await?;
+    log::info!("  Got encrypted result ({} bytes)", encrypted_result.len());
 
-    log::info!("  Format check:");
-    log::info!("    - Header: encrypted_data_len = {}", enc_len);
-    log::info!("    - encrypted_data: {} bytes (expected {})", downloaded_enc_data.len(), encrypted_data.len());
-    log::info!("    - server_key: {} bytes (expected {})", downloaded_server_key.len(), server_key.len());
-
-    if downloaded_enc_data.len() != encrypted_data.len() {
-        anyhow::bail!("encrypted_data length mismatch!");
-    }
-    if downloaded_server_key.len() != server_key.len() {
-        anyhow::bail!("server_key length mismatch!");
-    }
-    if downloaded_enc_data != encrypted_data.as_slice() {
-        anyhow::bail!("encrypted_data content mismatch!");
-    }
-    if downloaded_server_key != server_key.as_slice() {
-        anyhow::bail!("server_key content mismatch!");
-    }
+    let decrypted = decrypt_result(&encrypted_result, &client_key, &operation)?;
+    log::info!("  Decrypted result: {}", decrypted);
+    log::info!("  Expected result:  {}", expected_result);
 
     log::info!("");
-    log::info!("===========================================");
-    log::info!("  SUCCESS! Webapp flow works correctly");
-    log::info!("  Job ID: {}", validate_result.job_id);
-    log::info!("  Witness format verified");
-    log::info!("===========================================");
+    if decrypted == expected_result {
+        log::info!("===========================================");
+        log::info!("  SUCCESS! Full E2E test PASSED");
+        log::info!("  Job ID: {}", validate_result.job_id);
+        log::info!("  Input: {:?}", test_values);
+        log::info!("  Operation: Sum");
+        log::info!("  Result: {} (correct!)", decrypted);
+        log::info!("===========================================");
+    } else {
+        log::error!("===========================================");
+        log::error!("  FAILED! Result mismatch");
+        log::error!("  Expected: {}, Got: {}", expected_result, decrypted);
+        log::error!("===========================================");
+        anyhow::bail!("Result verification failed");
+    }
     log::info!("");
 
     Ok(())
