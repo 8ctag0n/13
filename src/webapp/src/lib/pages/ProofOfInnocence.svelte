@@ -5,6 +5,7 @@
   import WitnessUploader from '../components/WitnessUploader.svelte';
   import WalletConnect from '../components/WalletConnect.svelte';
   import Loading from '../components/Loading.svelte';
+  import PriceSlider from '../components/PriceSlider.svelte';
   import { createFheJobFromWitness, pollJobStatus, getJobResult } from '../utils/job_creator.js';
 
   // API config
@@ -43,6 +44,64 @@
 
   // Wallet modal
   let showWalletModal = false;
+
+  // Price configuration
+  let priceLamports = 5000000; // Default, will be updated dynamically
+  let priceRecommendation = null;
+  let isFetchingPrice = false;
+  const requiredProvers = 3;
+
+  // Fetch dynamic price recommendation
+  async function fetchPriceRecommendation() {
+    isFetchingPrice = true;
+    try {
+      const response = await fetch(`${API_BASE}/api/price-recommendation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          operation: 'count_if',
+          operation_value: 0,
+          expected_count: 10,
+          required_provers: requiredProvers
+        })
+      });
+
+      if (response.ok) {
+        priceRecommendation = await response.json();
+        if (!priceLamports || priceLamports < priceRecommendation.recommended_price_lamports) {
+          priceLamports = priceRecommendation.recommended_price_lamports;
+        }
+        console.log('Price recommendation:', priceRecommendation);
+      }
+    } catch (err) {
+      console.error('Failed to get price recommendation:', err);
+      // Fallback values
+      priceRecommendation = {
+        min_price_lamports: 3000000,
+        recommended_price_lamports: 5400000,
+        max_suggested_lamports: 10800000,
+        slider_step: 100000
+      };
+      priceLamports = priceRecommendation.recommended_price_lamports;
+    } finally {
+      isFetchingPrice = false;
+    }
+  }
+
+  // Handle price change from slider
+  function handlePriceChange(event) {
+    priceLamports = event.detail.price;
+  }
+
+  // Fetch price when entering step 2
+  $: if (currentStep === 2 && !priceRecommendation) {
+    fetchPriceRecommendation();
+  }
+
+  // Computed price displays
+  $: totalCost = (priceLamports / 1000000000).toFixed(5);
+  $: platformFee = (priceLamports * 0.01 / 1000000000).toFixed(5);
+  $: totalWithFee = ((priceLamports * 1.01) / 1000000000).toFixed(5);
 
   // Reactive wallet state
   $: isWalletConnected = $walletStore?.connected === true;
@@ -99,6 +158,11 @@
     verificationResult = null;
 
     try {
+      // Fetch dynamic price recommendation first
+      processingStep = 'pricing';
+      processingMessage = 'Getting price recommendation...';
+      await fetchPriceRecommendation();
+
       const result = await createFheJobFromWitness({
         operation: 'count_if',
         operationValue: checkValue,
@@ -107,8 +171,8 @@
         wallet: $walletStore,
         apiBaseUrl: API_BASE,
         rpcUrl: RPC_URL,
-        priceLamports: 5000000,
-        requiredProvers: 3,
+        priceLamports: priceLamports,  // Use dynamic price
+        requiredProvers: requiredProvers,
         consensusThreshold: 2,
         predicate: {
           type: 'EqualTo',
@@ -335,7 +399,31 @@
 
           <div class="divider-section"></div>
 
-          <!-- Cost Info -->
+          <!-- Price Slider -->
+          <div class="config-section mb-6">
+            <label class="text-mono mb-3">PROVER_PRICE:</label>
+            {#if isFetchingPrice}
+              <div class="loading-price text-mono text-sm text-muted">
+                Loading price recommendation<span class="cursor-blink">_</span>
+              </div>
+            {:else if priceRecommendation}
+              <PriceSlider
+                minPrice={priceRecommendation.min_price_lamports}
+                recommendedPrice={priceRecommendation.recommended_price_lamports}
+                maxPrice={priceRecommendation.max_suggested_lamports}
+                currentPrice={priceLamports}
+                step={priceRecommendation.slider_step}
+                isLoading={isFetchingPrice}
+                on:change={handlePriceChange}
+              />
+            {:else}
+              <div class="text-mono text-sm text-muted">
+                Price will be calculated when you proceed
+              </div>
+            {/if}
+          </div>
+
+          <!-- Cost Summary -->
           <div class="cost-breakdown tui-box-success">
             <div class="text-mono text-uppercase mb-3">VERIFICATION_COST:</div>
             <div class="cost-lines text-mono text-sm">
@@ -344,17 +432,17 @@
                 <span class="text-success">COUNT_IF</span>
               </div>
               <div class="cost-line">
-                <span class="text-muted">Provers (3):</span>
-                <span class="text-success">0.005_SOL</span>
+                <span class="text-muted">Provers ({requiredProvers}):</span>
+                <span class="text-success">{totalCost}_SOL</span>
               </div>
               <div class="cost-line">
-                <span class="text-muted">Platform Fee:</span>
-                <span class="text-success">0.00005_SOL</span>
+                <span class="text-muted">Platform Fee (1%):</span>
+                <span class="text-success">{platformFee}_SOL</span>
               </div>
               <div class="divider-cost text-muted">───────────────────────────────</div>
               <div class="cost-line total">
                 <span>Total:</span>
-                <span class="text-success total-amount">~0.00505_SOL</span>
+                <span class="text-success total-amount">~{totalWithFee}_SOL</span>
               </div>
             </div>
           </div>
@@ -412,7 +500,7 @@
               <div class="text-muted mb-2">VERIFICATION_DETAILS:</div>
               <div class="tx-line">• Check against: {selectedListInfo.name}</div>
               <div class="tx-line">• Operation: count_if (predicate match)</div>
-              <div class="tx-line">• Cost: ~0.005_SOL + network_fee</div>
+              <div class="tx-line">• Cost: ~{totalWithFee}_SOL + network_fee</div>
             </div>
           </div>
         </div>

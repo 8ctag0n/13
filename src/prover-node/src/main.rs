@@ -170,8 +170,8 @@ struct Args {
     #[arg(long, default_value = "1000000")]
     min_price: u64,
 
-    /// Minimum ROI percentage required to accept a job
-    #[arg(long, default_value = "20.0")]
+    /// Minimum ROI percentage required to accept a job (0.0 for demo mode)
+    #[arg(long, default_value = "0.0")]
     min_roi: f64,
 
     /// Operational cost multiplier for overhead (infrastructure, electricity)

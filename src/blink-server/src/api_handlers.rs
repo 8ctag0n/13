@@ -2,13 +2,46 @@ use actix_web::{delete, get, post, web, HttpResponse, Responder};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use solana_sdk::{message::Message, transaction::Transaction};
+use solana_sdk::{message::Message, pubkey::Pubkey, transaction::Transaction};
+use solana_client::rpc_client::RpcClient;
 use std::str::FromStr;
 
 use crate::db::{FheResultQueries, InsertJobData, JobQueries, JobStatus, NetworkMetricsQueries, ServerKeyQueries, WitnessQueries};
 use crate::validators::{JobValidator, ValidateJobRequest};
 use crate::AppState;
 use blake2::{Blake2s256, Digest};
+
+/// Fetch the next job ID from the on-chain marketplace config
+/// Uses spawn_blocking to avoid blocking the async runtime
+async fn fetch_next_job_id(rpc_url: String, program_id: Pubkey) -> anyhow::Result<u64> {
+    // Run the blocking RPC call in a separate thread pool
+    let result = tokio::task::spawn_blocking(move || {
+        let rpc_client = RpcClient::new(rpc_url);
+
+        // Derive config PDA
+        let (config_pda, _) = Pubkey::find_program_address(&[b"config"], &program_id);
+
+        // Fetch account data
+        let account = rpc_client.get_account(&config_pda)
+            .map_err(|e| anyhow::anyhow!("Failed to fetch marketplace config: {}", e))?;
+
+        // Parse next_job_id from config data
+        // Layout: authority(32) + fee(2) + min_stake(8) + min_rep(4) + timeout(8) + protocol_fee_recipient(32) + next_job_id(8) + ...
+        // Offset for next_job_id = 32 + 2 + 8 + 4 + 8 + 32 = 86
+        if account.data.len() < 94 {
+            return Err(anyhow::anyhow!("Config account data too short"));
+        }
+
+        let next_job_id = u64::from_le_bytes(
+            account.data[86..94].try_into()
+                .map_err(|_| anyhow::anyhow!("Failed to parse next_job_id"))?
+        );
+
+        Ok(next_job_id)
+    }).await.map_err(|e| anyhow::anyhow!("Task join error: {}", e))??;
+
+    Ok(result)
+}
 
 // ============================================================================
 // Helper Functions
@@ -304,10 +337,27 @@ async fn validate_and_build_job(
 ) -> impl Responder {
     log::info!("Received validate-and-build request");
 
-    // Step 1: Validate all data
-    let validated = match JobValidator::validate(&req, &data.db_pool).await {
+    // Step 0: Fetch the REAL next_job_id from on-chain marketplace config
+    // This is critical because the frontend doesn't know the on-chain job counter
+    let onchain_job_id = match fetch_next_job_id(data.rpc_url.clone(), data.program_id).await {
+        Ok(id) => {
+            log::info!("Fetched next_job_id from on-chain: {}", id);
+            id as i64
+        }
+        Err(e) => {
+            log::error!("Failed to fetch next_job_id from chain: {}", e);
+            return HttpResponse::InternalServerError().json(json!({
+                "error": format!("Failed to fetch job ID from blockchain: {}", e)
+            }));
+        }
+    };
+
+    // Step 1: Validate all data (signature verification, sizes, format, nonce)
+    // Note: The job_id in the signed message is just for anti-replay, we use on-chain ID
+    let mut validated = match JobValidator::validate(&req, &data.db_pool).await {
         Ok(v) => {
-            log::info!("Job validation successful for job_id: {}", v.job_id);
+            log::info!("Job validation successful (message job_id: {}, using on-chain: {})",
+                      v.job_id, onchain_job_id);
             v
         }
         Err(e) => {
@@ -318,9 +368,12 @@ async fn validate_and_build_job(
         }
     };
 
+    // Override job_id with the on-chain value
+    validated.job_id = onchain_job_id;
+
     // Step 2: Insert into database with status="pending_tx"
     let insert_data = InsertJobData {
-        job_id: validated.job_id,
+        job_id: onchain_job_id,
         creator_pubkey: validated.creator.to_string(),
         encrypted_data: validated.encrypted_data.clone(),
         server_key: validated.server_key.clone(),
@@ -1470,26 +1523,72 @@ async fn upload_witness(data: web::Data<AppState>, body: web::Bytes) -> impl Res
 /// GET /witness/{commitment}
 ///
 /// Download encrypted witness data by commitment hash.
+/// First checks the witnesses table, then attempts to reconstruct from
+/// blockchain_jobs + temp_job_data if not found.
 #[get("/witness/{commitment}")]
 async fn get_witness(data: web::Data<AppState>, commitment: web::Path<String>) -> impl Responder {
     log::info!("Fetching witness for commitment: {}", *commitment);
 
+    // Option 1: Check witnesses table (legacy/pre-stored)
     match WitnessQueries::get_witness(&data.db_pool, &commitment).await {
         Ok(Some(witness_data)) => {
-            log::info!("Witness found, returning {} bytes", witness_data.len());
-            // Return raw bytes with appropriate content type
-            HttpResponse::Ok()
+            log::info!("Witness found in storage, returning {} bytes", witness_data.len());
+            return HttpResponse::Ok()
                 .content_type("application/octet-stream")
-                .body(witness_data)
+                .body(witness_data);
         }
         Ok(None) => {
-            log::warn!("Witness not found: {}", *commitment);
+            log::info!("Witness not in storage, attempting dynamic reconstruction");
+        }
+        Err(e) => {
+            log::error!("Failed to fetch witness from storage: {}", e);
+        }
+    }
+
+    // Option 2: Reconstruct from blockchain_jobs + temp_job_data
+    // Find job_id by witness_hash in blockchain_jobs, then get data from temp_job_data
+    let reconstruction_query = sqlx::query_as::<_, (Vec<u8>, Vec<u8>)>(
+        r#"
+        SELECT t.server_key, t.encrypted_data
+        FROM blockchain_jobs b
+        JOIN temp_job_data t ON b.job_id = t.job_id
+        WHERE b.witness_hash = $1
+        LIMIT 1
+        "#
+    )
+    .bind(&*commitment)
+    .fetch_optional(&data.db_pool)
+    .await;
+
+    match reconstruction_query {
+        Ok(Some((server_key, encrypted_data))) => {
+            // Reconstruct witness in the format expected by prover:
+            // [encrypted_data_len (4 bytes LE)] [encrypted_data] [server_key]
+            let encrypted_data_len = encrypted_data.len() as u32;
+            let mut witness = Vec::with_capacity(4 + encrypted_data.len() + server_key.len());
+            witness.extend_from_slice(&encrypted_data_len.to_le_bytes());
+            witness.extend_from_slice(&encrypted_data);
+            witness.extend_from_slice(&server_key);
+
+            log::info!(
+                "Witness reconstructed dynamically: {} bytes (header: 4, encrypted_data: {}, server_key: {})",
+                witness.len(),
+                encrypted_data.len(),
+                server_key.len()
+            );
+
+            HttpResponse::Ok()
+                .content_type("application/octet-stream")
+                .body(witness)
+        }
+        Ok(None) => {
+            log::warn!("Witness not found: {} (not in storage, not reconstructable)", *commitment);
             HttpResponse::NotFound().json(json!({
                 "error": "Witness not found"
             }))
         }
         Err(e) => {
-            log::error!("Failed to fetch witness: {}", e);
+            log::error!("Failed to reconstruct witness: {}", e);
             HttpResponse::InternalServerError().json(json!({
                 "error": format!("Database error: {}", e)
             }))

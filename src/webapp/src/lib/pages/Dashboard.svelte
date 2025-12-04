@@ -52,13 +52,8 @@
 
   async function connectWallet(wallet) {
     try {
-      const response = await wallet.provider.connect();
-      walletStore.set({
-        connected: true,
-        publicKey: response.publicKey.toString(),
-        provider: wallet.provider,
-        name: wallet.name
-      });
+      // Use the walletStore.connect() method which handles the connection properly
+      await walletStore.connect('solana');
       showWalletModal = false;
     } catch (err) {
       console.error('Failed to connect wallet:', err);
@@ -66,12 +61,7 @@
   }
 
   function disconnectWallet() {
-    walletStore.set({
-      connected: false,
-      publicKey: null,
-      provider: null,
-      name: null
-    });
+    walletStore.disconnect();
   }
 
   function openWalletModal() {

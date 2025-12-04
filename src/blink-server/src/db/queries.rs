@@ -158,13 +158,17 @@ impl JobQueries {
         Ok(result.rows_affected())
     }
 
-    /// Delete temp jobs that have been synced to blockchain_jobs
-    /// This prevents duplicates in the UNION query
+    /// Delete temp jobs that have been synced to blockchain_jobs AND are completed
+    /// IMPORTANT: Don't delete until job is completed, because provers need
+    /// temp_job_data (server_key + encrypted_data) to reconstruct the witness
     pub async fn delete_synced_jobs(pool: &PgPool) -> Result<u64> {
         let result = sqlx::query(
             r#"
             DELETE FROM temp_job_data
-            WHERE job_id IN (SELECT job_id FROM blockchain_jobs)
+            WHERE job_id IN (
+                SELECT job_id FROM blockchain_jobs
+                WHERE status IN ('completed', 'failed', 'cancelled')
+            )
             "#,
         )
         .execute(pool)
