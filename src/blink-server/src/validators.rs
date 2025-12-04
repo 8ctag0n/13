@@ -7,14 +7,20 @@ use std::str::FromStr;
 use tfhe::ServerKey;
 use zyberlink_types::fhe::FhePredicate;
 
-use crate::db::NonceQueries;
+use crate::db::{NonceQueries, ServerKeyQueries};
 
 /// Request structure for job validation
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct ValidateJobRequest {
     pub creator_pubkey: String,
     pub encrypted_data: String, // base64
-    pub server_key: String,     // base64
+    /// Server key as base64 (legacy, large ~155MB base64)
+    /// Use server_key_hash instead for pre-uploaded keys
+    #[serde(default)]
+    pub server_key: Option<String>,
+    /// Hash of pre-uploaded server key (hex-encoded Blake2s256)
+    /// Use this instead of server_key to avoid large payload uploads
+    pub server_key_hash: Option<String>,
     pub message: String,        // "create_job:{job_id}:{timestamp}:{nonce}"
     pub signature: String,      // base64
     pub nonce: String,
@@ -73,20 +79,22 @@ impl JobValidator {
         // 3. Verify nonce (anti-replay)
         Self::verify_nonce(&req.nonce, pool).await?;
 
-        // 4. Decode base64
+        // 4. Decode encrypted_data (always required as base64)
         let encrypted_data = STANDARD
             .decode(&req.encrypted_data)
             .map_err(|e| anyhow!("Invalid base64 in encrypted_data: {}", e))?;
-        let server_key = STANDARD
-            .decode(&req.server_key)
-            .map_err(|e| anyhow!("Invalid base64 in server_key: {}", e))?;
 
-        // 5. Validate sizes
+        // 5. Get server_key: either from hash (pre-uploaded) or from base64 (legacy)
+        let server_key = Self::resolve_server_key(req, pool).await?;
+
+        // 6. Validate sizes
         Self::validate_sizes(&encrypted_data, &server_key)?;
 
-        // 6. Deserialize ServerKey (format validation)
-        let _server_key_obj: ServerKey = bincode::deserialize(&server_key)
-            .map_err(|e| anyhow!("Invalid server_key format: {}", e))?;
+        // 7. Deserialize ServerKey (format validation) - skip if from hash (already validated)
+        if req.server_key_hash.is_none() {
+            let _server_key_obj: ServerKey = bincode::deserialize(&server_key)
+                .map_err(|e| anyhow!("Invalid server_key format: {}", e))?;
+        }
 
         // 7. Validate operation and related params
         Self::validate_operation(&req.operation)?;
@@ -296,6 +304,55 @@ impl JobValidator {
                 payment_method
             )),
         }
+    }
+
+    /// Resolve server_key from either server_key_hash (pre-uploaded) or server_key (legacy base64)
+    ///
+    /// Priority:
+    /// 1. If server_key_hash is provided, fetch from database
+    /// 2. If server_key (base64) is provided, decode it
+    /// 3. If neither, return error
+    async fn resolve_server_key(req: &ValidateJobRequest, pool: &PgPool) -> Result<Vec<u8>> {
+        // Option 1: Use pre-uploaded server key by hash
+        if let Some(ref hash) = req.server_key_hash {
+            log::info!("Resolving server key from hash: {}", hash);
+
+            // Validate hash format (should be 64 hex chars for Blake2s256)
+            if hash.len() != 64 || !hash.chars().all(|c| c.is_ascii_hexdigit()) {
+                return Err(anyhow!("Invalid server_key_hash format: expected 64 hex characters"));
+            }
+
+            // Fetch from database
+            match ServerKeyQueries::get_server_key(pool, hash).await? {
+                Some(data) => {
+                    log::info!("Server key found in database, size: {} bytes", data.len());
+                    return Ok(data);
+                }
+                None => {
+                    return Err(anyhow!(
+                        "Server key not found for hash: {}. Please upload via POST /api/server-key/upload first.",
+                        hash
+                    ));
+                }
+            }
+        }
+
+        // Option 2: Use legacy base64-encoded server_key
+        if let Some(ref server_key_b64) = req.server_key {
+            if !server_key_b64.is_empty() {
+                log::info!("Using legacy base64 server_key ({} chars)", server_key_b64.len());
+                let server_key = STANDARD
+                    .decode(server_key_b64)
+                    .map_err(|e| anyhow!("Invalid base64 in server_key: {}", e))?;
+                return Ok(server_key);
+            }
+        }
+
+        // Neither provided
+        Err(anyhow!(
+            "Either server_key (base64) or server_key_hash must be provided. \
+            For large keys, use POST /api/server-key/upload first to get a hash."
+        ))
     }
 }
 

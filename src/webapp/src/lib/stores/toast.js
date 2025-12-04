@@ -5,8 +5,25 @@ function createToastStore() {
 
   let nextId = 1;
 
+  const add = (message, type = 'info', duration = 3000) => {
+    const id = nextId++;
+    const toast = { id, message, type, duration };
+
+    update(toasts => [...toasts, toast]);
+
+    // Auto-remove after duration
+    if (duration > 0) {
+      setTimeout(() => {
+        update(toasts => toasts.filter(t => t.id !== id));
+      }, duration);
+    }
+
+    return id;
+  };
+
   return {
     subscribe,
+    add,
     show: (message, type = 'info', duration = 3000) => {
       const id = nextId++;
       const toast = { id, message, type, duration };

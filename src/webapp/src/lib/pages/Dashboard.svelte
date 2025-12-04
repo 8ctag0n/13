@@ -205,10 +205,11 @@
 
   // Wallet balance
   async function loadWalletBalance() {
-    if ($walletStore.connected && $walletStore.publicKey) {
+    const walletAddr = $walletStore.addresses?.solana;
+    if ($walletStore.connected && walletAddr) {
       try {
         const rpc = createSolanaRpc(RPC_URL);
-        const walletAddress = address($walletStore.publicKey);
+        const walletAddress = address(walletAddr);
         const result = await rpc.getBalance(walletAddress).send();
         walletBalance = Number(result.value) / 1_000_000_000;
       } catch (error) {
@@ -268,7 +269,7 @@
           {#if walletInfo.connected}
             <div class="wallet-connected text-mono">
               <span class="wallet-dot connected"></span>
-              <span class="text-cyan">{walletInfo.publicKey.slice(0, 4)}...{walletInfo.publicKey.slice(-4)}</span>
+              <span class="text-cyan">{(walletInfo.addresses?.solana || '').slice(0, 4)}...{(walletInfo.addresses?.solana || '').slice(-4)}</span>
               <span class="badge badge-success">{walletBalance.toFixed(3)}_SOL</span>
               <button class="btn-disconnect" on:click={disconnectWallet} title="Disconnect wallet">
                 [X]
@@ -298,28 +299,28 @@
         <div class="quick-actions-grid">
           <!-- Private Analytics Card -->
           <button class="action-card tui-box" on:click={() => navigateTo('analytics')}>
-            <div class="action-icon text-mono text-cyan">[SUM]</div>
-            <h3 class="text-mono text-uppercase">Private Analytics</h3>
+            <div class="action-icon text-mono text-violet">[SUM]</div>
+            <h3 class="text-mono text-uppercase text-violet">Private Analytics</h3>
             <p class="text-mono text-sm text-muted">
               Run aggregate computations (Sum, Average) on encrypted data without revealing values.
             </p>
-            <div class="action-cta text-mono text-cyan">[LAUNCH {'>'}{'>'}]</div>
+            <div class="action-cta text-mono text-violet">[LAUNCH {'>'}{'>'}]</div>
           </button>
 
           <!-- Proof of Innocence Card -->
           <button class="action-card tui-box" on:click={() => navigateTo('proof-of-innocence')}>
             <div class="action-icon text-mono text-success">[OK]</div>
-            <h3 class="text-mono text-uppercase">Proof of Innocence</h3>
+            <h3 class="text-mono text-uppercase text-success">Proof of Innocence</h3>
             <p class="text-mono text-sm text-muted">
               Verify your transactions have not interacted with sanctioned addresses.
             </p>
-            <div class="action-cta text-mono text-cyan">[VERIFY {'>'}{'>'}]</div>
+            <div class="action-cta text-mono text-success">[VERIFY {'>'}{'>'}]</div>
           </button>
 
           <!-- Create Custom Job Card -->
           <button class="action-card tui-box" on:click={() => navigateTo('create-job')}>
-            <div class="action-icon text-mono text-violet">[+]</div>
-            <h3 class="text-mono text-uppercase">Custom FHE Job</h3>
+            <div class="action-icon text-mono text-cyan">[+]</div>
+            <h3 class="text-mono text-uppercase text-cyan">Custom FHE Job</h3>
             <p class="text-mono text-sm text-muted">
               Create a custom computation with full control over operation and parameters.
             </p>

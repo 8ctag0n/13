@@ -18,16 +18,45 @@
   let fileName = null;
 
   /**
-   * Convert Uint8Array to base64 using chunks (memory efficient)
+   * Convert Uint8Array to base64 using streaming chunks (memory efficient)
+   * Processes in chunks of 3 bytes aligned (base64 encodes 3 bytes -> 4 chars)
    */
-  function arrayBufferToBase64(bytes) {
-    const chunkSize = 0x8000; // 32KB chunks
-    let result = '';
-    for (let i = 0; i < bytes.length; i += chunkSize) {
-      const chunk = bytes.subarray(i, i + chunkSize);
-      result += String.fromCharCode.apply(null, chunk);
+  async function arrayBufferToBase64Async(bytes, onProgress = null) {
+    // Use 48KB chunks (divisible by 3 for clean base64 encoding)
+    const chunkSize = 48 * 1024; // 48KB = 49152 bytes, divisible by 3
+    const base64Chunks = [];
+    const totalBytes = bytes.length;
+    let processed = 0;
+
+    for (let i = 0; i < totalBytes; i += chunkSize) {
+      const end = Math.min(i + chunkSize, totalBytes);
+      const chunk = bytes.subarray(i, end);
+
+      // Convert chunk to binary string
+      let binary = '';
+      for (let j = 0; j < chunk.length; j++) {
+        binary += String.fromCharCode(chunk[j]);
+      }
+
+      // Encode this chunk to base64 directly
+      base64Chunks.push(btoa(binary));
+      processed = end;
+
+      // Yield to event loop every few chunks to keep UI responsive
+      if (base64Chunks.length % 5 === 0) {
+        if (onProgress) {
+          onProgress(Math.round((processed / totalBytes) * 100));
+        }
+        await new Promise(r => setTimeout(r, 0));
+      }
     }
-    return btoa(result);
+
+    if (onProgress) {
+      onProgress(100);
+    }
+
+    // Join base64 chunks (much smaller than raw binary)
+    return base64Chunks.join('');
   }
 
   function handleDragOver(e) {
@@ -84,8 +113,11 @@
         throw new Error(`Invalid server_key length: ${serverKeyLen}`);
       }
 
-      // Extract server_key bytes
+      // Extract server_key bytes - KEEP raw bytes for pre-upload
       const serverKeyBytes = new Uint8Array(buffer, 8, serverKeyLen);
+
+      // Copy to a new Uint8Array to avoid issues with buffer views
+      const serverKeyBytesCopy = new Uint8Array(serverKeyBytes);
 
       // Extract encrypted_data bytes (rest of the file)
       const encryptedDataStart = 8 + serverKeyLen;
@@ -95,19 +127,24 @@
         throw new Error('No encrypted data found in witness');
       }
 
-      // Convert to base64 using chunked approach (memory efficient)
-      serverKey = arrayBufferToBase64(serverKeyBytes);
+      // We no longer need to encode server_key to base64 (will use pre-upload)
+      // Just encode encrypted_data which is small (~KB)
+      serverKey = null; // Will use serverKeyBytes instead
 
-      // Small delay to keep UI responsive
+      // Small delay between large operations
       await new Promise(r => setTimeout(r, 10));
 
-      encryptedData = arrayBufferToBase64(encryptedDataBytes);
+      encryptedData = await arrayBufferToBase64Async(encryptedDataBytes, (progress) => {
+        console.log(`Encrypted data encoding: ${progress}%`);
+      });
 
-      console.log(`Parsed witness: server_key=${(serverKeyLen / 1024 / 1024).toFixed(1)}MB, encrypted_data=${(encryptedDataBytes.length / 1024).toFixed(1)}KB`);
+      console.log(`Parsed witness: server_key=${(serverKeyLen / 1024 / 1024).toFixed(1)}MB (raw bytes), encrypted_data=${(encryptedDataBytes.length / 1024).toFixed(1)}KB`);
 
       // Dispatch success event with parsed data
+      // Include raw serverKeyBytes for pre-upload instead of base64
       dispatch('witnessParsed', {
-        serverKey,
+        serverKeyBytes: serverKeyBytesCopy,  // Raw bytes for pre-upload
+        serverKey: null,                      // Legacy base64 (no longer used)
         encryptedData,
         fileName: file.name,
         fileSize: file.size,
@@ -142,8 +179,11 @@
     fileName = null;
   }
 
-  // Expose parsed state
-  $: isParsed = serverKey && encryptedData && !witnessParseError;
+  // Track serverKeyBytes instead of serverKey
+  let serverKeyBytesStored = null;
+
+  // Expose parsed state - now based on encryptedData since serverKeyBytes is handled separately
+  $: isParsed = encryptedData && !witnessParseError;
 </script>
 
 <div

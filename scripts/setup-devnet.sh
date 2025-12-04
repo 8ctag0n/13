@@ -116,9 +116,9 @@ generate_keypair() {
     local path="keypairs/${name}.json"
     if [ ! -f "$path" ]; then
         solana-keygen new --no-bip39-passphrase --outfile "$path" --force > /dev/null 2>&1
-        log_ok "Generada: $path"
+        echo -e "${GREEN}[OK]${NC} Generada: $path" >&2
     else
-        log_warn "Ya existe: $path (reusando)"
+        echo -e "${YELLOW}[WARN]${NC} Ya existe: $path (reusando)" >&2
     fi
     echo "$path"
 }

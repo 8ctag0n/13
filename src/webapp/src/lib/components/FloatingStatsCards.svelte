@@ -5,8 +5,8 @@
 
   let stats = [
     { id: 'provers', icon: '[#]', label: 'ACTIVE_PROVERS', value: 0, target: 0, color: 'cyan' },
-    { id: 'jobs', icon: '[>]', label: 'JOBS_TOTAL', value: 0, target: 0, color: 'violet' },
-    { id: 'data', icon: '[=]', label: 'DATA_ENCRYPTED', value: '0 B', color: 'cyan', isString: true },
+    { id: 'jobs', icon: '[>]', label: 'JOBS_COMPLETED', value: '0/0', color: 'violet', isString: true },
+    { id: 'data', icon: '[=]', label: 'DATA_PROCESSED', value: '0 B', color: 'cyan', isString: true },
     { id: 'uptime', icon: '[*]', label: 'NETWORK_UPTIME', value: 0, target: 99.97, suffix: '%', color: 'success' }
   ];
 
@@ -45,7 +45,10 @@
 
         // Update targets
         stats[0].target = data.active_provers || 0;
-        stats[1].target = data.jobs_total || 0;
+        // Jobs: show completed/total for clarity
+        const completed = data.jobs_completed || 0;
+        const total = data.jobs_total || 0;
+        stats[1].value = `${completed}/${total}`;
         // Data uses pre-formatted string from backend (adaptive MB/GB/TB)
         stats[2].value = data.data_encrypted_formatted || '0 B';
         stats[3].target = data.uptime_percent || 99.97;

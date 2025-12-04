@@ -5,7 +5,7 @@ use serde_json::json;
 use solana_sdk::{message::Message, transaction::Transaction};
 use std::str::FromStr;
 
-use crate::db::{FheResultQueries, InsertJobData, JobQueries, JobStatus, WitnessQueries};
+use crate::db::{FheResultQueries, InsertJobData, JobQueries, JobStatus, ServerKeyQueries, WitnessQueries};
 use crate::validators::{JobValidator, ValidateJobRequest};
 use crate::AppState;
 use blake2::{Blake2s256, Digest};
@@ -143,6 +143,12 @@ pub struct ListJobsQuery {
 #[derive(Debug, Serialize)]
 pub struct WitnessUploadResponse {
     pub commitment: String, // hex-encoded Blake2s256 hash
+}
+
+#[derive(Debug, Serialize)]
+pub struct ServerKeyUploadResponse {
+    pub server_key_hash: String, // hex-encoded Blake2s256 hash
+    pub size_bytes: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -1600,6 +1606,115 @@ async fn get_fhe_result(
     }
 }
 
+// ============================================================================
+// Server Key Pre-Upload Endpoints
+// ============================================================================
+
+/// POST /api/server-key/upload
+///
+/// Pre-upload a TFHE server key (~117MB) before creating a job.
+/// Returns the Blake2s256 hash which can be used in validate-and-build.
+///
+/// This endpoint accepts raw binary data (Content-Type: application/octet-stream)
+/// to avoid base64 encoding overhead and timeout issues.
+///
+/// Usage:
+/// 1. Upload server_key via POST /api/server-key/upload (raw bytes)
+/// 2. Use returned server_key_hash in validate-and-build request
+#[post("/api/server-key/upload")]
+async fn upload_server_key(data: web::Data<AppState>, body: web::Bytes) -> impl Responder {
+    let size_bytes = body.len();
+    log::info!("Received server key upload, size: {} bytes ({:.2} MB)",
+        size_bytes, size_bytes as f64 / (1024.0 * 1024.0));
+
+    // Validate size (must be between 40MB and 120MB for TFHE server keys)
+    const MIN_SERVER_KEY_SIZE: usize = 40 * 1024 * 1024; // 40 MB
+    const MAX_SERVER_KEY_SIZE: usize = 120 * 1024 * 1024; // 120 MB
+
+    if body.is_empty() {
+        return HttpResponse::BadRequest().json(json!({
+            "error": "Empty server key data"
+        }));
+    }
+
+    if size_bytes < MIN_SERVER_KEY_SIZE {
+        return HttpResponse::BadRequest().json(json!({
+            "error": format!("Server key too small: {} bytes (min: {} bytes)", size_bytes, MIN_SERVER_KEY_SIZE)
+        }));
+    }
+
+    if size_bytes > MAX_SERVER_KEY_SIZE {
+        return HttpResponse::BadRequest().json(json!({
+            "error": format!("Server key too large: {} bytes (max: {} bytes)", size_bytes, MAX_SERVER_KEY_SIZE)
+        }));
+    }
+
+    // Validate that it's a valid TFHE ServerKey by attempting deserialization
+    match bincode::deserialize::<tfhe::ServerKey>(&body) {
+        Ok(_) => {
+            log::info!("Server key deserialization successful");
+        }
+        Err(e) => {
+            log::warn!("Invalid server key format: {}", e);
+            return HttpResponse::BadRequest().json(json!({
+                "error": format!("Invalid server key format: {}", e)
+            }));
+        }
+    }
+
+    // Compute Blake2s256 hash
+    let mut hasher = Blake2s256::new();
+    hasher.update(&body);
+    let hash = hasher.finalize();
+    let server_key_hash = hex::encode(hash);
+
+    log::info!("Server key hash: {}", server_key_hash);
+
+    // Store in database (idempotent - duplicate uploads are OK)
+    match ServerKeyQueries::store_server_key(&data.db_pool, &server_key_hash, &body).await {
+        Ok(_) => {
+            log::info!("Server key stored successfully, hash: {}", server_key_hash);
+            HttpResponse::Ok().json(ServerKeyUploadResponse {
+                server_key_hash,
+                size_bytes,
+            })
+        }
+        Err(e) => {
+            log::error!("Failed to store server key: {}", e);
+            HttpResponse::InternalServerError().json(json!({
+                "error": format!("Failed to store server key: {}", e)
+            }))
+        }
+    }
+}
+
+/// GET /api/server-key/{hash}/exists
+///
+/// Check if a server key exists by its hash.
+/// Useful for frontend to check if re-upload is needed.
+#[get("/api/server-key/{hash}/exists")]
+async fn check_server_key_exists(
+    data: web::Data<AppState>,
+    hash: web::Path<String>,
+) -> impl Responder {
+    log::info!("Checking server key existence: {}", *hash);
+
+    match ServerKeyQueries::server_key_exists(&data.db_pool, &hash).await {
+        Ok(exists) => {
+            HttpResponse::Ok().json(json!({
+                "exists": exists,
+                "hash": *hash
+            }))
+        }
+        Err(e) => {
+            log::error!("Failed to check server key: {}", e);
+            HttpResponse::InternalServerError().json(json!({
+                "error": format!("Database error: {}", e)
+            }))
+        }
+    }
+}
+
 /// GET /api/jobs/{job_id}/result
 ///
 /// Get FHE computation result for a completed job.
@@ -1658,5 +1773,8 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         .service(upload_witness)
         .service(get_witness)
         .service(upload_fhe_result)
-        .service(get_fhe_result);
+        .service(get_fhe_result)
+        // Server key pre-upload endpoints
+        .service(upload_server_key) // POST /api/server-key/upload
+        .service(check_server_key_exists); // GET /api/server-key/{hash}/exists
 }

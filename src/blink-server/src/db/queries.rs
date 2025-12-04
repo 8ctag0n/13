@@ -288,6 +288,87 @@ impl WitnessQueries {
     }
 }
 
+/// Database operations for server key storage (pre-upload)
+pub struct ServerKeyQueries;
+
+impl ServerKeyQueries {
+    /// Store server key and return its hash
+    /// Uses ON CONFLICT to handle duplicate uploads idempotently
+    pub async fn store_server_key(pool: &PgPool, hash: &str, data: &[u8]) -> Result<()> {
+        let size_bytes = data.len() as i64;
+        sqlx::query(
+            r#"
+            INSERT INTO server_keys (hash, data, size_bytes)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (hash) DO NOTHING
+            "#,
+        )
+        .bind(hash)
+        .bind(data)
+        .bind(size_bytes)
+        .execute(pool)
+        .await
+        .map_err(|e| anyhow!("Failed to store server key: {}", e))?;
+
+        Ok(())
+    }
+
+    /// Get server key data by hash
+    pub async fn get_server_key(pool: &PgPool, hash: &str) -> Result<Option<Vec<u8>>> {
+        let result: Option<(Vec<u8>,)> = sqlx::query_as(
+            r#"
+            SELECT data FROM server_keys
+            WHERE hash = $1
+            "#,
+        )
+        .bind(hash)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| anyhow!("Failed to fetch server key: {}", e))?;
+
+        Ok(result.map(|(data,)| data))
+    }
+
+    /// Check if server key exists by hash
+    pub async fn server_key_exists(pool: &PgPool, hash: &str) -> Result<bool> {
+        let result: Option<(i64,)> = sqlx::query_as(
+            r#"
+            SELECT id FROM server_keys
+            WHERE hash = $1
+            "#,
+        )
+        .bind(hash)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| anyhow!("Failed to check server key existence: {}", e))?;
+
+        Ok(result.is_some())
+    }
+
+    /// Delete old server keys (older than specified seconds)
+    /// Used for cleanup of unused keys
+    pub async fn delete_old_server_keys(pool: &PgPool, older_than_secs: i64) -> Result<u64> {
+        let result = sqlx::query(
+            r#"
+            DELETE FROM server_keys
+            WHERE created_at < NOW() - $1 * INTERVAL '1 second'
+            AND hash NOT IN (
+                SELECT DISTINCT unnest(string_to_array(
+                    (SELECT string_agg(encode(server_key, 'hex'), ',') FROM temp_job_data),
+                    ','
+                ))
+            )
+            "#,
+        )
+        .bind(older_than_secs)
+        .execute(pool)
+        .await
+        .map_err(|e| anyhow!("Failed to delete old server keys: {}", e))?;
+
+        Ok(result.rows_affected())
+    }
+}
+
 /// Database operations for FHE result storage
 pub struct FheResultQueries;
 

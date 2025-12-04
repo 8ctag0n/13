@@ -12,6 +12,7 @@
   const RPC_URL = import.meta.env.VITE_SOLANA_RPC_URL || 'http://localhost:8899';
 
   // State
+  let currentStep = 1;
   let witnessData = null;
   let selectedOperation = 'sum';
   let isProcessing = false;
@@ -26,6 +27,10 @@
 
   // Wallet modal
   let showWalletModal = false;
+
+  // Reactive wallet state
+  $: isWalletConnected = $walletStore?.connected === true;
+  $: walletAddress = $walletStore?.addresses?.solana || '';
 
   // Operations available for analytics
   const operations = [
@@ -68,11 +73,10 @@
     jobResult = null;
 
     try {
-      // Step 1: Create the FHE job
       const result = await createFheJobFromWitness({
         operation: selectedOperation,
         operationValue: 0,
-        serverKey: witnessData.serverKey,
+        serverKeyBytes: witnessData.serverKeyBytes,  // Use raw bytes for pre-upload
         encryptedData: witnessData.encryptedData,
         wallet: $walletStore,
         apiBaseUrl: API_BASE,
@@ -89,7 +93,6 @@
       jobId = result.jobId;
       toastStore.add(`Job created: ${jobId}`, 'success');
 
-      // Step 2: Poll for job completion
       processingStep = 'polling';
       processingMessage = 'Waiting for FHE computation...';
 
@@ -106,11 +109,11 @@
 
       jobStatus = 'completed';
 
-      // Step 3: Get the encrypted result
       processingStep = 'fetching_result';
       processingMessage = 'Fetching encrypted result...';
 
       jobResult = await getJobResult(jobId, API_BASE);
+      currentStep = 4;
 
       toastStore.add('Analytics computation completed!', 'success');
 
@@ -125,151 +128,257 @@
     }
   }
 
+  function nextStep() {
+    if (currentStep < 3) {
+      currentStep++;
+    }
+  }
+
+  function prevStep() {
+    if (currentStep > 1) {
+      currentStep--;
+    }
+  }
+
   function reset() {
     witnessData = null;
     jobId = null;
     jobStatus = null;
     jobResult = null;
     error = null;
+    currentStep = 1;
   }
 
-  function goBack() {
+  function handleCancel() {
     navigateTo('dashboard');
   }
 
-  $: isReady = witnessData && $walletStore?.connected;
+  $: canProceedStep1 = witnessData !== null;
+  $: canProceedStep2 = selectedOperation !== null;
+  $: selectedOperationInfo = operations.find(op => op.value === selectedOperation);
 </script>
 
 <div class="analytics-page">
   <!-- Header -->
-  <header class="page-header">
+  <header class="wizard-header">
     <div class="container">
       <div class="header-content">
-        <div class="header-left">
-          <button class="btn-back text-mono" on:click={goBack}>
-            [{'<'} BACK]
-          </button>
-          <h1 class="text-mono text-uppercase">PRIVATE_ANALYTICS</h1>
-        </div>
+        <h1 class="text-mono text-uppercase">PRIVATE_ANALYTICS</h1>
         <div class="header-right">
-          {#if $walletStore?.connected}
+          {#if isWalletConnected}
             <div class="wallet-badge connected text-mono text-sm">
               <span class="wallet-dot"></span>
-              {$walletStore.publicKey.slice(0, 4)}...{$walletStore.publicKey.slice(-4)}
+              {walletAddress.slice(0, 4)}...{walletAddress.slice(-4)}
             </div>
           {:else}
-            <button class="btn-connect text-mono text-sm" on:click={() => showWalletModal = true}>
-              [CONNECT_WALLET]
+            <button class="wallet-badge disconnected text-mono text-sm" on:click={() => { showWalletModal = true; }}>
+              <span class="wallet-dot"></span>
+              CONNECT_WALLET
             </button>
           {/if}
+          <div class="step-indicator text-mono text-sm text-muted">
+            STEP {currentStep} OF 3
+          </div>
         </div>
       </div>
     </div>
   </header>
 
-  <main class="page-main">
-    <div class="container">
-      <!-- Info Section -->
-      <section class="info-section tui-box mb-6">
-        <h2 class="text-mono text-cyan mb-4">[i] PRIVATE_ANALYTICS_INFO</h2>
-        <p class="text-mono text-sm text-muted">
-          Run aggregate computations on your encrypted data without revealing individual values.
-          Upload a witness.bin file generated with <span class="text-cyan">fhe-cli encrypt</span>,
-          select an operation, and get the encrypted result.
-        </p>
-        <div class="code-hint text-mono text-xs mt-4">
-          $ fhe-cli encrypt -p ./my-data -v 10,20,30,40,50
-        </div>
-      </section>
+  <div class="divider-header text-mono text-muted">
+    ════════════════════════════════════════════════════════════════════════════════
+  </div>
 
-      {#if !jobResult}
+  <!-- Stepper -->
+  <div class="container">
+    <div class="stepper">
+      <div class="stepper-line"></div>
+
+      <div class="stepper-step {currentStep >= 1 ? 'active' : ''} {currentStep > 1 ? 'completed' : ''}">
+        <div class="step-circle text-mono">
+          {currentStep > 1 ? '✓' : '1'}
+        </div>
+        <div class="step-label text-mono text-xs">UPLOAD</div>
+      </div>
+
+      <div class="stepper-step {currentStep >= 2 ? 'active' : ''} {currentStep > 2 ? 'completed' : ''}">
+        <div class="step-circle text-mono">
+          {currentStep > 2 ? '✓' : '2'}
+        </div>
+        <div class="step-label text-mono text-xs">CONFIGURE</div>
+      </div>
+
+      <div class="stepper-step {currentStep >= 3 ? 'active' : ''}">
+        <div class="step-circle text-mono">3</div>
+        <div class="step-label text-mono text-xs">COMPUTE</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <main class="wizard-main">
+    <div class="container">
+      {#if currentStep === 1}
         <!-- Step 1: Upload Witness -->
-        <section class="step-section mb-6">
-          <h3 class="text-mono text-uppercase mb-4">
-            <span class="step-number">1</span> UPLOAD_WITNESS
-          </h3>
+        <div class="wizard-card tui-box fade-in">
+          <h2 class="text-mono text-uppercase mb-6">
+            STEP_1: UPLOAD_DATA_WITNESS
+          </h2>
+
+          <div class="info-box mb-6">
+            <div class="text-sm">
+              Run aggregate computations on your encrypted data without revealing individual values.
+            </div>
+          </div>
+
+          <div class="info-box-violet mb-6">
+            <div class="text-mono text-sm">
+              [i] PRIVACY_PRESERVED<br/>
+              Upload a witness.bin file generated with <span class="text-cyan">fhe-cli encrypt</span>.
+              Only the encrypted result is revealed, not your raw data.
+            </div>
+          </div>
+
+          <div class="code-hint text-mono text-xs mb-6">
+            $ fhe-cli encrypt -p ./my-data -v 10,20,30,40,50
+          </div>
+
           <WitnessUploader
             compact={false}
             on:witnessParsed={handleWitnessParsed}
             on:witnessError={handleWitnessError}
           />
-        </section>
 
+          {#if witnessData}
+            <div class="upload-success mt-4">
+              <span class="text-success">[OK]</span> Witness file loaded successfully
+            </div>
+          {/if}
+        </div>
+
+      {:else if currentStep === 2}
         <!-- Step 2: Select Operation -->
-        <section class="step-section mb-6">
-          <h3 class="text-mono text-uppercase mb-4">
-            <span class="step-number">2</span> SELECT_OPERATION
-          </h3>
-          <div class="operation-selector tui-box">
-            {#each operations as op}
-              <label class="operation-option" class:selected={selectedOperation === op.value}>
-                <input
-                  type="radio"
-                  name="operation"
-                  value={op.value}
-                  bind:group={selectedOperation}
-                />
-                <span class="option-content">
-                  <span class="option-label text-mono">{op.label}</span>
-                  <span class="option-desc text-mono text-sm text-muted">{op.description}</span>
-                </span>
-                <span class="option-check text-mono text-cyan">
-                  {selectedOperation === op.value ? '[*]' : '[ ]'}
-                </span>
-              </label>
-            {/each}
+        <div class="wizard-card tui-box fade-in">
+          <h2 class="text-mono text-uppercase mb-6">
+            STEP_2: SELECT_OPERATION
+          </h2>
+
+          <div class="info-box mb-6">
+            <div class="text-sm">
+              Choose which aggregate computation to run on your encrypted data.
+            </div>
           </div>
-        </section>
 
-        <!-- Step 3: Run -->
-        <section class="step-section mb-6">
-          <h3 class="text-mono text-uppercase mb-4">
-            <span class="step-number">3</span> RUN_COMPUTATION
-          </h3>
+          <div class="config-section mb-6">
+            <label class="text-mono mb-3">OPERATION_TYPE:</label>
+            <div class="radio-group">
+              {#each operations as op}
+                <label class="radio-option">
+                  <input type="radio" name="operation" value={op.value} bind:group={selectedOperation} />
+                  <span class="radio-label text-mono">
+                    <span class="radio-check">{selectedOperation === op.value ? '●' : '○'}</span>
+                    <span>{op.label}</span>
+                    <span class="text-muted text-sm">{op.description}</span>
+                  </span>
+                </label>
+              {/each}
+            </div>
+          </div>
 
-          {#if isProcessing}
-            <div class="processing-state tui-box">
-              <Loading size="medium" />
-              <div class="processing-info mt-4">
-                <div class="text-mono text-cyan">{processingMessage}</div>
-                {#if jobId}
-                  <div class="text-mono text-sm text-muted mt-2">Job ID: {jobId}</div>
-                {/if}
+          <div class="divider-section"></div>
+
+          <!-- Cost Info -->
+          <div class="cost-breakdown tui-box-violet">
+            <div class="text-mono text-uppercase mb-3">COMPUTATION_COST:</div>
+            <div class="cost-lines text-mono text-sm">
+              <div class="cost-line">
+                <span class="text-muted">Operation:</span>
+                <span class="text-violet">{selectedOperation.toUpperCase()}</span>
+              </div>
+              <div class="cost-line">
+                <span class="text-muted">Provers (3):</span>
+                <span class="text-violet">0.005_SOL</span>
+              </div>
+              <div class="cost-line">
+                <span class="text-muted">Platform Fee:</span>
+                <span class="text-violet">0.00005_SOL</span>
+              </div>
+              <div class="divider-cost text-muted">───────────────────────────────</div>
+              <div class="cost-line total">
+                <span>Total:</span>
+                <span class="text-violet total-amount">~0.00505_SOL</span>
               </div>
             </div>
-          {:else}
-            <button
-              class="btn btn-primary btn-lg"
-              on:click={runAnalytics}
-              disabled={!witnessData}
-            >
-              {#if !$walletStore?.connected}
-                [CONNECT_WALLET_TO_RUN]
-              {:else if !witnessData}
-                [UPLOAD_WITNESS_FIRST]
-              {:else}
-                [RUN_{selectedOperation.toUpperCase()}_COMPUTATION]
+          </div>
+        </div>
+
+      {:else if currentStep === 3}
+        <!-- Step 3: Run Computation -->
+        <div class="wizard-card tui-box fade-in">
+          <h2 class="text-mono text-uppercase mb-6 text-center">
+            STEP_3: RUN_COMPUTATION
+          </h2>
+
+          <div class="signing-state">
+            {#if !isWalletConnected}
+              <div class="wallet-connect-prompt">
+                <div class="text-mono text-center mb-4 text-warning">
+                  [!] WALLET_NOT_CONNECTED
+                </div>
+                <div class="text-sm text-muted text-center mb-6">
+                  Connect your Solana wallet to run the computation
+                </div>
+                <WalletConnect on:connected={handleWalletConnected} />
+              </div>
+            {:else if isProcessing}
+              <div class="text-center mb-6">
+                <Loading size="large" />
+              </div>
+              <div class="text-mono text-center mb-4 text-violet">
+                {processingMessage || 'Processing...'}<span class="cursor-blink"></span>
+              </div>
+              {#if jobId}
+                <div class="text-sm text-muted text-center">Job ID: {jobId}</div>
               {/if}
-            </button>
+            {:else}
+              <div class="wallet-icon text-center mb-6">
+                <div class="text-4xl text-mono text-violet">[OK]</div>
+              </div>
+              <div class="text-mono text-center mb-4 text-violet">
+                READY_TO_COMPUTE
+              </div>
+              <div class="text-sm text-muted text-center mb-6">
+                Click "RUN_COMPUTATION" below to execute the FHE operation
+              </div>
+            {/if}
 
             {#if error}
               <div class="error-box mt-4">
                 <span class="text-error">[ERROR]</span> {error}
               </div>
             {/if}
-          {/if}
-        </section>
 
-      {:else}
+            <div class="divider-section"></div>
+
+            <div class="tx-details text-mono text-sm">
+              <div class="text-muted mb-2">COMPUTATION_DETAILS:</div>
+              <div class="tx-line">• Operation: {selectedOperation.toUpperCase()}</div>
+              <div class="tx-line">• Provers: 3 (2-of-3 consensus)</div>
+              <div class="tx-line">• Cost: ~0.005_SOL + network_fee</div>
+            </div>
+          </div>
+        </div>
+
+      {:else if currentStep === 4}
         <!-- Result Section -->
-        <section class="result-section">
-          <div class="result-header mb-6">
-            <h3 class="text-mono text-uppercase text-success">
-              [OK] COMPUTATION_COMPLETE
-            </h3>
+        <div class="wizard-card tui-box fade-in">
+          <div class="result-header mb-6 text-center">
+            <div class="text-4xl text-mono text-violet mb-4">[OK]</div>
+            <h2 class="text-mono text-uppercase text-violet">
+              COMPUTATION_COMPLETE
+            </h2>
           </div>
 
-          <div class="result-card tui-box-success mb-6">
+          <div class="result-card tui-box-violet mb-6">
             <div class="result-row">
               <span class="result-label text-mono text-muted">Job ID:</span>
               <span class="result-value text-mono text-cyan">{jobId}</span>
@@ -297,26 +406,51 @@
               To decrypt this result, use: <span class="text-cyan">fhe-cli decrypt -k client_key.bin -r result.bin</span>
             </p>
           </div>
-
-          <div class="result-actions">
-            <button class="btn btn-primary" on:click={reset}>
-              [RUN_ANOTHER_COMPUTATION]
-            </button>
-            <button class="btn btn-ghost" on:click={goBack}>
-              [BACK_TO_DASHBOARD]
-            </button>
-          </div>
-        </section>
+        </div>
       {/if}
+
+      <!-- Navigation Buttons -->
+      <div class="wizard-nav">
+        <button
+          class="btn btn-ghost"
+          on:click={currentStep === 1 ? handleCancel : (currentStep === 4 ? reset : prevStep)}
+        >
+          [{currentStep === 1 ? 'CANCEL' : currentStep === 4 ? 'RUN_ANOTHER' : '◀ BACK'}]
+        </button>
+
+        {#if currentStep < 3}
+          <button
+            class="btn btn-primary"
+            on:click={nextStep}
+            disabled={(currentStep === 1 && !canProceedStep1) || (currentStep === 2 && !canProceedStep2)}
+          >
+            [NEXT: {currentStep === 1 ? 'CONFIGURE' : 'COMPUTE'} ▶]
+          </button>
+        {:else if currentStep === 3}
+          <button
+            class="btn btn-primary"
+            on:click={runAnalytics}
+            disabled={isProcessing || !isWalletConnected}
+          >
+            [RUN_{selectedOperation.toUpperCase()}_COMPUTATION]
+          </button>
+        {:else}
+          <button class="btn btn-primary" on:click={handleCancel}>
+            [BACK_TO_DASHBOARD]
+          </button>
+        {/if}
+      </div>
     </div>
   </main>
 </div>
 
 <!-- Wallet Modal -->
 {#if showWalletModal}
-  <div class="modal-overlay" on:click={() => showWalletModal = false}>
-    <div class="modal-content" on:click|stopPropagation>
-      <button class="modal-close" on:click={() => showWalletModal = false}>[X]</button>
+  <div class="wallet-modal-overlay" on:click={() => showWalletModal = false}>
+    <div class="wallet-modal" on:click|stopPropagation>
+      <button class="wallet-modal-close" on:click={() => showWalletModal = false}>
+        [X]
+      </button>
       <WalletConnect on:connected={handleWalletConnected} />
     </div>
   </div>
@@ -328,11 +462,9 @@
     padding-bottom: var(--space-8);
   }
 
-  .page-header {
+  .wizard-header {
     padding: var(--space-6) 0;
     border-bottom: 1px solid var(--zyber-border-muted);
-    background: rgba(15, 23, 42, 0.95);
-    backdrop-filter: blur(10px);
   }
 
   .header-content {
@@ -343,24 +475,10 @@
     gap: var(--space-4);
   }
 
-  .header-left {
+  .header-right {
     display: flex;
     align-items: center;
     gap: var(--space-4);
-  }
-
-  .btn-back {
-    background: transparent;
-    border: 1px solid var(--zyber-border-muted);
-    color: var(--zyber-text-muted);
-    padding: var(--space-2) var(--space-3);
-    cursor: pointer;
-    transition: all var(--transition-fast);
-  }
-
-  .btn-back:hover {
-    border-color: var(--zyber-cyber-cyan);
-    color: var(--zyber-cyber-cyan);
   }
 
   h1 {
@@ -378,41 +496,141 @@
     gap: var(--space-2);
     padding: var(--space-2) var(--space-3);
     border-radius: var(--radius-md);
-    border: 1px solid var(--zyber-success);
+    border: 1px solid var(--zyber-border-muted);
+    background: var(--zyber-bg-glass);
+  }
+
+  .wallet-badge.connected {
+    border-color: var(--zyber-success);
     background: rgba(16, 185, 129, 0.1);
+  }
+
+  .wallet-badge.disconnected {
+    cursor: pointer;
+    border-color: var(--zyber-warning);
+    background: rgba(245, 158, 11, 0.1);
+  }
+
+  .wallet-badge.disconnected:hover {
+    background: rgba(245, 158, 11, 0.2);
   }
 
   .wallet-dot {
     width: 8px;
     height: 8px;
     border-radius: 50%;
+    background: var(--zyber-border-muted);
+  }
+
+  .wallet-badge.connected .wallet-dot {
     background: var(--zyber-success);
-    box-shadow: 0 0 8px var(--zyber-success);
+    box-shadow: 0 0 6px var(--zyber-success);
   }
 
-  .btn-connect {
-    background: rgba(6, 182, 212, 0.1);
-    border: 1px solid var(--zyber-cyber-cyan);
-    color: var(--zyber-cyber-cyan);
-    padding: var(--space-2) var(--space-4);
-    cursor: pointer;
-    border-radius: var(--radius-md);
-    transition: all var(--transition-fast);
+  .wallet-badge.disconnected .wallet-dot {
+    background: var(--zyber-warning);
   }
 
-  .btn-connect:hover {
-    background: rgba(6, 182, 212, 0.2);
-    box-shadow: 0 0 15px rgba(6, 182, 212, 0.3);
+  .divider-header {
+    font-size: 8px;
+    opacity: 0.2;
+    text-align: center;
+    margin: var(--space-4) 0;
   }
 
-  .page-main {
+  /* Stepper */
+  .stepper {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    max-width: 800px;
+    margin: var(--space-8) auto;
+    position: relative;
+    padding: 0 var(--space-4);
+  }
+
+  .stepper-line {
+    position: absolute;
+    top: 20px;
+    left: 10%;
+    right: 10%;
+    height: 2px;
+    background: var(--zyber-border-muted);
+    z-index: 0;
+  }
+
+  .stepper-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-2);
+    position: relative;
+    z-index: 1;
+  }
+
+  .step-circle {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 2px solid var(--zyber-border-muted);
+    background: var(--zyber-bg-base);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    transition: all var(--transition-base);
+  }
+
+  .stepper-step.active .step-circle {
+    border-color: var(--zyber-quantum-violet);
+    background: rgba(139, 92, 246, 0.1);
+    color: var(--zyber-quantum-violet);
+    box-shadow: var(--zyber-glow-violet);
+  }
+
+  .stepper-step.completed .step-circle {
+    border-color: var(--zyber-quantum-violet);
+    background: var(--zyber-quantum-violet);
+    color: white;
+  }
+
+  .step-label {
+    text-transform: uppercase;
+    opacity: 0.6;
+  }
+
+  .stepper-step.active .step-label {
+    opacity: 1;
+    color: var(--zyber-quantum-violet);
+  }
+
+  /* Wizard Main */
+  .wizard-main {
     padding: var(--space-8) 0;
   }
 
-  .info-section {
-    padding: var(--space-6);
+  .wizard-card {
+    max-width: 800px;
+    margin: 0 auto var(--space-6);
+    padding: var(--space-8);
+  }
+
+  /* Info Boxes */
+  .info-box, .info-box-violet {
+    padding: var(--space-4);
+    border-radius: var(--radius-md);
+    border: 1px solid;
+  }
+
+  .info-box {
     background: rgba(6, 182, 212, 0.05);
-    border-color: var(--zyber-cyber-cyan);
+    border-color: var(--zyber-border-secondary);
+  }
+
+  .info-box-violet {
+    background: rgba(139, 92, 246, 0.05);
+    border-color: rgba(139, 92, 246, 0.3);
+    border-left-width: 3px;
   }
 
   .code-hint {
@@ -422,64 +640,189 @@
     color: var(--zyber-cyber-cyan);
   }
 
-  .step-section {
-    max-width: 800px;
+  .upload-success {
+    padding: var(--space-3);
+    background: rgba(16, 185, 129, 0.1);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    border-radius: var(--radius-md);
   }
 
-  .step-number {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    border-radius: 50%;
-    background: var(--zyber-quantum-violet);
-    color: white;
-    font-size: var(--text-sm);
-    margin-right: var(--space-2);
+  /* Config Section */
+  .config-section {
+    margin-bottom: var(--space-6);
   }
 
-  .operation-selector {
+  .config-section label {
+    display: block;
+  }
+
+  /* Radio Options */
+  .radio-group {
     display: flex;
     flex-direction: column;
-    gap: var(--space-2);
-    padding: var(--space-4);
+    gap: var(--space-3);
   }
 
-  .operation-option {
+  .radio-option {
     display: flex;
     align-items: center;
-    gap: var(--space-4);
     padding: var(--space-4);
     border: 1px solid var(--zyber-border-muted);
     border-radius: var(--radius-md);
     cursor: pointer;
-    transition: all var(--transition-fast);
+    transition: all var(--transition-base);
   }
 
-  .operation-option:hover {
+  .radio-option:hover {
     border-color: var(--zyber-border-secondary);
-    background: rgba(6, 182, 212, 0.05);
+    background: rgba(139, 92, 246, 0.05);
   }
 
-  .operation-option.selected {
-    border-color: var(--zyber-cyber-cyan);
-    background: rgba(6, 182, 212, 0.1);
-  }
-
-  .operation-option input {
+  .radio-option input[type="radio"] {
     display: none;
   }
 
-  .option-content {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-1);
+  .radio-option input[type="radio"]:checked + .radio-label {
+    color: var(--zyber-text-primary);
   }
 
-  .option-label {
+  .radio-option input[type="radio"]:checked + .radio-label .radio-check {
+    color: var(--zyber-quantum-violet);
+  }
+
+  .radio-label {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex: 1;
+    flex-wrap: wrap;
+  }
+
+  .radio-check {
+    font-size: var(--text-xl);
+  }
+
+  /* Dividers */
+  .divider-section {
+    height: 1px;
+    background: var(--zyber-border-muted);
+    margin: var(--space-6) 0;
+  }
+
+  /* Cost Breakdown */
+  .cost-breakdown {
+    padding: var(--space-6);
+    border: 2px solid rgba(139, 92, 246, 0.3);
+    border-radius: var(--radius-md);
+    background: rgba(139, 92, 246, 0.05);
+  }
+
+  .tui-box-violet {
+    border-color: rgba(139, 92, 246, 0.3);
+    background: rgba(139, 92, 246, 0.05);
+  }
+
+  .cost-lines {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .cost-line {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-4);
+  }
+
+  .cost-line.total {
     font-weight: 600;
+    font-size: var(--text-lg);
+    padding-top: var(--space-2);
+  }
+
+  .divider-cost {
+    font-size: 8px;
+    opacity: 0.5;
+  }
+
+  .total-amount {
+    font-size: var(--text-lg);
+    font-weight: 600;
+  }
+
+  .text-violet {
+    color: var(--zyber-quantum-violet);
+  }
+
+  /* Signing State */
+  .signing-state {
+    max-width: 500px;
+    margin: 0 auto;
+  }
+
+  .wallet-connect-prompt {
+    padding: var(--space-4);
+  }
+
+  .tx-details {
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid var(--zyber-border-muted);
+    border-radius: var(--radius-md);
+    padding: var(--space-4);
+  }
+
+  .tx-line {
+    margin-bottom: var(--space-2);
+  }
+
+  .error-box {
+    padding: var(--space-4);
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid var(--zyber-error);
+    border-radius: var(--radius-md);
+  }
+
+  /* Result */
+  .result-header {
+    text-align: center;
+  }
+
+  .result-card {
+    padding: var(--space-6);
+    border-radius: var(--radius-md);
+  }
+
+  .result-row {
+    display: flex;
+    justify-content: space-between;
+    padding: var(--space-2) 0;
+    border-bottom: 1px solid var(--zyber-border-muted);
+  }
+
+  .result-row:last-child {
+    border-bottom: none;
+  }
+
+  .encrypted-result {
+    padding: var(--space-6);
+  }
+
+  .result-hash {
+    padding: var(--space-4);
+    background: rgba(0, 0, 0, 0.4);
+    border-radius: var(--radius-sm);
+    word-break: break-all;
+    color: var(--zyber-cyber-cyan);
+  }
+
+  /* Navigation */
+  .wizard-nav {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-4);
+    max-width: 800px;
+    margin: var(--space-8) auto 0;
   }
 
   .btn {
@@ -488,11 +831,6 @@
     border-radius: var(--radius-md);
     cursor: pointer;
     transition: all var(--transition-fast);
-  }
-
-  .btn-lg {
-    padding: var(--space-4) var(--space-8);
-    font-size: var(--text-lg);
   }
 
   .btn-primary {
@@ -520,66 +858,8 @@
     border-color: var(--zyber-border-secondary);
   }
 
-  .processing-state {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: var(--space-8);
-    text-align: center;
-  }
-
-  .error-box {
-    padding: var(--space-4);
-    background: rgba(239, 68, 68, 0.1);
-    border: 1px solid var(--zyber-error);
-    border-radius: var(--radius-md);
-  }
-
-  .result-section {
-    max-width: 800px;
-  }
-
-  .result-card {
-    padding: var(--space-6);
-  }
-
-  .tui-box-success {
-    background: rgba(16, 185, 129, 0.05);
-    border: 1px solid var(--zyber-success);
-    border-radius: var(--radius-md);
-  }
-
-  .result-row {
-    display: flex;
-    justify-content: space-between;
-    padding: var(--space-2) 0;
-    border-bottom: 1px solid var(--zyber-border-muted);
-  }
-
-  .result-row:last-child {
-    border-bottom: none;
-  }
-
-  .encrypted-result {
-    padding: var(--space-6);
-  }
-
-  .result-hash {
-    padding: var(--space-4);
-    background: rgba(0, 0, 0, 0.4);
-    border-radius: var(--radius-sm);
-    word-break: break-all;
-    color: var(--zyber-cyber-cyan);
-  }
-
-  .result-actions {
-    display: flex;
-    gap: var(--space-4);
-    flex-wrap: wrap;
-  }
-
   /* Modal */
-  .modal-overlay {
+  .wallet-modal-overlay {
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.8);
@@ -589,7 +869,7 @@
     z-index: 1000;
   }
 
-  .modal-content {
+  .wallet-modal {
     background: var(--zyber-bg-base);
     border: 2px solid var(--zyber-border-secondary);
     border-radius: var(--radius-lg);
@@ -599,7 +879,7 @@
     position: relative;
   }
 
-  .modal-close {
+  .wallet-modal-close {
     position: absolute;
     top: var(--space-3);
     right: var(--space-3);
@@ -607,22 +887,82 @@
     border: none;
     color: var(--zyber-text-muted);
     cursor: pointer;
-    font-family: var(--font-mono);
+    font-size: var(--text-lg);
   }
 
-  .modal-close:hover {
-    color: var(--zyber-error);
+  .wallet-modal-close:hover {
+    color: var(--zyber-text-primary);
   }
 
   /* Utilities */
   .mb-3 { margin-bottom: var(--space-3); }
   .mb-4 { margin-bottom: var(--space-4); }
   .mb-6 { margin-bottom: var(--space-6); }
-  .mt-2 { margin-top: var(--space-2); }
   .mt-3 { margin-top: var(--space-3); }
   .mt-4 { margin-top: var(--space-4); }
+  .mt-6 { margin-top: var(--space-6); }
   .text-cyan { color: var(--zyber-cyber-cyan); }
   .text-success { color: var(--zyber-success); }
+  .text-warning { color: var(--zyber-warning); }
   .text-error { color: var(--zyber-error); }
   .text-muted { color: var(--zyber-text-muted); }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    .header-content {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: var(--space-3);
+    }
+
+    .header-right {
+      width: 100%;
+      justify-content: space-between;
+    }
+
+    .stepper {
+      padding: 0;
+    }
+
+    .step-circle {
+      width: 32px;
+      height: 32px;
+      font-size: var(--text-sm);
+    }
+
+    .step-label {
+      font-size: 10px;
+    }
+
+    .wizard-card {
+      padding: var(--space-6);
+    }
+
+    .wizard-nav {
+      flex-direction: column;
+    }
+
+    .btn {
+      width: 100%;
+      text-align: center;
+    }
+
+    .radio-label {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: var(--space-1);
+    }
+
+    .cost-line {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: var(--space-1);
+    }
+
+    .result-row {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: var(--space-1);
+    }
+  }
 </style>
