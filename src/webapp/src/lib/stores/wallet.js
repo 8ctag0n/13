@@ -276,9 +276,34 @@ function createWalletStore() {
           }
 
           try {
-            const encodedMessage = new TextEncoder().encode(message);
+            // Handle both Uint8Array and string messages
+            const encodedMessage = message instanceof Uint8Array
+              ? message
+              : new TextEncoder().encode(message);
             const result = await state.provider.signMessage(encodedMessage, 'utf8');
-            resolve(result);
+            // Return just the signature bytes, handling both response formats
+            resolve(result.signature || result);
+          } catch (error) {
+            reject(error);
+          }
+        });
+      });
+    },
+
+    // Sign transaction without sending (returns signed transaction)
+    async signTransaction(transaction) {
+      return new Promise((resolve, reject) => {
+        const unsubscribe = subscribe(async (state) => {
+          unsubscribe();
+
+          if (!state.connected || !state.provider) {
+            reject(new Error('Wallet not connected'));
+            return;
+          }
+
+          try {
+            const signedTx = await state.provider.signTransaction(transaction);
+            resolve(signedTx);
           } catch (error) {
             reject(error);
           }
