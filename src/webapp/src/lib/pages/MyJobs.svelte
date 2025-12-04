@@ -109,6 +109,45 @@
   function createNewJob() {
     navigateTo('create-job');
   }
+
+  async function downloadResult(jobId) {
+    try {
+      const response = await fetch(`${API_BASE}/api/jobs/${jobId}/result`);
+
+      if (!response.ok) {
+        alert('Failed to download result');
+        return;
+      }
+
+      const data = await response.json();
+
+      if (!data.encrypted_result) {
+        alert('No result available');
+        return;
+      }
+
+      // Decode base64 to binary
+      const binaryString = atob(data.encrypted_result);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+
+      // Create blob and download
+      const blob = new Blob([bytes], { type: 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `fhe_result_${jobId}.bin`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('Download failed:', e);
+      alert('Download failed: ' + e.message);
+    }
+  }
 </script>
 
 <div class="myjobs-page">
