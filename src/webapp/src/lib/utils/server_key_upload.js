@@ -141,9 +141,9 @@ export async function uploadServerKey(serverKeyBytes, apiBaseUrl, onProgress = (
       reject(new Error('Server key upload timed out'));
     };
 
-    // Set very generous timeout for large uploads (20 minutes)
-    // Users with slow connections (~100KB/s) need ~20min for 117MB
-    xhr.timeout = 1200000;
+    // Set very generous timeout for large uploads (30 minutes)
+    // Users with slow connections (~70KB/s) need ~28min for 117MB
+    xhr.timeout = 1800000;
 
     // Send raw bytes
     xhr.send(serverKeyBytes);

@@ -5,7 +5,7 @@ use serde_json::json;
 use solana_sdk::{message::Message, transaction::Transaction};
 use std::str::FromStr;
 
-use crate::db::{FheResultQueries, InsertJobData, JobQueries, JobStatus, ServerKeyQueries, WitnessQueries};
+use crate::db::{FheResultQueries, InsertJobData, JobQueries, JobStatus, NetworkMetricsQueries, ServerKeyQueries, WitnessQueries};
 use crate::validators::{JobValidator, ValidateJobRequest};
 use crate::AppState;
 use blake2::{Blake2s256, Digest};
@@ -846,32 +846,29 @@ async fn get_network_stats(data: web::Data<AppState>) -> impl Responder {
         (0, None)
     };
 
-    // Query 5: Get actual encrypted data size from temp_job_data
-    let encrypted_data_size: i64 = sqlx::query_scalar!(
-        r#"SELECT COALESCE(SUM(LENGTH(encrypted_data)), 0)::bigint as "size!" FROM temp_job_data"#
-    )
-    .fetch_one(&data.db_pool)
-    .await
-    .unwrap_or(0);
+    // Query 5: Get historical data processed from network_metrics
+    // This is cumulative and never decreases, even after cleanup
+    let historical_metrics = NetworkMetricsQueries::get_metrics(&data.db_pool)
+        .await
+        .unwrap_or_else(|_| crate::db::queries::NetworkMetrics {
+            total_data_processed_bytes: 0,
+            total_jobs_processed: 0,
+            total_fhe_computations: 0,
+            total_zk_proofs: 0,
+        });
 
-    // Query 6: Get server_key sizes (these are large ~40MB each)
-    let server_key_size: i64 = sqlx::query_scalar!(
-        r#"SELECT COALESCE(SUM(LENGTH(server_key)), 0)::bigint as "size!" FROM temp_job_data"#
+    // Also get current data in temp storage (not yet counted in historical)
+    let current_data_result: Option<(i64,)> = sqlx::query_as(
+        r#"SELECT COALESCE(SUM(LENGTH(encrypted_data) + LENGTH(server_key)), 0)::bigint FROM temp_job_data"#
     )
-    .fetch_one(&data.db_pool)
+    .fetch_optional(&data.db_pool)
     .await
-    .unwrap_or(0);
+    .ok()
+    .flatten();
+    let current_data_size = current_data_result.map(|(s,)| s).unwrap_or(0);
 
-    // Query 7: Get witness data sizes
-    let witness_size: i64 = sqlx::query_scalar!(
-        r#"SELECT COALESCE(SUM(LENGTH(data)), 0)::bigint as "size!" FROM witnesses"#
-    )
-    .fetch_one(&data.db_pool)
-    .await
-    .unwrap_or(0);
-
-    // Total encrypted data processed
-    let data_bytes = encrypted_data_size + server_key_size + witness_size;
+    // Total = historical + current pending
+    let data_bytes = historical_metrics.total_data_processed_bytes + current_data_size;
 
     // Format bytes adaptively
     let data_formatted = format_bytes(data_bytes);

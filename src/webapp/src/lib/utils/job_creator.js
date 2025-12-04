@@ -3,6 +3,39 @@ import { Buffer } from 'buffer';
 import { createSolanaRpc } from '@solana/kit';
 import { uploadServerKey } from './server_key_upload.js';
 
+// Base58 alphabet (Solana standard)
+const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+
+/**
+ * Convert Uint8Array to Base58 string (Solana format)
+ */
+function uint8ArrayToBase58(bytes) {
+  if (bytes.length === 0) return '';
+
+  // Count leading zeros
+  let zeros = 0;
+  while (zeros < bytes.length && bytes[zeros] === 0) {
+    zeros++;
+  }
+
+  // Convert to big integer
+  let num = BigInt(0);
+  for (const byte of bytes) {
+    num = num * BigInt(256) + BigInt(byte);
+  }
+
+  // Convert to base58
+  let result = '';
+  while (num > 0) {
+    const remainder = Number(num % BigInt(58));
+    num = num / BigInt(58);
+    result = BASE58_ALPHABET[remainder] + result;
+  }
+
+  // Add leading '1's for each leading zero byte
+  return '1'.repeat(zeros) + result;
+}
+
 /**
  * Create an FHE job from a parsed witness.bin file
  *
@@ -118,7 +151,8 @@ export async function createFheJobFromWitness(options) {
     const signResult = await provider.signMessage(messageBytes, 'utf8');
     // Handle both Uint8Array and {signature: Uint8Array} response formats
     const signatureBytes = signResult.signature || signResult;
-    const signatureBase64 = btoa(String.fromCharCode(...new Uint8Array(signatureBytes)));
+    // Convert to base58 (Solana standard) - not base64
+    const signatureBase58 = uint8ArrayToBase58(new Uint8Array(signatureBytes));
 
     // Step 2: Call validate-and-build endpoint
     onProgress({ step: 'validating', message: 'Validating job with backend...' });
@@ -130,7 +164,7 @@ export async function createFheJobFromWitness(options) {
       creator_pubkey: creatorPubkey,
       encrypted_data: encryptedData,
       message: message,
-      signature: signatureBase64,
+      signature: signatureBase58,
       nonce: nonce,
       operation: operation.toLowerCase(),
       operation_value: operationValue,
@@ -183,7 +217,8 @@ export async function createFheJobFromWitness(options) {
     // Step 5: Sign transaction with wallet
     onProgress({ step: 'wallet_sign', message: 'Waiting for wallet signature...' });
 
-    const signedTx = await wallet.signTransaction(tx);
+    // Use provider.signTransaction for Solflare/Phantom compatibility
+    const signedTx = await provider.signTransaction(tx);
 
     // Step 6: Send transaction to Solana network
     onProgress({ step: 'sending', message: 'Sending transaction to Solana...' });

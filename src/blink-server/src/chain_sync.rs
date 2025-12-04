@@ -9,6 +9,8 @@ use sqlx::PgPool;
 use std::time::Duration;
 use zyberlink_sdk::JobAccount;
 
+use crate::db::NetworkMetricsQueries;
+
 // Circuit type ID constants (must match program)
 const CIRCUIT_ZCASH_ORCHARD: u8 = 0;
 const CIRCUIT_ANONYMOUS_VOTE: u8 = 2;
@@ -152,6 +154,24 @@ async fn sync_jobs(rpc_url: String, program_id: Pubkey, db_pool: &PgPool) -> any
 
 /// Insert or update a job in the database
 async fn upsert_job(db_pool: &PgPool, pubkey: &Pubkey, job: &JobAccount) -> anyhow::Result<()> {
+    // Check if job is newly completed (for metrics tracking)
+    let is_newly_completed = if job.status == zyberlink_types::JobStatus::Completed {
+        // Check if this job was already marked completed in the database
+        let existing_status: Option<(String,)> = sqlx::query_as(
+            r#"SELECT status FROM blockchain_jobs WHERE job_id = $1"#
+        )
+        .bind(job.id as i64)
+        .fetch_optional(db_pool)
+        .await
+        .ok()
+        .flatten();
+
+        // Job is "newly completed" if it either doesn't exist or had a different status
+        existing_status.as_ref().map_or(true, |(s,)| s != "completed")
+    } else {
+        false
+    };
+
     // Extract FHE operation name from circuit type
     let fhe_operation = fhe_operation_name(job.circuit_type);
 
@@ -244,6 +264,54 @@ async fn upsert_job(db_pool: &PgPool, pubkey: &Pubkey, job: &JobAccount) -> anyh
     .execute(db_pool)
     .await
     .map_err(|e| anyhow::anyhow!("Database upsert failed: {}", e))?;
+
+    // If job just completed, update historical network metrics
+    if is_newly_completed {
+        log::info!(
+            "Job {} completed - updating historical metrics (circuit_type: {})",
+            job.id,
+            job.circuit_type
+        );
+
+        // Get the data size from temp_job_data if available
+        let data_size_result: Option<(i64,)> = sqlx::query_as(
+            r#"SELECT COALESCE(LENGTH(encrypted_data) + LENGTH(server_key), 0)::bigint FROM temp_job_data WHERE job_id = $1"#
+        )
+        .bind(job.id as i64)
+        .fetch_optional(db_pool)
+        .await
+        .ok()
+        .flatten();
+        let data_size = data_size_result.map(|(s,)| s).unwrap_or(0);
+
+        // If no temp_job_data, use witness data size
+        let final_data_size = if data_size == 0 {
+            let witness_hash_hex = hex::encode(job.witness_hash);
+            let witness_size_result: Option<(i64,)> = sqlx::query_as(
+                r#"SELECT COALESCE(LENGTH(data), 0)::bigint FROM witnesses WHERE commitment = $1"#
+            )
+            .bind(&witness_hash_hex)
+            .fetch_optional(db_pool)
+            .await
+            .ok()
+            .flatten();
+            witness_size_result.map(|(s,)| s).unwrap_or(0)
+        } else {
+            data_size
+        };
+
+        // Record in historical metrics
+        let is_fhe = is_fhe_circuit(job.circuit_type);
+        if let Err(e) = NetworkMetricsQueries::record_completed_job(db_pool, final_data_size, is_fhe).await {
+            log::warn!("Failed to update network metrics for job {}: {}", job.id, e);
+        } else {
+            log::info!(
+                "Updated historical metrics: +{} bytes, is_fhe={}",
+                final_data_size,
+                is_fhe
+            );
+        }
+    }
 
     Ok(())
 }

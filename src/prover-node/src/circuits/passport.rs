@@ -3,7 +3,7 @@
 //! Implements Threshold and RangeCheck operations for zk-passport
 
 use anyhow::{Context, Result};
-use tfhe::prelude::{FheOrd, FheTryTrivialEncrypt};
+use tfhe::prelude::{FheOrd, FheTryTrivialEncrypt, IfThenElse};
 use tfhe::{FheBool, FheUint8};
 
 pub struct PassportCircuit;
@@ -17,7 +17,7 @@ impl PassportCircuit {
     /// * `greater_or_equal` - If true, check value >= threshold; if false, check value < threshold
     ///
     /// # Returns
-    /// * `Result<Vec<u8>>` - Serialized FheBool (true if condition met, false otherwise)
+    /// * `Result<Vec<u8>>` - Serialized FheUint8 (1 if condition met, 0 otherwise)
     ///
     /// # Example
     /// ```ignore
@@ -39,14 +39,21 @@ impl PassportCircuit {
             .context("Failed to encrypt threshold value")?;
 
         // Perform comparison using FHE
-        let result: FheBool = if greater_or_equal {
+        let result_bool: FheBool = if greater_or_equal {
             value_ct.ge(&threshold_ct) // >=
         } else {
             value_ct.lt(&threshold_ct) // <
         };
 
-        // Serialize the boolean result
-        bincode::serialize(&result).context("Failed to serialize threshold result")
+        // Convert FheBool to FheUint8 (1 if true, 0 if false)
+        let one = FheUint8::try_encrypt_trivial(1u8)
+            .context("Failed to encrypt trivial 1")?;
+        let zero = FheUint8::try_encrypt_trivial(0u8)
+            .context("Failed to encrypt trivial 0")?;
+        let result_uint8 = result_bool.if_then_else(&one, &zero);
+
+        // Serialize the uint8 result
+        bincode::serialize(&result_uint8).context("Failed to serialize threshold result")
     }
 
     /// Verify encrypted value is within valid range [min, max]
@@ -57,7 +64,7 @@ impl PassportCircuit {
     /// * `max` - Maximum allowed value (inclusive)
     ///
     /// # Returns
-    /// * `Result<Vec<u8>>` - Serialized FheBool (true if min <= value <= max)
+    /// * `Result<Vec<u8>>` - Serialized FheUint8 (1 if min <= value <= max, 0 otherwise)
     ///
     /// # Example
     /// ```ignore
@@ -83,9 +90,16 @@ impl PassportCircuit {
         let le_max: FheBool = value_ct.le(&max_ct);
 
         // Combine with AND
-        let in_range: FheBool = ge_min & le_max;
+        let in_range_bool: FheBool = ge_min & le_max;
 
-        bincode::serialize(&in_range).context("Failed to serialize range check result")
+        // Convert FheBool to FheUint8 (1 if true, 0 if false)
+        let one = FheUint8::try_encrypt_trivial(1u8)
+            .context("Failed to encrypt trivial 1")?;
+        let zero = FheUint8::try_encrypt_trivial(0u8)
+            .context("Failed to encrypt trivial 0")?;
+        let result_uint8 = in_range_bool.if_then_else(&one, &zero);
+
+        bincode::serialize(&result_uint8).context("Failed to serialize range check result")
     }
 }
 
@@ -114,10 +128,10 @@ mod tests {
         // Check age >= 18
         let result_bytes = PassportCircuit::compute_threshold(&age_bytes, 18, true).unwrap();
 
-        let result_bool: FheBool = bincode::deserialize(&result_bytes).unwrap();
-        let is_adult: bool = result_bool.decrypt(&client_key);
+        let result_uint8: FheUint8 = bincode::deserialize(&result_bytes).unwrap();
+        let is_adult: u8 = result_uint8.decrypt(&client_key);
 
-        assert!(is_adult, "Age 25 should be >= 18");
+        assert_eq!(is_adult, 1, "Age 25 should be >= 18 (expecting 1)");
     }
 
     #[test]
@@ -132,10 +146,10 @@ mod tests {
         // Check age >= 18
         let result_bytes = PassportCircuit::compute_threshold(&age_bytes, 18, true).unwrap();
 
-        let result_bool: FheBool = bincode::deserialize(&result_bytes).unwrap();
-        let is_adult: bool = result_bool.decrypt(&client_key);
+        let result_uint8: FheUint8 = bincode::deserialize(&result_bytes).unwrap();
+        let is_adult: u8 = result_uint8.decrypt(&client_key);
 
-        assert!(!is_adult, "Age 15 should NOT be >= 18");
+        assert_eq!(is_adult, 0, "Age 15 should NOT be >= 18 (expecting 0)");
     }
 
     #[test]
@@ -150,10 +164,10 @@ mod tests {
         // Check age >= 18
         let result_bytes = PassportCircuit::compute_threshold(&age_bytes, 18, true).unwrap();
 
-        let result_bool: FheBool = bincode::deserialize(&result_bytes).unwrap();
-        let is_adult: bool = result_bool.decrypt(&client_key);
+        let result_uint8: FheUint8 = bincode::deserialize(&result_bytes).unwrap();
+        let is_adult: u8 = result_uint8.decrypt(&client_key);
 
-        assert!(is_adult, "Age 18 should be >= 18 (boundary case)");
+        assert_eq!(is_adult, 1, "Age 18 should be >= 18 (boundary case, expecting 1)");
     }
 
     #[test]
@@ -167,10 +181,10 @@ mod tests {
         // Check value < 20 (should be true)
         let result_bytes = PassportCircuit::compute_threshold(&value_bytes, 20, false).unwrap();
 
-        let result_bool: FheBool = bincode::deserialize(&result_bytes).unwrap();
-        let is_less: bool = result_bool.decrypt(&client_key);
+        let result_uint8: FheUint8 = bincode::deserialize(&result_bytes).unwrap();
+        let is_less: u8 = result_uint8.decrypt(&client_key);
 
-        assert!(is_less, "10 should be < 20");
+        assert_eq!(is_less, 1, "10 should be < 20 (expecting 1)");
     }
 
     #[test]
@@ -184,10 +198,10 @@ mod tests {
         // Check 0 >= 0 (should be true)
         let result_bytes = PassportCircuit::compute_threshold(&value_bytes, 0, true).unwrap();
 
-        let result_bool: FheBool = bincode::deserialize(&result_bytes).unwrap();
-        let result: bool = result_bool.decrypt(&client_key);
+        let result_uint8: FheUint8 = bincode::deserialize(&result_bytes).unwrap();
+        let result: u8 = result_uint8.decrypt(&client_key);
 
-        assert!(result, "0 should be >= 0");
+        assert_eq!(result, 1, "0 should be >= 0 (expecting 1)");
     }
 
     // RANGE CHECK TESTS
@@ -203,10 +217,10 @@ mod tests {
         // Check 18 <= age <= 65
         let result_bytes = PassportCircuit::compute_range_check(&age_bytes, 18, 65).unwrap();
 
-        let result_bool: FheBool = bincode::deserialize(&result_bytes).unwrap();
-        let in_range: bool = result_bool.decrypt(&client_key);
+        let result_uint8: FheUint8 = bincode::deserialize(&result_bytes).unwrap();
+        let in_range: u8 = result_uint8.decrypt(&client_key);
 
-        assert!(in_range, "25 should be in range [18, 65]");
+        assert_eq!(in_range, 1, "25 should be in range [18, 65] (expecting 1)");
     }
 
     #[test]
@@ -220,10 +234,10 @@ mod tests {
         // Check 18 <= age <= 65
         let result_bytes = PassportCircuit::compute_range_check(&age_bytes, 18, 65).unwrap();
 
-        let result_bool: FheBool = bincode::deserialize(&result_bytes).unwrap();
-        let in_range: bool = result_bool.decrypt(&client_key);
+        let result_uint8: FheUint8 = bincode::deserialize(&result_bytes).unwrap();
+        let in_range: u8 = result_uint8.decrypt(&client_key);
 
-        assert!(!in_range, "15 should NOT be in range [18, 65]");
+        assert_eq!(in_range, 0, "15 should NOT be in range [18, 65] (expecting 0)");
     }
 
     #[test]
@@ -237,10 +251,10 @@ mod tests {
         // Check 18 <= age <= 65
         let result_bytes = PassportCircuit::compute_range_check(&age_bytes, 18, 65).unwrap();
 
-        let result_bool: FheBool = bincode::deserialize(&result_bytes).unwrap();
-        let in_range: bool = result_bool.decrypt(&client_key);
+        let result_uint8: FheUint8 = bincode::deserialize(&result_bytes).unwrap();
+        let in_range: u8 = result_uint8.decrypt(&client_key);
 
-        assert!(!in_range, "70 should NOT be in range [18, 65]");
+        assert_eq!(in_range, 0, "70 should NOT be in range [18, 65] (expecting 0)");
     }
 
     #[test]
@@ -253,10 +267,10 @@ mod tests {
 
         let result_bytes = PassportCircuit::compute_range_check(&age_bytes, 18, 65).unwrap();
 
-        let result_bool: FheBool = bincode::deserialize(&result_bytes).unwrap();
-        let in_range: bool = result_bool.decrypt(&client_key);
+        let result_uint8: FheUint8 = bincode::deserialize(&result_bytes).unwrap();
+        let in_range: u8 = result_uint8.decrypt(&client_key);
 
-        assert!(in_range, "18 should be in range [18, 65] (min boundary)");
+        assert_eq!(in_range, 1, "18 should be in range [18, 65] (min boundary, expecting 1)");
     }
 
     #[test]
@@ -269,10 +283,10 @@ mod tests {
 
         let result_bytes = PassportCircuit::compute_range_check(&age_bytes, 18, 65).unwrap();
 
-        let result_bool: FheBool = bincode::deserialize(&result_bytes).unwrap();
-        let in_range: bool = result_bool.decrypt(&client_key);
+        let result_uint8: FheUint8 = bincode::deserialize(&result_bytes).unwrap();
+        let in_range: u8 = result_uint8.decrypt(&client_key);
 
-        assert!(in_range, "65 should be in range [18, 65] (max boundary)");
+        assert_eq!(in_range, 1, "65 should be in range [18, 65] (max boundary, expecting 1)");
     }
 
     #[test]
@@ -316,11 +330,11 @@ mod tests {
 
         println!("Decrypting result...");
         let decrypt_start = Instant::now();
-        let result_bool: FheBool = bincode::deserialize(&result_bytes).unwrap();
-        let is_adult: bool = result_bool.decrypt(&client_key);
+        let result_uint8: FheUint8 = bincode::deserialize(&result_bytes).unwrap();
+        let is_adult: u8 = result_uint8.decrypt(&client_key);
         println!("Decryption took: {:?}", decrypt_start.elapsed());
 
-        assert!(is_adult);
+        assert_eq!(is_adult, 1);
 
         println!("\n=== PERFORMANCE RESULT ===");
         println!("Threshold operation (FHE comparison) took: {:?}", duration);
@@ -361,11 +375,11 @@ mod tests {
 
         println!("Decrypting result...");
         let decrypt_start = Instant::now();
-        let result_bool: FheBool = bincode::deserialize(&result_bytes).unwrap();
-        let in_range: bool = result_bool.decrypt(&client_key);
+        let result_uint8: FheUint8 = bincode::deserialize(&result_bytes).unwrap();
+        let in_range: u8 = result_uint8.decrypt(&client_key);
         println!("Decryption took: {:?}", decrypt_start.elapsed());
 
-        assert!(in_range);
+        assert_eq!(in_range, 1);
 
         println!("\n=== PERFORMANCE RESULT ===");
         println!(

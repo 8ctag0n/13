@@ -26,10 +26,22 @@ struct Cli {
 enum Commands {
     /// Run continuous job creation (default behavior)
     Continuous,
-    /// Run a single verified test: PoI CountIf with [15,20,25,17] >= 18 -> expect 2
-    VerifyPoi,
-    /// Run a single verified test: Sum [10,20,30] -> expect 60
+    /// Verify ADD: 50 + 10 = 60
+    VerifyAdd,
+    /// Verify MULTIPLY: 5 * 3 = 15
+    VerifyMultiply,
+    /// Verify SUM: [10,20,30] = 60
     VerifySum,
+    /// Verify THRESHOLD: 75 >= 50 = true (1)
+    VerifyThreshold,
+    /// Verify RANGE_CHECK: 50 in [0,100] = true (1)
+    VerifyRange,
+    /// Verify AVERAGE: avg([10,20,30,40,50]) = 30
+    VerifyAverage,
+    /// Verify COUNT_IF (PoI): [15,20,25,17] >= 18 = 2
+    VerifyPoi,
+    /// Run ALL verification tests
+    VerifyAll,
 }
 
 #[derive(Debug, Deserialize)]
@@ -97,11 +109,29 @@ async fn main() -> Result<()> {
         Commands::Continuous => {
             run_continuous(&sdk, &rpc_client, &http_client, &user_keypair, &backend_url).await
         }
-        Commands::VerifyPoi => {
-            run_verify_poi(&sdk, &rpc_client, &http_client, &user_keypair, &backend_url).await
+        Commands::VerifyAdd => {
+            run_verify_add(&sdk, &rpc_client, &http_client, &user_keypair, &backend_url).await
+        }
+        Commands::VerifyMultiply => {
+            run_verify_multiply(&sdk, &rpc_client, &http_client, &user_keypair, &backend_url).await
         }
         Commands::VerifySum => {
             run_verify_sum(&sdk, &rpc_client, &http_client, &user_keypair, &backend_url).await
+        }
+        Commands::VerifyThreshold => {
+            run_verify_threshold(&sdk, &rpc_client, &http_client, &user_keypair, &backend_url).await
+        }
+        Commands::VerifyRange => {
+            run_verify_range(&sdk, &rpc_client, &http_client, &user_keypair, &backend_url).await
+        }
+        Commands::VerifyAverage => {
+            run_verify_average(&sdk, &rpc_client, &http_client, &user_keypair, &backend_url).await
+        }
+        Commands::VerifyPoi => {
+            run_verify_poi(&sdk, &rpc_client, &http_client, &user_keypair, &backend_url).await
+        }
+        Commands::VerifyAll => {
+            run_verify_all(&sdk, &rpc_client, &http_client, &user_keypair, &backend_url).await
         }
     }
 }
@@ -179,6 +209,266 @@ async fn run_verify_sum(
     .await
 }
 
+/// Run Add verification test: 50 + 10 = 60
+async fn run_verify_add(
+    sdk: &MarketplaceSDK,
+    rpc_client: &RpcClient,
+    http_client: &reqwest::Client,
+    user_keypair: &Keypair,
+    backend_url: &str,
+) -> Result<()> {
+    log::info!("");
+    log::info!("===========================================");
+    log::info!("  Add Verification Test");
+    log::info!("  50 + 10 -> expect 60");
+    log::info!("===========================================");
+    log::info!("");
+
+    let test_values: Vec<u8> = vec![50];
+    let expected_result: u8 = 60;
+
+    let operation = FheOperation::Add(10);
+
+    run_verified_job(
+        sdk,
+        rpc_client,
+        http_client,
+        user_keypair,
+        backend_url,
+        operation,
+        &test_values,
+        expected_result,
+        "Add",
+    )
+    .await
+}
+
+/// Run Multiply verification test: 5 * 3 = 15
+async fn run_verify_multiply(
+    sdk: &MarketplaceSDK,
+    rpc_client: &RpcClient,
+    http_client: &reqwest::Client,
+    user_keypair: &Keypair,
+    backend_url: &str,
+) -> Result<()> {
+    log::info!("");
+    log::info!("===========================================");
+    log::info!("  Multiply Verification Test");
+    log::info!("  5 * 3 -> expect 15");
+    log::info!("===========================================");
+    log::info!("");
+
+    let test_values: Vec<u8> = vec![5];
+    let expected_result: u8 = 15;
+
+    let operation = FheOperation::Multiply(3);
+
+    run_verified_job(
+        sdk,
+        rpc_client,
+        http_client,
+        user_keypair,
+        backend_url,
+        operation,
+        &test_values,
+        expected_result,
+        "Multiply",
+    )
+    .await
+}
+
+/// Run Threshold verification test: 75 >= 50 = true (1)
+async fn run_verify_threshold(
+    sdk: &MarketplaceSDK,
+    rpc_client: &RpcClient,
+    http_client: &reqwest::Client,
+    user_keypair: &Keypair,
+    backend_url: &str,
+) -> Result<()> {
+    log::info!("");
+    log::info!("===========================================");
+    log::info!("  Threshold Verification Test");
+    log::info!("  75 >= 50 -> expect 1 (true)");
+    log::info!("===========================================");
+    log::info!("");
+
+    let test_values: Vec<u8> = vec![75];
+    let expected_result: u8 = 1; // true
+
+    let operation = FheOperation::Threshold {
+        threshold: 50,
+        greater_or_equal: true,
+    };
+
+    run_verified_job(
+        sdk,
+        rpc_client,
+        http_client,
+        user_keypair,
+        backend_url,
+        operation,
+        &test_values,
+        expected_result,
+        "Threshold",
+    )
+    .await
+}
+
+/// Run RangeCheck verification test: 50 in [0,100] = true (1)
+async fn run_verify_range(
+    sdk: &MarketplaceSDK,
+    rpc_client: &RpcClient,
+    http_client: &reqwest::Client,
+    user_keypair: &Keypair,
+    backend_url: &str,
+) -> Result<()> {
+    log::info!("");
+    log::info!("===========================================");
+    log::info!("  RangeCheck Verification Test");
+    log::info!("  50 in [0, 100] -> expect 1 (true)");
+    log::info!("===========================================");
+    log::info!("");
+
+    let test_values: Vec<u8> = vec![50];
+    let expected_result: u8 = 1; // true
+
+    let operation = FheOperation::RangeCheck { min: 0, max: 100 };
+
+    run_verified_job(
+        sdk,
+        rpc_client,
+        http_client,
+        user_keypair,
+        backend_url,
+        operation,
+        &test_values,
+        expected_result,
+        "RangeCheck",
+    )
+    .await
+}
+
+/// Run Average verification test: avg([10,20,30,40,50]) = 30
+async fn run_verify_average(
+    sdk: &MarketplaceSDK,
+    rpc_client: &RpcClient,
+    http_client: &reqwest::Client,
+    user_keypair: &Keypair,
+    backend_url: &str,
+) -> Result<()> {
+    log::info!("");
+    log::info!("===========================================");
+    log::info!("  Average Verification Test");
+    log::info!("  avg([10,20,30,40,50]) -> expect 30");
+    log::info!("===========================================");
+    log::info!("");
+
+    let test_values: Vec<u8> = vec![10, 20, 30, 40, 50];
+    let expected_result: u8 = 30;
+
+    let operation = FheOperation::Average {
+        expected_count: test_values.len() as u16,
+    };
+
+    run_verified_job(
+        sdk,
+        rpc_client,
+        http_client,
+        user_keypair,
+        backend_url,
+        operation,
+        &test_values,
+        expected_result,
+        "Average",
+    )
+    .await
+}
+
+/// Run ALL verification tests sequentially
+async fn run_verify_all(
+    sdk: &MarketplaceSDK,
+    rpc_client: &RpcClient,
+    http_client: &reqwest::Client,
+    user_keypair: &Keypair,
+    backend_url: &str,
+) -> Result<()> {
+    log::info!("");
+    log::info!("###############################################");
+    log::info!("#  RUNNING ALL FHE VERIFICATION TESTS        #");
+    log::info!("#  Sequential: send -> wait -> verify -> next #");
+    log::info!("###############################################");
+    log::info!("");
+
+    let mut results: Vec<(&str, Result<()>)> = Vec::new();
+
+    // Test 1: Add
+    log::info!("[TEST 1/7] Starting Add test...");
+    let r = run_verify_add(sdk, rpc_client, http_client, user_keypair, backend_url).await;
+    results.push(("Add (50 + 10 = 60)", r));
+
+    // Test 2: Multiply
+    log::info!("[TEST 2/7] Starting Multiply test...");
+    let r = run_verify_multiply(sdk, rpc_client, http_client, user_keypair, backend_url).await;
+    results.push(("Multiply (5 * 3 = 15)", r));
+
+    // Test 3: Sum
+    log::info!("[TEST 3/7] Starting Sum test...");
+    let r = run_verify_sum(sdk, rpc_client, http_client, user_keypair, backend_url).await;
+    results.push(("Sum ([10,20,30] = 60)", r));
+
+    // Test 4: Threshold
+    log::info!("[TEST 4/7] Starting Threshold test...");
+    let r = run_verify_threshold(sdk, rpc_client, http_client, user_keypair, backend_url).await;
+    results.push(("Threshold (75 >= 50)", r));
+
+    // Test 5: RangeCheck
+    log::info!("[TEST 5/7] Starting RangeCheck test...");
+    let r = run_verify_range(sdk, rpc_client, http_client, user_keypair, backend_url).await;
+    results.push(("RangeCheck (50 in [0,100])", r));
+
+    // Test 6: Average
+    log::info!("[TEST 6/7] Starting Average test...");
+    let r = run_verify_average(sdk, rpc_client, http_client, user_keypair, backend_url).await;
+    results.push(("Average ([10,20,30,40,50] = 30)", r));
+
+    // Test 7: CountIf (PoI)
+    log::info!("[TEST 7/7] Starting CountIf (PoI) test...");
+    let r = run_verify_poi(sdk, rpc_client, http_client, user_keypair, backend_url).await;
+    results.push(("CountIf/PoI ([15,20,25,17] >= 18 = 2)", r));
+
+    // Print summary
+    log::info!("");
+    log::info!("###############################################");
+    log::info!("#  TEST SUMMARY                              #");
+    log::info!("###############################################");
+
+    let mut passed = 0;
+    let mut failed = 0;
+
+    for (name, result) in &results {
+        match result {
+            Ok(_) => {
+                log::info!("  [PASS] {}", name);
+                passed += 1;
+            }
+            Err(e) => {
+                log::error!("  [FAIL] {}: {}", name, e);
+                failed += 1;
+            }
+        }
+    }
+
+    log::info!("");
+    log::info!("  Total: {} passed, {} failed out of 7", passed, failed);
+    log::info!("###############################################");
+
+    if failed > 0 {
+        anyhow::bail!("{} tests failed", failed);
+    }
+
+    Ok(())
+}
+
 /// Run a verified job end-to-end
 async fn run_verified_job(
     sdk: &MarketplaceSDK,
@@ -193,7 +483,7 @@ async fn run_verified_job(
 ) -> Result<()> {
     // Step 1: Generate FHE keys and encrypt data
     log::info!("[1/6] Generating FHE keys and encrypting data...");
-    let (encrypted_data, server_key, client_key) = create_fhe_data_with_values(test_values)?;
+    let (encrypted_data, server_key, client_key) = create_fhe_data_with_values(test_values, &operation)?;
     log::info!(
         "  Encrypted {} values ({} bytes data, {} bytes server key)",
         test_values.len(),
@@ -264,7 +554,7 @@ async fn run_verified_job(
 
     // Step 6: Decrypt and verify
     log::info!("[6/6] Decrypting and verifying result...");
-    let decrypted = decrypt_result(&encrypted_result, &client_key)?;
+    let decrypted = decrypt_result(&encrypted_result, &client_key, &operation)?;
     log::info!("  Decrypted result: {}", decrypted);
     log::info!("  Expected result:  {}", expected_result);
 
@@ -284,28 +574,60 @@ async fn run_verified_job(
 }
 
 /// Create FHE encrypted data with specific values, returning client_key for later decryption
-fn create_fhe_data_with_values(values: &[u8]) -> Result<(Vec<u8>, Vec<u8>, ClientKey)> {
+///
+/// Format depends on operation type:
+/// - Add/Multiply/Threshold/RangeCheck: Single FheUint8 serialized directly
+/// - Sum/Average/CountIf: Vec<Vec<u8>> with each value serialized separately
+fn create_fhe_data_with_values(values: &[u8], operation: &FheOperation) -> Result<(Vec<u8>, Vec<u8>, ClientKey)> {
     let config = ConfigBuilder::default().build();
     let (client_key, server_key) = generate_keys(config);
 
-    let mut encrypted_values: Vec<Vec<u8>> = Vec::with_capacity(values.len());
-    for &value in values {
-        let encrypted = FheUint8::encrypt(value, &client_key);
-        let enc_bytes = bincode::serialize(&encrypted)?;
-        encrypted_values.push(enc_bytes);
-    }
+    let encrypted_bytes = match operation {
+        // Single-value operations: serialize FheUint8 directly
+        FheOperation::Add(_) | FheOperation::Multiply(_) |
+        FheOperation::Threshold { .. } | FheOperation::RangeCheck { .. } => {
+            if values.len() != 1 {
+                anyhow::bail!("Single-value operations (Add/Multiply/Threshold/RangeCheck) require exactly 1 input value, got {}", values.len());
+            }
+            let encrypted = FheUint8::encrypt(values[0], &client_key);
+            bincode::serialize(&encrypted)?
+        }
+        // Multi-value operations: serialize as Vec<Vec<u8>>
+        FheOperation::Sum { .. } | FheOperation::Average { .. } |
+        FheOperation::CountIf { .. } | FheOperation::Histogram { .. } => {
+            let mut encrypted_values: Vec<Vec<u8>> = Vec::with_capacity(values.len());
+            for &value in values {
+                let encrypted = FheUint8::encrypt(value, &client_key);
+                let enc_bytes = bincode::serialize(&encrypted)?;
+                encrypted_values.push(enc_bytes);
+            }
+            bincode::serialize(&encrypted_values)?
+        }
+    };
 
-    let encrypted_bytes = bincode::serialize(&encrypted_values)?;
     let server_key_bytes = bincode::serialize(&server_key)?;
 
     Ok((encrypted_bytes, server_key_bytes, client_key))
 }
 
 /// Decrypt a result using the client key
-fn decrypt_result(encrypted_result: &[u8], client_key: &ClientKey) -> Result<u8> {
-    let encrypted: FheUint8 = bincode::deserialize(encrypted_result)?;
-    let decrypted: u8 = encrypted.decrypt(client_key);
-    Ok(decrypted)
+fn decrypt_result(encrypted_result: &[u8], client_key: &ClientKey, operation: &FheOperation) -> Result<u8> {
+    match operation {
+        // Average returns a tuple (sum as Vec<u8>, count as u16)
+        FheOperation::Average { .. } => {
+            let (sum_bytes, count): (Vec<u8>, u16) = bincode::deserialize(encrypted_result)?;
+            let sum_encrypted: FheUint8 = bincode::deserialize(&sum_bytes)?;
+            let sum: u8 = sum_encrypted.decrypt(client_key);
+            let average = sum / (count as u8);
+            Ok(average)
+        }
+        // All other operations return FheUint8 directly
+        _ => {
+            let encrypted: FheUint8 = bincode::deserialize(encrypted_result)?;
+            let decrypted: u8 = encrypted.decrypt(client_key);
+            Ok(decrypted)
+        }
+    }
 }
 
 /// Upload witness to backend, return commitment

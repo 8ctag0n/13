@@ -8,7 +8,7 @@
 target/
 **/*.rs.bk
 *.pdb
-
+test-witnesses/
 # Cargo lock file (keep for applications, ignore for libraries)
 # Uncomment if this is a library:
 # Cargo.lock
