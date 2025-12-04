@@ -6,31 +6,24 @@
   import WalletConnect from '../components/WalletConnect.svelte';
   import Loading from '../components/Loading.svelte';
   import PriceSlider from '../components/PriceSlider.svelte';
-  import { createFheJobFromWitness, pollJobStatus, getJobResult } from '../utils/job_creator.js';
+  import { createFheJobFromWitness } from '../utils/job_creator.js';
 
   // API config
   const API_BASE = import.meta.env.VITE_API_URL || '';
   const RPC_URL = import.meta.env.VITE_SOLANA_RPC_URL || 'http://localhost:8899';
 
-  // Mock sanctioned addresses (OFAC-style list for demo)
-  const SANCTIONED_LISTS = {
-    'ofac_demo': {
-      name: 'OFAC Demo List',
-      description: 'Simulated OFAC sanctioned addresses for demonstration',
-      values: [66, 77, 88, 99, 111, 122, 133, 144, 155, 166]
-    },
-    'custom': {
-      name: 'Custom Value',
-      description: 'Enter a specific value to check against',
-      values: []
-    }
+  // Demo sanctioned list (simulated OFAC-style indices)
+  // In production, these would be hashes of real sanctioned addresses
+  const SANCTIONED_LIST = {
+    name: 'OFAC Demo List',
+    description: 'Simulated sanctioned indices for demonstration',
+    values: [66, 77, 88, 99, 111, 122, 133, 144, 155, 166]
   };
 
   // State
   let currentStep = 1;
   let witnessData = null;
-  let selectedList = 'ofac_demo';
-  let customValue = '';
+  let selectedIndex = null;  // The sanctioned index to check against
   let isProcessing = false;
   let processingStep = '';
   let processingMessage = '';
@@ -38,15 +31,18 @@
   // Result state
   let jobId = null;
   let jobStatus = null;
-  let jobResult = null;
+  let txSignature = null;
   let verificationResult = null;
   let error = null;
+
+  // Explorer URL for Solana devnet
+  const EXPLORER_URL = 'https://explorer.solana.com';
 
   // Wallet modal
   let showWalletModal = false;
 
   // Price configuration
-  let priceLamports = 5000000; // Default, will be updated dynamically
+  let priceLamports = 5000000;
   let priceRecommendation = null;
   let isFetchingPrice = false;
   const requiredProvers = 3;
@@ -59,8 +55,8 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          operation: 'count_if',
-          operation_value: 0,
+          operation: 'countif',  // Note: no underscore for price-recommendation endpoint
+          operation_value: selectedIndex || 0,
           expected_count: 10,
           required_provers: requiredProvers
         })
@@ -71,11 +67,9 @@
         if (!priceLamports || priceLamports < priceRecommendation.recommended_price_lamports) {
           priceLamports = priceRecommendation.recommended_price_lamports;
         }
-        console.log('Price recommendation:', priceRecommendation);
       }
     } catch (err) {
       console.error('Failed to get price recommendation:', err);
-      // Fallback values
       priceRecommendation = {
         min_price_lamports: 3000000,
         recommended_price_lamports: 5400000,
@@ -93,8 +87,8 @@
     priceLamports = event.detail.price;
   }
 
-  // Fetch price when entering step 2
-  $: if (currentStep === 2 && !priceRecommendation) {
+  // Fetch price when entering step 3
+  $: if (currentStep === 3 && !priceRecommendation) {
     fetchPriceRecommendation();
   }
 
@@ -125,12 +119,8 @@
     toastStore.add('Wallet connected', 'success');
   }
 
-  function getCheckValue() {
-    if (selectedList === 'custom') {
-      const val = parseInt(customValue, 10);
-      return isNaN(val) ? null : val;
-    }
-    return SANCTIONED_LISTS[selectedList].values[0];
+  function selectSanctionedIndex(index) {
+    selectedIndex = index;
   }
 
   async function verifyInnocence() {
@@ -144,9 +134,8 @@
       return;
     }
 
-    const checkValue = getCheckValue();
-    if (checkValue === null) {
-      toastStore.add('Please enter a valid value to check against', 'error');
+    if (selectedIndex === null) {
+      toastStore.add('Please select a sanctioned index to verify against', 'error');
       return;
     }
 
@@ -154,29 +143,27 @@
     error = null;
     jobId = null;
     jobStatus = null;
-    jobResult = null;
+    txSignature = null;
     verificationResult = null;
 
     try {
-      // Fetch dynamic price recommendation first
-      processingStep = 'pricing';
-      processingMessage = 'Getting price recommendation...';
-      await fetchPriceRecommendation();
+      processingStep = 'creating';
+      processingMessage = 'Creating verification job...';
 
       const result = await createFheJobFromWitness({
         operation: 'count_if',
-        operationValue: checkValue,
-        serverKeyBytes: witnessData.serverKeyBytes,  // Use raw bytes for pre-upload
+        operationValue: selectedIndex,
+        serverKeyBytes: witnessData.serverKeyBytes,
         encryptedData: witnessData.encryptedData,
         wallet: $walletStore,
         apiBaseUrl: API_BASE,
         rpcUrl: RPC_URL,
-        priceLamports: priceLamports,  // Use dynamic price
+        priceLamports: priceLamports,
         requiredProvers: requiredProvers,
         consensusThreshold: 2,
+        // Rust enum format: {"Equals": value} for serde deserialization
         predicate: {
-          type: 'EqualTo',
-          value: checkValue
+          Equals: selectedIndex
         },
         onProgress: (progress) => {
           processingStep = progress.step;
@@ -185,33 +172,14 @@
       });
 
       jobId = result.jobId;
+      txSignature = result.signature;
       toastStore.add(`Verification job created: ${jobId}`, 'success');
 
-      processingStep = 'polling';
-      processingMessage = 'Running FHE verification...';
+      jobStatus = 'submitted';
+      verificationResult = 'pending';
+      currentStep = 5;
 
-      const finalStatus = await pollJobStatus(
-        jobId,
-        API_BASE,
-        60,
-        2000,
-        (progress) => {
-          jobStatus = progress.status;
-          processingMessage = `Verification status: ${progress.status} (attempt ${progress.attempt}/${progress.maxAttempts})`;
-        }
-      );
-
-      jobStatus = 'completed';
-
-      processingStep = 'fetching_result';
-      processingMessage = 'Fetching verification result...';
-
-      jobResult = await getJobResult(jobId, API_BASE);
-
-      verificationResult = 'innocent';
-      currentStep = 4;
-
-      toastStore.add('Verification completed!', 'success');
+      toastStore.add('Job submitted! Track progress on Solana Explorer', 'success');
 
     } catch (err) {
       console.error('Verification error:', err);
@@ -225,7 +193,7 @@
   }
 
   function nextStep() {
-    if (currentStep < 3) {
+    if (currentStep < 4) {
       currentStep++;
     }
   }
@@ -238,12 +206,13 @@
 
   function reset() {
     witnessData = null;
+    selectedIndex = null;
     jobId = null;
     jobStatus = null;
-    jobResult = null;
+    txSignature = null;
     verificationResult = null;
     error = null;
-    customValue = '';
+    priceRecommendation = null;
     currentStep = 1;
   }
 
@@ -252,8 +221,8 @@
   }
 
   $: canProceedStep1 = witnessData !== null;
-  $: canProceedStep2 = selectedList && (selectedList !== 'custom' || customValue);
-  $: selectedListInfo = SANCTIONED_LISTS[selectedList];
+  $: canProceedStep2 = selectedIndex !== null;
+  $: canProceedStep3 = priceLamports > 0;
 </script>
 
 <div class="poi-page">
@@ -275,7 +244,7 @@
             </button>
           {/if}
           <div class="step-indicator text-mono text-sm text-muted">
-            STEP {currentStep} OF 3
+            STEP {currentStep} OF 4
           </div>
         </div>
       </div>
@@ -305,8 +274,15 @@
         <div class="step-label text-mono text-xs">SELECT</div>
       </div>
 
-      <div class="stepper-step {currentStep >= 3 ? 'active' : ''}">
-        <div class="step-circle text-mono">3</div>
+      <div class="stepper-step {currentStep >= 3 ? 'active' : ''} {currentStep > 3 ? 'completed' : ''}">
+        <div class="step-circle text-mono">
+          {currentStep > 3 ? '✓' : '3'}
+        </div>
+        <div class="step-label text-mono text-xs">PRICE</div>
+      </div>
+
+      <div class="stepper-step {currentStep >= 4 ? 'active' : ''}">
+        <div class="step-circle text-mono">4</div>
         <div class="step-label text-mono text-xs">VERIFY</div>
       </div>
     </div>
@@ -319,21 +295,21 @@
         <!-- Step 1: Upload Witness -->
         <div class="wizard-card tui-box fade-in">
           <h2 class="text-mono text-uppercase mb-6">
-            STEP_1: UPLOAD_TRANSACTION_WITNESS
+            STEP_1: UPLOAD_TRANSACTION_HISTORY
           </h2>
 
           <div class="info-box mb-6">
             <div class="text-sm">
-              Prove that your transactions have <strong>not</strong> interacted with sanctioned addresses
-              without revealing your actual transaction history.
+              Upload your encrypted transaction history (witness.bin).
+              We'll verify it has <strong>NOT</strong> interacted with sanctioned indices.
             </div>
           </div>
 
           <div class="info-box-success mb-6">
             <div class="text-mono text-sm">
               [i] PRIVACY_PRESERVED<br/>
-              Using FHE, we count matches against a sanctioned list - if the result is <span class="text-success">0</span>, you're verified innocent.
-              Only the count result is revealed, not individual transactions.
+              Using FHE, we count matches against sanctioned indices - if result is <span class="text-success">0</span>, you're verified innocent.
+              Only the count is revealed, not your actual transactions.
             </div>
           </div>
 
@@ -351,53 +327,64 @@
         </div>
 
       {:else if currentStep === 2}
-        <!-- Step 2: Select Sanctioned List -->
+        <!-- Step 2: Select Sanctioned Index -->
         <div class="wizard-card tui-box fade-in">
           <h2 class="text-mono text-uppercase mb-6">
-            STEP_2: SELECT_SANCTIONED_LIST
+            STEP_2: SELECT_SANCTIONED_INDEX
           </h2>
 
           <div class="info-box mb-6">
             <div class="text-sm">
-              Choose which sanctioned address list to verify against.
+              Select which sanctioned index to verify against your transaction history.
+              The FHE computation will count if this index appears in your data.
             </div>
           </div>
 
-          <div class="config-section mb-6">
-            <label class="text-mono mb-3">SANCTIONED_LIST:</label>
-            <div class="radio-group">
-              {#each Object.entries(SANCTIONED_LISTS) as [key, list]}
-                <label class="radio-option">
-                  <input type="radio" name="sanctioned-list" value={key} bind:group={selectedList} />
-                  <span class="radio-label text-mono">
-                    <span class="radio-check">{selectedList === key ? '●' : '○'}</span>
-                    <span>{list.name}</span>
-                    <span class="text-muted text-sm">{list.description}</span>
-                    {#if key !== 'custom' && list.values.length > 0}
-                      <span class="badge badge-info">[{list.values.length} addresses]</span>
-                    {/if}
-                  </span>
-                </label>
+          <!-- Sanctioned List Grid -->
+          <div class="sanctioned-grid mb-6">
+            <div class="text-mono text-sm mb-3 text-muted">SANCTIONED_LIST ({SANCTIONED_LIST.name}):</div>
+            <div class="index-buttons">
+              {#each SANCTIONED_LIST.values as index}
+                <button
+                  class="index-btn text-mono"
+                  class:selected={selectedIndex === index}
+                  on:click={() => selectSanctionedIndex(index)}
+                >
+                  {index}
+                </button>
               {/each}
             </div>
           </div>
 
-          {#if selectedList === 'custom'}
-            <div class="config-section mb-6">
-              <label class="text-mono mb-2" for="custom-value-input">CUSTOM_VALUE (0-255):</label>
-              <input
-                type="number"
-                id="custom-value-input"
-                bind:value={customValue}
-                class="input input-code"
-                min="0"
-                max="255"
-                placeholder="e.g., 42"
-              />
+          {#if selectedIndex !== null}
+            <div class="selection-info tui-box-success">
+              <div class="text-mono text-sm">
+                <span class="text-success">[SELECTED]</span> Index <span class="text-cyan">{selectedIndex}</span><br/>
+                <span class="text-muted">Will verify: Does your history contain interactions with index {selectedIndex}?</span>
+              </div>
             </div>
           {/if}
 
-          <div class="divider-section"></div>
+          <div class="demo-note mt-6">
+            <div class="text-mono text-xs text-muted">
+              [!] DEMO_MODE: Currently using simulated indices. In production, these will be real sanctioned wallet addresses.
+            </div>
+          </div>
+        </div>
+
+      {:else if currentStep === 3}
+        <!-- Step 3: Configure Price -->
+        <div class="wizard-card tui-box fade-in">
+          <h2 class="text-mono text-uppercase mb-6">
+            STEP_3: CONFIGURE_PAYMENT
+          </h2>
+
+          <div class="info-box mb-6">
+            <div class="text-sm">
+              Set the price you're willing to pay provers for this FHE computation.
+              Higher prices attract faster processing.
+            </div>
+          </div>
 
           <!-- Price Slider -->
           <div class="config-section mb-6">
@@ -418,7 +405,7 @@
               />
             {:else}
               <div class="text-mono text-sm text-muted">
-                Price will be calculated when you proceed
+                Loading price...
               </div>
             {/if}
           </div>
@@ -432,27 +419,31 @@
                 <span class="text-success">COUNT_IF</span>
               </div>
               <div class="cost-line">
+                <span class="text-muted">Check Index:</span>
+                <span class="text-cyan">{selectedIndex}</span>
+              </div>
+              <div class="cost-line">
                 <span class="text-muted">Provers ({requiredProvers}):</span>
-                <span class="text-success">{totalCost}_SOL</span>
+                <span class="text-success">{totalCost} SOL</span>
               </div>
               <div class="cost-line">
                 <span class="text-muted">Platform Fee (1%):</span>
-                <span class="text-success">{platformFee}_SOL</span>
+                <span class="text-success">{platformFee} SOL</span>
               </div>
               <div class="divider-cost text-muted">───────────────────────────────</div>
               <div class="cost-line total">
                 <span>Total:</span>
-                <span class="text-success total-amount">~{totalWithFee}_SOL</span>
+                <span class="text-success total-amount">~{totalWithFee} SOL</span>
               </div>
             </div>
           </div>
         </div>
 
-      {:else if currentStep === 3}
-        <!-- Step 3: Verify -->
+      {:else if currentStep === 4}
+        <!-- Step 4: Verify -->
         <div class="wizard-card tui-box fade-in">
           <h2 class="text-mono text-uppercase mb-6 text-center">
-            STEP_3: RUN_VERIFICATION
+            STEP_4: RUN_VERIFICATION
           </h2>
 
           <div class="signing-state">
@@ -484,7 +475,7 @@
                 READY_TO_VERIFY
               </div>
               <div class="text-sm text-muted text-center mb-6">
-                Click "VERIFY_INNOCENCE" below to run the FHE verification
+                Click "VERIFY_INNOCENCE" to submit the FHE verification job
               </div>
             {/if}
 
@@ -497,40 +488,24 @@
             <div class="divider-section"></div>
 
             <div class="tx-details text-mono text-sm">
-              <div class="text-muted mb-2">VERIFICATION_DETAILS:</div>
-              <div class="tx-line">• Check against: {selectedListInfo.name}</div>
-              <div class="tx-line">• Operation: count_if (predicate match)</div>
-              <div class="tx-line">• Cost: ~{totalWithFee}_SOL + network_fee</div>
+              <div class="text-muted mb-2">VERIFICATION_SUMMARY:</div>
+              <div class="tx-line">• Sanctioned Index: <span class="text-cyan">{selectedIndex}</span></div>
+              <div class="tx-line">• Operation: count_if (check for matches)</div>
+              <div class="tx-line">• Provers: {requiredProvers}</div>
+              <div class="tx-line">• Cost: ~{totalWithFee} SOL</div>
             </div>
           </div>
         </div>
 
-      {:else if currentStep === 4}
+      {:else if currentStep === 5}
         <!-- Result Section -->
         <div class="wizard-card tui-box fade-in">
-          {#if verificationResult === 'innocent'}
-            <div class="result-card result-innocent">
-              <div class="result-icon">
-                <span class="shield-icon">[OK]</span>
-              </div>
-              <h2 class="text-mono text-uppercase text-success">VERIFIED_INNOCENT</h2>
-              <p class="text-mono text-sm mt-4">
-                Your encrypted transaction data shows <strong>no interactions</strong> with
-                the selected sanctioned addresses.
-              </p>
-            </div>
-          {:else if verificationResult === 'flagged'}
-            <div class="result-card result-flagged">
-              <div class="result-icon">
-                <span class="warning-icon">[!]</span>
-              </div>
-              <h2 class="text-mono text-uppercase text-warning">INTERACTIONS_DETECTED</h2>
-              <p class="text-mono text-sm mt-4">
-                Your encrypted transaction data shows interactions with
-                addresses on the sanctioned list.
-              </p>
-            </div>
-          {/if}
+          <div class="result-header mb-6 text-center">
+            <div class="text-4xl text-mono text-success mb-4">[OK]</div>
+            <h2 class="text-mono text-uppercase text-success">
+              VERIFICATION_SUBMITTED
+            </h2>
+          </div>
 
           <div class="result-details tui-box mt-6">
             <div class="detail-row">
@@ -538,27 +513,45 @@
               <span class="text-mono text-cyan">{jobId}</span>
             </div>
             <div class="detail-row">
-              <span class="text-mono text-muted">Checked Against:</span>
-              <span class="text-mono text-cyan">{selectedListInfo.name}</span>
+              <span class="text-mono text-muted">Checked Index:</span>
+              <span class="text-mono text-cyan">{selectedIndex}</span>
+            </div>
+            <div class="detail-row">
+              <span class="text-mono text-muted">Sanctioned List:</span>
+              <span class="text-mono text-cyan">{SANCTIONED_LIST.name}</span>
             </div>
             <div class="detail-row">
               <span class="text-mono text-muted">Status:</span>
-              <span class="text-mono text-success">PASSED</span>
+              <span class="text-mono text-success">SUBMITTED_ON_CHAIN</span>
             </div>
           </div>
 
-          <div class="encrypted-result tui-box mt-6">
-            <h4 class="text-mono mb-3">ENCRYPTED_VERIFICATION_HASH:</h4>
-            <div class="result-hash text-mono text-xs">
-              {#if jobResult?.encrypted_result}
-                {jobResult.encrypted_result.slice(0, 80)}...
-              {:else}
-                [Verification hash available]
-              {/if}
-            </div>
-            <p class="text-mono text-xs text-muted mt-3">
-              Decrypt locally with: <span class="text-cyan">fhe-cli decrypt -k client_key.bin -r result.bin</span>
+          <!-- Explorer Link -->
+          <div class="explorer-link-box tui-box mt-6">
+            <h4 class="text-mono mb-3">TRACK_PROGRESS:</h4>
+            <p class="text-mono text-sm text-muted mb-4">
+              Your FHE verification job is now on-chain. Provers will compute the result.
+              Track the transaction in real-time:
             </p>
+            <a
+              href="{EXPLORER_URL}/tx/{txSignature}?cluster=devnet"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="explorer-link text-mono"
+            >
+              [VIEW_ON_SOLANA_EXPLORER]
+            </a>
+            <div class="tx-signature text-mono text-xs mt-4">
+              TX: {txSignature ? txSignature.slice(0, 20) + '...' + txSignature.slice(-20) : 'N/A'}
+            </div>
+          </div>
+
+          <div class="info-box-success mt-6">
+            <div class="text-mono text-sm">
+              [i] INTERPRETING_RESULTS<br/>
+              • If count = <span class="text-success">0</span> → Your history has NO interactions with index {selectedIndex} (INNOCENT)<br/>
+              • If count > 0 → Your history contains interactions with this sanctioned index
+            </div>
           </div>
         </div>
       {/if}
@@ -567,20 +560,20 @@
       <div class="wizard-nav">
         <button
           class="btn btn-ghost"
-          on:click={currentStep === 1 ? handleCancel : (currentStep === 4 ? reset : prevStep)}
+          on:click={currentStep === 1 ? handleCancel : (currentStep === 5 ? reset : prevStep)}
         >
-          [{currentStep === 1 ? 'CANCEL' : currentStep === 4 ? 'VERIFY_ANOTHER' : '◀ BACK'}]
+          [{currentStep === 1 ? 'CANCEL' : currentStep === 5 ? 'VERIFY_ANOTHER' : '◀ BACK'}]
         </button>
 
-        {#if currentStep < 3}
+        {#if currentStep < 4}
           <button
             class="btn btn-primary"
             on:click={nextStep}
-            disabled={(currentStep === 1 && !canProceedStep1) || (currentStep === 2 && !canProceedStep2)}
+            disabled={(currentStep === 1 && !canProceedStep1) || (currentStep === 2 && !canProceedStep2) || (currentStep === 3 && !canProceedStep3)}
           >
-            [NEXT: {currentStep === 1 ? 'SELECT_LIST' : 'VERIFY'} ▶]
+            [NEXT: {currentStep === 1 ? 'SELECT_INDEX' : currentStep === 2 ? 'SET_PRICE' : 'VERIFY'} ▶]
           </button>
-        {:else if currentStep === 3}
+        {:else if currentStep === 4}
           <button
             class="btn btn-primary"
             on:click={verifyInnocence}
@@ -794,6 +787,56 @@
     border-radius: var(--radius-md);
   }
 
+  /* Sanctioned Grid */
+  .sanctioned-grid {
+    padding: var(--space-4);
+    background: rgba(239, 68, 68, 0.05);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    border-radius: var(--radius-md);
+  }
+
+  .index-buttons {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: var(--space-3);
+  }
+
+  .index-btn {
+    padding: var(--space-3) var(--space-4);
+    background: rgba(0, 0, 0, 0.4);
+    border: 2px solid var(--zyber-border-muted);
+    border-radius: var(--radius-md);
+    color: var(--zyber-error);
+    font-size: var(--text-lg);
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+  }
+
+  .index-btn:hover {
+    border-color: var(--zyber-error);
+    background: rgba(239, 68, 68, 0.1);
+    transform: translateY(-2px);
+  }
+
+  .index-btn.selected {
+    border-color: var(--zyber-success);
+    background: rgba(16, 185, 129, 0.2);
+    color: var(--zyber-success);
+    box-shadow: 0 0 15px rgba(16, 185, 129, 0.3);
+  }
+
+  .selection-info {
+    padding: var(--space-4);
+  }
+
+  .demo-note {
+    padding: var(--space-3);
+    background: rgba(245, 158, 11, 0.1);
+    border: 1px dashed rgba(245, 158, 11, 0.5);
+    border-radius: var(--radius-md);
+  }
+
   /* Config Section */
   .config-section {
     margin-bottom: var(--space-6);
@@ -801,63 +844,6 @@
 
   .config-section label {
     display: block;
-  }
-
-  /* Radio Options */
-  .radio-group {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-3);
-  }
-
-  .radio-option {
-    display: flex;
-    align-items: center;
-    padding: var(--space-4);
-    border: 1px solid var(--zyber-border-muted);
-    border-radius: var(--radius-md);
-    cursor: pointer;
-    transition: all var(--transition-base);
-  }
-
-  .radio-option:hover {
-    border-color: var(--zyber-border-secondary);
-    background: rgba(16, 185, 129, 0.05);
-  }
-
-  .radio-option input[type="radio"] {
-    display: none;
-  }
-
-  .radio-option input[type="radio"]:checked + .radio-label {
-    color: var(--zyber-text-primary);
-  }
-
-  .radio-option input[type="radio"]:checked + .radio-label .radio-check {
-    color: var(--zyber-success);
-  }
-
-  .radio-label {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    flex: 1;
-    flex-wrap: wrap;
-  }
-
-  .radio-check {
-    font-size: var(--text-xl);
-  }
-
-  .badge {
-    padding: 2px 8px;
-    border-radius: var(--radius-sm);
-    font-size: var(--text-xs);
-  }
-
-  .badge-info {
-    background: rgba(6, 182, 212, 0.2);
-    color: var(--zyber-cyber-cyan);
   }
 
   /* Input */
@@ -954,36 +940,8 @@
   }
 
   /* Result */
-  .result-card {
-    padding: var(--space-8);
-    border-radius: var(--radius-lg);
+  .result-header {
     text-align: center;
-  }
-
-  .result-innocent {
-    background: rgba(16, 185, 129, 0.1);
-    border: 2px solid var(--zyber-success);
-  }
-
-  .result-flagged {
-    background: rgba(245, 158, 11, 0.1);
-    border: 2px solid var(--zyber-warning);
-  }
-
-  .result-icon {
-    margin-bottom: var(--space-4);
-  }
-
-  .shield-icon {
-    font-size: 4rem;
-    color: var(--zyber-success);
-    text-shadow: 0 0 30px rgba(16, 185, 129, 0.5);
-  }
-
-  .warning-icon {
-    font-size: 4rem;
-    color: var(--zyber-warning);
-    text-shadow: 0 0 30px rgba(245, 158, 11, 0.5);
   }
 
   .result-details {
@@ -1002,16 +960,31 @@
     border-bottom: none;
   }
 
-  .encrypted-result {
+  /* Explorer Link */
+  .explorer-link-box {
     padding: var(--space-6);
+    text-align: center;
   }
 
-  .result-hash {
-    padding: var(--space-4);
-    background: rgba(0, 0, 0, 0.4);
-    border-radius: var(--radius-sm);
+  .explorer-link {
+    display: inline-block;
+    padding: var(--space-3) var(--space-6);
+    background: linear-gradient(135deg, var(--zyber-success), var(--zyber-cyber-cyan));
+    border-radius: var(--radius-md);
+    color: white;
+    text-decoration: none;
+    font-weight: 600;
+    transition: all var(--transition-fast);
+  }
+
+  .explorer-link:hover {
+    box-shadow: 0 0 20px rgba(16, 185, 129, 0.4);
+    transform: translateY(-2px);
+  }
+
+  .tx-signature {
+    color: var(--zyber-text-muted);
     word-break: break-all;
-    color: var(--zyber-cyber-cyan);
   }
 
   /* Navigation */
@@ -1144,16 +1117,20 @@
       text-align: center;
     }
 
-    .radio-label {
-      flex-direction: column;
-      align-items: flex-start;
-      gap: var(--space-1);
+    .index-buttons {
+      grid-template-columns: repeat(3, 1fr);
     }
 
     .cost-line {
       flex-direction: column;
       align-items: flex-start;
       gap: var(--space-1);
+    }
+  }
+
+  @media (max-width: 480px) {
+    .index-buttons {
+      grid-template-columns: repeat(2, 1fr);
     }
   }
 </style>
