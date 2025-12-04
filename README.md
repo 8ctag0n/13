@@ -4,13 +4,22 @@
 
 > First FHE marketplace with multi-prover consensus - compute on encrypted data without trusting anyone
 
-[![Status](https://img.shields.io/badge/status-v0.0.1--zypherpunk-blue)]()
+[![Status](https://img.shields.io/badge/status-v0.0.2--zyb-blue)]()
 [![Tests](https://img.shields.io/badge/tests-55%2F56%20passing-green)]()
 [![Season](https://img.shields.io/badge/season-S0%20Solana%20SZN-purple)]()
 
 ## Live Demo
 
 **https://demo.zyberlink.fun**
+
+## Documentation
+
+| Resource | Path | Description |
+|----------|------|-------------|
+| GitBook Docs | [/docs/book](docs/book) | Full documentation (EN/ES) |
+| FHE CLI | [/src/fhe-cli](src/fhe-cli) | Client-side encryption tool |
+| Rust SDK | [/src/sdk](src/sdk) | Integration library for Rust apps |
+| API Reference | [/docs/book/en/guides/api-reference.md](docs/book/en/guides/api-reference.md) | Backend API endpoints |
 
 ## Overview
 
@@ -96,7 +105,7 @@ Threshold(encrypted_age, >= 18) → true/false
 ```
 ## FHE CLI Tool
 
-Encrypt data locally before sending to the marketplace.
+Encrypt data locally before sending to the marketplace. Full docs: [/src/fhe-cli](src/fhe-cli)
 
 ```bash
 # Build
@@ -113,6 +122,30 @@ cargo build --release
 # Decrypt result after job completes
 ./target/release/fhe-cli decrypt -p ./fhe-output -r "BASE64_RESULT"
 ```
+
+## SDK Integration
+
+Rust library for programmatic integration. Path: [/src/sdk](src/sdk)
+
+```rust
+use zyberlink_sdk::ZyberClient;
+
+// Initialize client
+let client = ZyberClient::new(rpc_url, api_url);
+
+// Create FHE job
+let job_id = client.create_job(
+    encrypted_data,
+    server_key,
+    Operation::Sum,
+    price_lamports,
+).await?;
+
+// Poll for result
+let result = client.wait_for_result(job_id).await?;
+```
+
+See [SDK Integration Guide](docs/book/en/guides/sdk-integration.md) for full documentation.
 
 ## Job Creator (Testing)
 
