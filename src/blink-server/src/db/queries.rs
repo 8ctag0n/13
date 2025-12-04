@@ -23,9 +23,10 @@ impl JobQueries {
                 consensus_threshold,
                 status,
                 payment_method,
-                payment_token_mint
+                payment_token_mint,
+                expected_count
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             RETURNING id
             "#,
         )
@@ -41,6 +42,7 @@ impl JobQueries {
         .bind(JobStatus::PendingTx.as_str())
         .bind(&data.payment_method)
         .bind(&data.payment_token_mint)
+        .bind(data.expected_count)
         .fetch_one(pool)
         .await
         .map_err(|e| anyhow!("Failed to insert pending job: {}", e))?;
@@ -55,8 +57,8 @@ impl JobQueries {
             SELECT id, job_id, creator_pubkey, encrypted_data, server_key,
                    operation, operation_value, price_lamports,
                    required_provers, consensus_threshold, status,
-                   payment_method, payment_token_mint,
-                   created_at, updated_at, expires_at
+                   created_at, updated_at, expires_at,
+                   payment_token_mint, payment_method, tx_signature, expected_count
             FROM temp_job_data
             WHERE job_id = $1
             "#,
@@ -128,8 +130,8 @@ impl JobQueries {
             SELECT id, job_id, creator_pubkey, encrypted_data, server_key,
                    operation, operation_value, price_lamports,
                    required_provers, consensus_threshold, status,
-                   payment_method, payment_token_mint,
-                   created_at, updated_at, expires_at
+                   created_at, updated_at, expires_at,
+                   payment_token_mint, payment_method, tx_signature, expected_count
             FROM temp_job_data
             WHERE status = $1
             ORDER BY created_at DESC
