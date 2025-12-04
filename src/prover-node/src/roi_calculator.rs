@@ -38,7 +38,10 @@ pub struct ROICalculator {
 
 impl Default for ROICalculator {
     fn default() -> Self {
-        Self::new(20.0, 1.5)
+        // 0.0% min ROI for demo mode - accepts all jobs regardless of profitability
+        // TODO: For production, implement proactive pricing validation (Strategy 3)
+        // and timeout+refund mechanism (Strategy 2) to handle unprofitable jobs properly
+        Self::new(0.0, 1.5)
     }
 }
 

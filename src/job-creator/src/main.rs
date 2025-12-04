@@ -42,6 +42,8 @@ enum Commands {
     VerifyPoi,
     /// Run ALL verification tests
     VerifyAll,
+    /// Simulate webapp flow: upload server_key separately, then validate-and-build
+    WebappFlow,
 }
 
 #[derive(Debug, Deserialize)]
@@ -59,6 +61,20 @@ struct JobStatusResponse {
 #[derive(Debug, Deserialize)]
 struct FheResultResponse {
     encrypted_result: String,
+}
+
+/// Response from /api/server-key/upload
+#[derive(Debug, Deserialize)]
+struct ServerKeyUploadResponse {
+    server_key_hash: String,
+    size_bytes: u64,
+}
+
+/// Response from /api/jobs/validate-and-build
+#[derive(Debug, Deserialize)]
+struct ValidateAndBuildResponse {
+    job_id: u64,
+    transaction: String,
 }
 
 #[tokio::main]
@@ -132,6 +148,9 @@ async fn main() -> Result<()> {
         }
         Commands::VerifyAll => {
             run_verify_all(&sdk, &rpc_client, &http_client, &user_keypair, &backend_url).await
+        }
+        Commands::WebappFlow => {
+            run_webapp_flow(&sdk, &rpc_client, &http_client, &user_keypair, &backend_url).await
         }
     }
 }
@@ -734,7 +753,8 @@ async fn ensure_balance(rpc_client: &RpcClient, keypair: &Keypair) -> Result<()>
     let balance = rpc_client.get_balance(&keypair.pubkey())?;
     log::info!("User balance: {} SOL", balance as f64 / 1_000_000_000.0);
 
-    if balance < 100_000_000 {
+    if balance < 20_000_000 {
+        // Only request airdrop if balance is < 0.02 SOL
         log::warn!("Low balance! Requesting airdrop...");
         let signature = rpc_client.request_airdrop(&keypair.pubkey(), 1_000_000_000)?;
         log::info!("Airdrop signature: {}", signature);
@@ -978,5 +998,221 @@ fn write_keypair_file(keypair: &Keypair, path: &str) -> Result<()> {
     let bytes = keypair.to_bytes();
     let json = serde_json::to_string(&bytes.to_vec())?;
     std::fs::write(path, json)?;
+    Ok(())
+}
+
+/// Simulate webapp flow for creating FHE jobs
+/// This mimics exactly what the frontend does:
+/// 1. Upload server_key to /api/server-key/upload
+/// 2. Call /api/jobs/validate-and-build with server_key_hash + encrypted_data
+/// 3. Sign and submit the transaction
+/// 4. Verify the witness can be downloaded in correct format
+async fn run_webapp_flow(
+    sdk: &MarketplaceSDK,
+    rpc_client: &RpcClient,
+    http_client: &reqwest::Client,
+    user_keypair: &Keypair,
+    backend_url: &str,
+) -> Result<()> {
+    log::info!("");
+    log::info!("===========================================");
+    log::info!("  Webapp Flow Simulation");
+    log::info!("  Testing: server_key pre-upload + validate-and-build");
+    log::info!("===========================================");
+    log::info!("");
+
+    // Step 1: Generate FHE keys and encrypt test data
+    log::info!("[1/7] Generating FHE keys and encrypting data...");
+    let test_values: Vec<u8> = vec![10, 20, 30];
+    let operation = FheOperation::Sum { expected_count: 3 };
+
+    let (encrypted_data, server_key, _client_key) = create_fhe_data_with_values(&test_values, &operation)?;
+    log::info!(
+        "  Encrypted {} values: {} bytes encrypted_data, {} bytes server_key ({:.1} MB)",
+        test_values.len(),
+        encrypted_data.len(),
+        server_key.len(),
+        server_key.len() as f64 / 1024.0 / 1024.0
+    );
+
+    // Step 2: Upload server_key to /api/server-key/upload
+    log::info!("[2/7] Uploading server_key to /api/server-key/upload...");
+    let upload_url = format!("{}/api/server-key/upload", backend_url);
+
+    let upload_start = std::time::Instant::now();
+    let upload_response = http_client
+        .post(&upload_url)
+        .header("Content-Type", "application/octet-stream")
+        .body(server_key.clone())
+        .timeout(Duration::from_secs(600)) // 10 min timeout for large upload
+        .send()
+        .await
+        .context("Failed to upload server key")?;
+
+    if !upload_response.status().is_success() {
+        let error_text = upload_response.text().await.unwrap_or_default();
+        anyhow::bail!("Server key upload failed: {}", error_text);
+    }
+
+    let upload_result: ServerKeyUploadResponse = upload_response.json().await?;
+    let upload_elapsed = upload_start.elapsed();
+    log::info!(
+        "  Uploaded in {:.1}s, hash: {}",
+        upload_elapsed.as_secs_f64(),
+        upload_result.server_key_hash
+    );
+
+    // Step 3: Create signature for validate-and-build (simulating wallet.signMessage)
+    log::info!("[3/7] Creating signature for job creation...");
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs();
+    let nonce = format!("{:x}", rand::random::<u64>());
+    let job_id_placeholder = timestamp * 1000 + rand::random::<u64>() % 1000;
+    let message = format!("create_job:{}:{}:{}", job_id_placeholder, timestamp, nonce);
+
+    let signature = user_keypair.sign_message(message.as_bytes());
+    let signature_base58 = bs58::encode(signature.as_ref()).into_string();
+    log::info!("  Message: {}", message);
+    log::info!("  Signature: {}...", &signature_base58[..20]);
+
+    // Step 4: Call /api/jobs/validate-and-build
+    log::info!("[4/7] Calling /api/jobs/validate-and-build...");
+    let encrypted_data_base64 = BASE64.encode(&encrypted_data);
+
+    let validate_url = format!("{}/api/jobs/validate-and-build", backend_url);
+    let validate_body = serde_json::json!({
+        "creator_pubkey": user_keypair.pubkey().to_string(),
+        "encrypted_data": encrypted_data_base64,
+        "server_key_hash": upload_result.server_key_hash,
+        "message": message,
+        "signature": signature_base58,
+        "nonce": nonce,
+        "operation": "sum",
+        "operation_value": 0,
+        "expected_count": test_values.len(),  // For Sum operation, specify how many values
+        "price_lamports": 15000000,  // 0.015 SOL (profitable for provers)
+        "required_provers": 3,
+        "consensus_threshold": 2,
+        "payment_method": "SOL"
+    });
+
+    let validate_response = http_client
+        .post(&validate_url)
+        .header("Content-Type", "application/json")
+        .json(&validate_body)
+        .send()
+        .await
+        .context("Failed to call validate-and-build")?;
+
+    if !validate_response.status().is_success() {
+        let error_text = validate_response.text().await.unwrap_or_default();
+        anyhow::bail!("validate-and-build failed: {}", error_text);
+    }
+
+    let validate_result: ValidateAndBuildResponse = validate_response.json().await?;
+    log::info!("  Job ID: {}", validate_result.job_id);
+    log::info!("  Transaction received ({} bytes base64)", validate_result.transaction.len());
+
+    // Step 5: Deserialize, sign, and submit transaction
+    log::info!("[5/7] Signing and submitting transaction...");
+    let tx_bytes = BASE64.decode(&validate_result.transaction)?;
+    let mut tx: Transaction = bincode::deserialize(&tx_bytes)?;
+
+    let recent_blockhash = rpc_client.get_latest_blockhash()?;
+    tx.sign(&[user_keypair], recent_blockhash);
+
+    let signature = rpc_client
+        .send_and_confirm_transaction(&tx)
+        .context("Failed to submit transaction")?;
+    log::info!("  Transaction confirmed: {}", signature);
+
+    // Step 6: Confirm with backend
+    log::info!("[6/7] Confirming job with backend...");
+    let confirm_url = format!("{}/api/jobs/{}/confirm", backend_url, validate_result.job_id);
+    let confirm_response = http_client
+        .post(&confirm_url)
+        .header("Content-Type", "application/json")
+        .json(&serde_json::json!({ "signature": signature.to_string() }))
+        .send()
+        .await?;
+
+    if !confirm_response.status().is_success() {
+        log::warn!("  Confirm returned non-success (may be ok if chain sync handles it)");
+    } else {
+        log::info!("  Job confirmed with backend");
+    }
+
+    // Step 7: Verify witness can be downloaded
+    log::info!("[7/7] Verifying witness download...");
+
+    // Wait a moment for chain sync to pick up the job and get witness_hash from on-chain
+    log::info!("  Waiting for chain sync to pick up witness_hash...");
+    tokio::time::sleep(Duration::from_secs(5)).await;
+
+    // Fetch the witness_hash from the job status (this comes from blockchain_jobs via chain sync)
+    let status_url = format!("{}/api/jobs/{}/status", backend_url, validate_result.job_id);
+    let status_response = http_client.get(&status_url).send().await?;
+    let status_text = status_response.text().await?;
+    let status_json: serde_json::Value = serde_json::from_str(&status_text)?;
+
+    let witness_hash = status_json["witness_hash"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("witness_hash not found in job status"))?;
+
+    log::info!("  Got witness_hash from chain: {}", witness_hash);
+
+    // Use /witness/ endpoint (not /api/witness/)
+    let witness_url = format!("{}/witness/{}", backend_url, witness_hash);
+    let witness_response = http_client.get(&witness_url).send().await?;
+
+    if !witness_response.status().is_success() {
+        log::error!("  FAILED to download witness: {}", witness_response.status());
+        let error_text = witness_response.text().await.unwrap_or_default();
+        log::error!("  Error: {}", error_text);
+        anyhow::bail!("Witness download failed");
+    }
+
+    let witness_data = witness_response.bytes().await?;
+    log::info!("  Downloaded witness: {} bytes", witness_data.len());
+
+    // Verify format: [encrypted_data_len (4 bytes LE)][encrypted_data][server_key]
+    if witness_data.len() < 4 {
+        anyhow::bail!("Witness too short");
+    }
+
+    let enc_len = u32::from_le_bytes([
+        witness_data[0], witness_data[1], witness_data[2], witness_data[3]
+    ]) as usize;
+
+    let downloaded_enc_data = &witness_data[4..4+enc_len];
+    let downloaded_server_key = &witness_data[4+enc_len..];
+
+    log::info!("  Format check:");
+    log::info!("    - Header: encrypted_data_len = {}", enc_len);
+    log::info!("    - encrypted_data: {} bytes (expected {})", downloaded_enc_data.len(), encrypted_data.len());
+    log::info!("    - server_key: {} bytes (expected {})", downloaded_server_key.len(), server_key.len());
+
+    if downloaded_enc_data.len() != encrypted_data.len() {
+        anyhow::bail!("encrypted_data length mismatch!");
+    }
+    if downloaded_server_key.len() != server_key.len() {
+        anyhow::bail!("server_key length mismatch!");
+    }
+    if downloaded_enc_data != encrypted_data.as_slice() {
+        anyhow::bail!("encrypted_data content mismatch!");
+    }
+    if downloaded_server_key != server_key.as_slice() {
+        anyhow::bail!("server_key content mismatch!");
+    }
+
+    log::info!("");
+    log::info!("===========================================");
+    log::info!("  SUCCESS! Webapp flow works correctly");
+    log::info!("  Job ID: {}", validate_result.job_id);
+    log::info!("  Witness format verified");
+    log::info!("===========================================");
+    log::info!("");
+
     Ok(())
 }

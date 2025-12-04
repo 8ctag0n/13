@@ -60,40 +60,58 @@ impl WitnessFetcher {
     }
 
     /// Download encrypted witness from backend using commitment
+    /// Retries on 404 with exponential backoff (chain sync may not have run yet)
     pub async fn download_witness(&self, commitment: &[u8; 32]) -> Result<Vec<u8>> {
         let commitment_hex = hex::encode(commitment);
         let url = format!("{}/witness/{}", self.backend_url, commitment_hex);
 
-        debug!("Downloading witness from {}", url);
+        // Retry configuration: wait for chain sync to populate witness_hash
+        const MAX_RETRIES: u32 = 5;
+        const INITIAL_DELAY_MS: u64 = 2000; // 2 seconds
 
-        let response = self
-            .client
-            .get(&url)
-            .send()
-            .await
-            .context("Failed to download witness from backend")?;
+        for attempt in 0..MAX_RETRIES {
+            debug!("Downloading witness from {} (attempt {}/{})", url, attempt + 1, MAX_RETRIES);
 
-        if response.status() == 404 {
-            anyhow::bail!("Witness not found for commitment: {}", commitment_hex);
+            let response = self
+                .client
+                .get(&url)
+                .send()
+                .await
+                .context("Failed to download witness from backend")?;
+
+            if response.status() == 404 {
+                if attempt < MAX_RETRIES - 1 {
+                    let delay = INITIAL_DELAY_MS * (1 << attempt); // Exponential backoff
+                    info!(
+                        "Witness not found (attempt {}/{}), retrying in {}ms (waiting for chain sync)...",
+                        attempt + 1, MAX_RETRIES, delay
+                    );
+                    tokio::time::sleep(tokio::time::Duration::from_millis(delay)).await;
+                    continue;
+                }
+                anyhow::bail!("Witness not found for commitment: {} (after {} retries)", commitment_hex, MAX_RETRIES);
+            }
+
+            if !response.status().is_success() {
+                anyhow::bail!("Download failed with status: {}", response.status());
+            }
+
+            let encrypted_witness = response
+                .bytes()
+                .await
+                .context("Failed to read witness bytes")?
+                .to_vec();
+
+            info!(
+                "Downloaded witness: {} bytes (commitment: {})",
+                encrypted_witness.len(),
+                commitment_hex
+            );
+
+            return Ok(encrypted_witness);
         }
 
-        if !response.status().is_success() {
-            anyhow::bail!("Download failed with status: {}", response.status());
-        }
-
-        let encrypted_witness = response
-            .bytes()
-            .await
-            .context("Failed to read witness bytes")?
-            .to_vec();
-
-        info!(
-            "Downloaded witness: {} bytes (commitment: {})",
-            encrypted_witness.len(),
-            commitment_hex
-        );
-
-        Ok(encrypted_witness)
+        anyhow::bail!("Witness download failed after {} retries", MAX_RETRIES);
     }
 
     /// Check if backend is healthy
