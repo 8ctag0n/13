@@ -304,7 +304,8 @@ temp/
 
 # mdBook
 book/
-# docs/book/ - Uncommented to track GitBook source files
+# But track docs/book/ (GitBook source files)
+!docs/book/
 docs-private
 # Sphinx
 docs/_build/

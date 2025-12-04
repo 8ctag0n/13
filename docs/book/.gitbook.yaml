@@ -16,5 +16,5 @@ exclude:
   - ../.git/**/*
   - ../target/**/*
   - ../.github/**/*
-  - ../.claude/**/*
+  - ../.config/**/*
   - ../node_modules/**/*
