@@ -1,6 +1,7 @@
 import { Transaction } from '@solana/web3.js';
 import { Buffer } from 'buffer';
 import { createSolanaRpc } from '@solana/kit';
+import { uploadServerKey } from './server_key_upload.js';
 
 /**
  * Create an FHE job from a parsed witness.bin file
@@ -8,7 +9,8 @@ import { createSolanaRpc } from '@solana/kit';
  * @param {Object} options - Job configuration
  * @param {string} options.operation - FHE operation (sum, average, count_if, add, multiply, subtract)
  * @param {number} options.operationValue - Value for the operation (e.g., multiplier, threshold)
- * @param {string} options.serverKey - Base64-encoded server key from witness.bin
+ * @param {Uint8Array} options.serverKeyBytes - Raw server key bytes from witness.bin (preferred)
+ * @param {string} [options.serverKey] - Base64-encoded server key (legacy, deprecated)
  * @param {string} options.encryptedData - Base64-encoded encrypted data from witness.bin
  * @param {Object} options.wallet - Wallet store object with publicKey, signMessage, signTransaction
  * @param {string} options.apiBaseUrl - API base URL
@@ -25,7 +27,8 @@ export async function createFheJobFromWitness(options) {
   const {
     operation,
     operationValue = 0,
-    serverKey,
+    serverKeyBytes,  // New: raw bytes for pre-upload
+    serverKey,       // Legacy: base64 string
     encryptedData,
     wallet,
     apiBaseUrl,
@@ -42,11 +45,60 @@ export async function createFheJobFromWitness(options) {
     throw new Error('Wallet not connected');
   }
 
-  if (!serverKey || !encryptedData) {
-    throw new Error('Missing witness data (serverKey or encryptedData)');
+  // Validate we have either serverKeyBytes (new) or serverKey (legacy)
+  if (!serverKeyBytes && !serverKey) {
+    throw new Error('Missing witness data: serverKeyBytes or serverKey required');
+  }
+
+  if (!encryptedData) {
+    throw new Error('Missing encrypted data');
   }
 
   try {
+    // Step 0: Pre-upload server key if we have raw bytes
+    let serverKeyHash = null;
+
+    if (serverKeyBytes && serverKeyBytes.length > 0) {
+      onProgress({ step: 'uploading_key', message: 'Uploading server key...' });
+
+      try {
+        const uploadResult = await uploadServerKey(
+          serverKeyBytes,
+          apiBaseUrl,
+          (progress) => {
+            // Build detailed message with speed and progress
+            let message = `Uploading: ${progress.loadedMB}/${progress.totalMB} MB`;
+            if (progress.speedKBps) {
+              message += ` @ ${progress.speedKBps} KB/s`;
+            }
+            if (progress.etaFormatted && progress.etaFormatted !== '--:--') {
+              message += ` (ETA: ${progress.etaFormatted})`;
+            }
+
+            onProgress({
+              step: 'uploading_key',
+              message,
+              progress: progress.percent,
+              // Pass detailed upload info
+              uploadDetails: {
+                loadedMB: progress.loadedMB,
+                totalMB: progress.totalMB,
+                speedKBps: progress.speedKBps,
+                speedMBps: progress.speedMBps,
+                etaSeconds: progress.etaSeconds,
+                etaFormatted: progress.etaFormatted
+              }
+            });
+          }
+        );
+        serverKeyHash = uploadResult.server_key_hash;
+        console.log('Server key uploaded, hash:', serverKeyHash);
+      } catch (uploadError) {
+        console.error('Server key pre-upload failed:', uploadError);
+        throw new Error(`Server key upload failed: ${uploadError.message}`);
+      }
+    }
+
     // Step 1: Generate signature
     onProgress({ step: 'signing', message: 'Generating signature...' });
 
@@ -56,16 +108,27 @@ export async function createFheJobFromWitness(options) {
     const message = `create_job:${jobId}:${timestamp}:${nonce}`;
 
     const messageBytes = new TextEncoder().encode(message);
-    const signatureBytes = await wallet.signMessage(messageBytes);
-    const signatureBase64 = btoa(String.fromCharCode(...signatureBytes));
+
+    // Use provider.signMessage for Solflare/Phantom compatibility
+    const provider = wallet.provider;
+    if (!provider || !provider.signMessage) {
+      throw new Error('Wallet provider does not support signMessage');
+    }
+
+    const signResult = await provider.signMessage(messageBytes, 'utf8');
+    // Handle both Uint8Array and {signature: Uint8Array} response formats
+    const signatureBytes = signResult.signature || signResult;
+    const signatureBase64 = btoa(String.fromCharCode(...new Uint8Array(signatureBytes)));
 
     // Step 2: Call validate-and-build endpoint
     onProgress({ step: 'validating', message: 'Validating job with backend...' });
 
+    // Get public key as string - handle both object and string formats
+    const creatorPubkey = wallet.addresses?.solana || wallet.publicKey?.toString() || wallet.publicKey;
+
     const requestBody = {
-      creator_pubkey: wallet.publicKey.toString(),
+      creator_pubkey: creatorPubkey,
       encrypted_data: encryptedData,
-      server_key: serverKey,
       message: message,
       signature: signatureBase64,
       nonce: nonce,
@@ -76,6 +139,15 @@ export async function createFheJobFromWitness(options) {
       consensus_threshold: consensusThreshold,
       payment_method: paymentMethod.toUpperCase()
     };
+
+    // Use server_key_hash if available (pre-uploaded), otherwise fall back to legacy base64
+    if (serverKeyHash) {
+      requestBody.server_key_hash = serverKeyHash;
+      console.log('Using pre-uploaded server key hash:', serverKeyHash);
+    } else if (serverKey) {
+      requestBody.server_key = serverKey;
+      console.log('Using legacy base64 server key');
+    }
 
     // Add predicate for count_if operation
     if (predicate && operation.toLowerCase() === 'count_if') {

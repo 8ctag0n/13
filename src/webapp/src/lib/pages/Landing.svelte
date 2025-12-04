@@ -82,7 +82,7 @@
             </div>
             <div class="status-item">
               <span class="text-muted">&gt; NETWORK.....:</span>
-              <span class="text-cyan">SOLANA_MAINNET</span>
+              <span class="text-cyan">SOLANA_DEVNET</span>
             </div>
             <div class="status-item">
               <span class="text-muted">&gt; PROVERS.....:</span>

@@ -767,6 +767,75 @@ e2e-all: ## [E2E] Run all verification tests (sequential)
 	@echo "$(GREEN)All E2E tests completed!$(NC)"
 
 # ============================================================================
+# DEVNET E2E Tests
+# ============================================================================
+
+e2e-poi-devnet: ## [DEVNET E2E] Run PoI verification test on devnet
+	@echo "$(BLUE)Running PoI E2E Verification Test on DEVNET...$(NC)"
+	@if [ ! -f ".env.devnet" ]; then \
+		echo "$(RED)ERROR: .env.devnet not found. Run './scripts/setup-devnet.sh' first$(NC)"; \
+		exit 1; \
+	fi
+	@echo "Building job-creator..."
+	@cargo build --release --manifest-path src/job-creator/Cargo.toml 2>&1 | tail -3
+	@if [ ! -f "keypairs/job-creator.json" ]; then \
+		echo "Creating job-creator keypair..."; \
+		solana-keygen new --no-bip39-passphrase --force --outfile keypairs/job-creator.json >/dev/null 2>&1; \
+	fi
+	@export $$(grep -v '^#' .env.devnet | xargs) && \
+	ADDR=$$(solana address --keypair keypairs/job-creator.json) && \
+	echo "Job creator: $$ADDR" && \
+	BALANCE=$$(solana balance keypairs/job-creator.json --url $$SOLANA_RPC_URL 2>/dev/null | cut -d' ' -f1) && \
+	echo "Balance: $$BALANCE SOL" && \
+	if [ "$$(echo "$$BALANCE < 0.1" | bc -l)" = "1" ]; then \
+		echo "$(RED)ERROR: Job creator needs SOL. Fund it first.$(NC)"; \
+		exit 1; \
+	fi && \
+	RUST_LOG=info \
+	BACKEND_URL=https://demo.zyberlink.fun \
+	SOLANA_RPC_URL=$$SOLANA_RPC_URL \
+	PROGRAM_ID=$$PROGRAM_ID \
+	USER_KEYPAIR=keypairs/job-creator.json \
+	./src/job-creator/target/release/job-creator verify-poi
+
+e2e-sum-devnet: ## [DEVNET E2E] Run Sum verification test on devnet
+	@echo "$(BLUE)Running Sum E2E Verification Test on DEVNET...$(NC)"
+	@if [ ! -f ".env.devnet" ]; then \
+		echo "$(RED)ERROR: .env.devnet not found. Run './scripts/setup-devnet.sh' first$(NC)"; \
+		exit 1; \
+	fi
+	@echo "Building job-creator..."
+	@cargo build --release --manifest-path src/job-creator/Cargo.toml 2>&1 | tail -3
+	@if [ ! -f "keypairs/job-creator.json" ]; then \
+		echo "Creating job-creator keypair..."; \
+		solana-keygen new --no-bip39-passphrase --force --outfile keypairs/job-creator.json >/dev/null 2>&1; \
+	fi
+	@export $$(grep -v '^#' .env.devnet | xargs) && \
+	ADDR=$$(solana address --keypair keypairs/job-creator.json) && \
+	echo "Job creator: $$ADDR" && \
+	BALANCE=$$(solana balance keypairs/job-creator.json --url $$SOLANA_RPC_URL 2>/dev/null | cut -d' ' -f1) && \
+	echo "Balance: $$BALANCE SOL" && \
+	if [ "$$(echo "$$BALANCE < 0.1" | bc -l)" = "1" ]; then \
+		echo "$(RED)ERROR: Job creator needs SOL. Fund it first.$(NC)"; \
+		exit 1; \
+	fi && \
+	RUST_LOG=info \
+	BACKEND_URL=https://demo.zyberlink.fun \
+	SOLANA_RPC_URL=$$SOLANA_RPC_URL \
+	PROGRAM_ID=$$PROGRAM_ID \
+	USER_KEYPAIR=keypairs/job-creator.json \
+	./src/job-creator/target/release/job-creator verify-sum
+
+e2e-all-devnet: ## [DEVNET E2E] Run all verification tests on devnet
+	@echo "$(BLUE)Running ALL E2E Verification Tests on DEVNET...$(NC)"
+	@echo ""
+	@$(MAKE) e2e-sum-devnet
+	@echo ""
+	@$(MAKE) e2e-poi-devnet
+	@echo ""
+	@echo "$(GREEN)All DEVNET E2E tests completed!$(NC)"
+
+# ============================================================================
 # DEVNET Deployment (d0-d3)
 # ============================================================================
 
@@ -787,10 +856,24 @@ d1: ## [DEVNET] Start containers (postgres, backend, webapp, nginx) - NO validat
 	podman-compose -f docker-compose.devnet.yml up -d --build
 	@echo ""
 	@echo "$(GREEN)Devnet containers started!$(NC)"
-	@echo "  Frontend: http://localhost:9000"
-	@echo "  API: http://localhost:9000/api"
+	@echo "  Frontend: http://localhost:9001"
+	@echo "  API: http://localhost:9001/api"
 	@echo ""
 	@echo "$(YELLOW)Next: make d2 (init marketplace)$(NC)"
+
+d1-fresh: ## [DEVNET] Rebuild containers from scratch (no cache) and start
+	@echo "$(BLUE)Rebuilding devnet containers (no cache)...$(NC)"
+	@if [ ! -f ".env.devnet" ]; then \
+		echo "$(RED)ERROR: .env.devnet not found. Run './scripts/setup-devnet.sh' first$(NC)"; \
+		exit 1; \
+	fi
+	@export $$(grep -v '^#' .env.devnet | xargs) && \
+	podman-compose -f docker-compose.devnet.yml build --no-cache && \
+	podman-compose -f docker-compose.devnet.yml up -d
+	@echo ""
+	@echo "$(GREEN)Devnet containers rebuilt and started!$(NC)"
+	@echo "  Frontend: http://localhost:9001"
+	@echo "  API: http://localhost:9001/api"
 
 d2: ## [DEVNET] Initialize marketplace + register provers on devnet
 	@echo "$(BLUE)Initializing marketplace on devnet...$(NC)"
@@ -821,7 +904,7 @@ d2: ## [DEVNET] Initialize marketplace + register provers on devnet
 				--program-id $$PROGRAM_ID \
 				--rpc-url $$SOLANA_RPC_URL \
 				--keypair $$KEYPAIR \
-				--stake-amount 5000000000 2>&1 | tail -1 || true; \
+				--stake-amount 120000000 2>&1 | tail -1 || true; \
 			echo "  Prover $$i registered: $$ADDR"; \
 		fi; \
 	done
@@ -843,10 +926,11 @@ d3: ## [DEVNET] Start provers (connect to devnet)
 		KEYPAIR="keypairs/prover-$$i.json"; \
 		if [ -f "$$KEYPAIR" ]; then \
 			RUST_LOG=info \
+			WITNESS_BACKEND_URL=http://localhost:9001 \
 			./target/release/zyberlink-prover \
 				--program-id $$PROGRAM_ID \
 				--rpc-url $$SOLANA_RPC_URL \
-				--witness-backend-url http://localhost:9000 \
+				--witness-backend-url http://localhost:9001 \
 				--keypair $$KEYPAIR \
 				run > /tmp/prover-devnet-$$i.log 2>&1 & \
 			echo "  Prover $$i started (PID: $$!)"; \

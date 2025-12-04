@@ -130,12 +130,15 @@ fn create_witness_file(
     encrypted_data: &[u8],
     filepath: &Path,
 ) -> Result<()> {
-    let encrypted_data_len = encrypted_data.len() as u32; // Use u32 for length
+    // Serialize server_key first to get its length
+    let server_key_bytes = bincode::serialize(server_key)?;
+    let server_key_len = server_key_bytes.len() as u64;
 
+    // Format: [8 bytes: server_key_len (u64 LE)] [server_key] [encrypted_data]
     let mut witness = Vec::new();
-    witness.extend_from_slice(&encrypted_data_len.to_le_bytes()); // Write 4 bytes length
+    witness.extend_from_slice(&server_key_len.to_le_bytes()); // Write 8 bytes length
+    witness.extend_from_slice(&server_key_bytes);
     witness.extend_from_slice(encrypted_data);
-    witness.extend_from_slice(&bincode::serialize(server_key)?); // Append server key bytes
 
     fs::write(filepath, witness)?;
     Ok(())

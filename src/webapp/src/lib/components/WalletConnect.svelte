@@ -17,24 +17,37 @@
   let detecting = true;
   let zyberLinkAvailable = false;
   let selectedChain = defaultChain;
+  let retryCount = 0;
 
-  onMount(async () => {
-    // Wait for ZyberLink to initialize
+  async function detectWallet() {
+    detecting = true;
     try {
-      await waitForZyberLink(2000);
+      await waitForZyberLink(5000); // 5s timeout for slow wallets like Solflare
       zyberLinkAvailable = true;
     } catch {
       zyberLinkAvailable = false;
     }
     detecting = false;
+  }
+
+  async function retryDetection() {
+    retryCount++;
+    console.log(`[Wallet] Retry detection attempt #${retryCount}`);
+    await detectWallet();
+  }
+
+  onMount(() => {
+    detectWallet();
   });
 
   async function connectSingleChain(chain) {
+    console.log(`[WalletConnect] connectSingleChain called for: ${chain}`);
     try {
       await walletStore.connect(chain);
+      console.log(`[WalletConnect] Connection successful, address:`, $walletStore.addresses[chain]);
       dispatch('connected', { chain, address: $walletStore.addresses[chain] });
     } catch (err) {
-      console.error('Failed to connect:', err);
+      console.error('[WalletConnect] Failed to connect:', err);
       dispatch('error', { message: err.message });
     }
   }
@@ -133,17 +146,37 @@
     </div>
 
   {:else if !zyberLinkAvailable}
-    <!-- ZyberLink not installed -->
+    <!-- No wallet detected -->
     <div class="connect-box tui-box">
       <div class="connect-header text-mono text-uppercase mb-4">
         &gt; WALLET_NOT_DETECTED
       </div>
       <div class="no-wallet text-mono text-muted text-sm">
-        <div class="mb-4">[⚠] INSTALL_ZYBERLINK_WALLET</div>
+        <div class="mb-4">[⚠] NO_SOLANA_WALLET_FOUND</div>
+
+        <!-- Retry button -->
+        <button
+          class="retry-button mb-4"
+          on:click={retryDetection}
+          disabled={detecting}
+        >
+          {detecting ? '[DETECTING...]' : '[RETRY DETECTION]'}
+        </button>
+
         <div class="install-hint">
-          Load the extension from:<br/>
-          <code class="text-cyan">chrome://extensions</code>
+          If you have a wallet installed, click retry.<br/>
+          Otherwise, install one of these:<br/>
+          <a href="https://phantom.app" target="_blank" class="text-cyan">Phantom</a> |
+          <a href="https://solflare.com" target="_blank" class="text-cyan">Solflare</a> |
+          <a href="https://backpack.app" target="_blank" class="text-cyan">Backpack</a>
         </div>
+
+        {#if retryCount > 0}
+          <div class="debug-info mt-4">
+            <div class="text-xs text-muted">Retry attempts: {retryCount}</div>
+            <div class="text-xs text-muted">Check browser console for debug info</div>
+          </div>
+        {/if}
       </div>
     </div>
 
@@ -151,7 +184,7 @@
     <!-- Connect options -->
     <div class="connect-box tui-box">
       <div class="connect-header text-mono text-uppercase mb-4">
-        &gt; CONNECT_ZYBERLINK_WALLET
+        &gt; CONNECT_WALLET
       </div>
 
       {#if mode === 'multi'}
@@ -177,12 +210,17 @@
               {@const config = CHAIN_CONFIG[chain]}
               <button
                 class="chain-button"
+                class:disabled={!config.enabled}
                 style="--chain-color: {config.color}"
-                on:click={() => connectSingleChain(chain)}
-                disabled={connecting}
+                on:click={() => config.enabled && connectSingleChain(chain)}
+                disabled={connecting || !config.enabled}
+                title={config.enabled ? '' : 'COMING SOON'}
               >
                 <span class="chain-icon">{config.icon}</span>
                 <span class="chain-name">{config.name}</span>
+                {#if !config.enabled}
+                  <span class="coming-soon-badge">SOON</span>
+                {/if}
               </button>
             {/each}
           </div>
@@ -198,12 +236,18 @@
                 {@const config = CHAIN_CONFIG[chain]}
                 <button
                   class="chain-button"
-                  class:selected={selectedChain === chain}
+                  class:selected={selectedChain === chain && config.enabled}
+                  class:disabled={!config.enabled}
                   style="--chain-color: {config.color}"
-                  on:click={() => selectedChain = chain}
+                  on:click={() => config.enabled && (selectedChain = chain)}
+                  disabled={!config.enabled}
+                  title={config.enabled ? '' : 'COMING SOON'}
                 >
                   <span class="chain-icon">{config.icon}</span>
                   <span class="chain-name">{config.symbol}</span>
+                  {#if !config.enabled}
+                    <span class="coming-soon-badge">SOON</span>
+                  {/if}
                 </button>
               {/each}
             </div>
@@ -305,9 +349,34 @@
     min-width: 80px;
   }
 
-  .chain-button:hover {
+  .chain-button:hover:not(.disabled) {
     border-color: var(--chain-color);
     background: rgba(0, 255, 159, 0.05);
+  }
+
+  .chain-button.disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    filter: grayscale(70%);
+    position: relative;
+  }
+
+  .chain-button.disabled:hover {
+    border-color: var(--zyber-border-muted);
+    background: transparent;
+  }
+
+  .coming-soon-badge {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    background: var(--zyber-warning);
+    color: var(--zyber-bg-primary);
+    font-size: 8px;
+    font-weight: 700;
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-family: var(--font-mono);
   }
 
   .chain-button.selected {
@@ -506,6 +575,38 @@
     padding: var(--space-3);
     background: rgba(239, 68, 68, 0.1);
     border: 1px solid var(--zyber-error);
+    border-radius: var(--radius-sm);
+  }
+
+  /* Retry button */
+  .retry-button {
+    display: block;
+    width: 100%;
+    padding: var(--space-3) var(--space-4);
+    background: rgba(6, 182, 212, 0.1);
+    border: 2px solid var(--zyber-cyber-cyan);
+    border-radius: var(--radius-md);
+    color: var(--zyber-cyber-cyan);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .retry-button:hover:not(:disabled) {
+    background: rgba(6, 182, 212, 0.2);
+    box-shadow: 0 0 15px rgba(6, 182, 212, 0.3);
+  }
+
+  .retry-button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .debug-info {
+    padding: var(--space-3);
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px dashed var(--zyber-border-muted);
     border-radius: var(--radius-sm);
   }
 

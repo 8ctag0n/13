@@ -14,7 +14,7 @@
 
   // Reactive wallet state
   $: isWalletConnected = $walletStore?.connected === true;
-  $: walletAddress = $walletStore?.publicKey || '';
+  $: walletAddress = $walletStore?.addresses?.solana || '';
 
   // Handle wallet connection event
   function handleWalletConnected(event) {
@@ -22,7 +22,7 @@
     showWalletModal = false;
     // Force reactivity update
     isWalletConnected = true;
-    walletAddress = event.detail.publicKey;
+    walletAddress = event.detail.address || $walletStore?.addresses?.solana || '';
   }
 
   // API URLs - use relative path for nginx proxy, fallback for local dev
