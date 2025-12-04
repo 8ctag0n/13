@@ -85,6 +85,7 @@ pub struct ComputeDataResponse {
     pub server_key: String,     // base64
     pub operation: String,
     pub operation_value: i16,
+    pub expected_count: Option<u16>, // Expected count for operations (Sum, Average, etc.)
 }
 
 #[derive(Debug, Deserialize)]
@@ -384,6 +385,7 @@ async fn validate_and_build_job(
         consensus_threshold: validated.consensus_threshold as i16,
         payment_method: validated.payment_method.clone(),
         payment_token_mint: validated.payment_token_mint.clone(),
+        expected_count: Some(validated.expected_count as i16),
     };
 
     let db_id = match JobQueries::insert_pending_job(&data.db_pool, insert_data).await {
@@ -485,6 +487,7 @@ async fn get_compute_data(data: web::Data<AppState>, job_id: web::Path<i64>) -> 
         server_key: STANDARD.encode(&job.server_key),
         operation: job.operation,
         operation_value: job.operation_value,
+        expected_count: job.expected_count.map(|c| c as u16),
     })
 }
 
@@ -553,7 +556,7 @@ async fn get_job_status(data: web::Data<AppState>, job_id: web::Path<i64>) -> im
         Ok(Some(job)) => HttpResponse::Ok().json(JobStatusResponse {
             job_id: job.job_id,
             status: job.status,
-            created_at: job.created_at.to_rfc3339(),
+            created_at: job.created_at.and_utc().to_rfc3339(),
         }),
         Ok(None) => HttpResponse::NotFound().json(json!({
             "error": "Job not found"
@@ -1854,6 +1857,69 @@ async fn get_job_chain_status(data: web::Data<AppState>, job_id: web::Path<i64>)
     }
 }
 
+/// Prover result row from fhe_results table
+#[derive(Debug, sqlx::FromRow)]
+struct ProverResultRow {
+    prover_pubkey: Option<String>,
+    commitment: String,
+    created_at: Option<chrono::NaiveDateTime>,
+}
+
+/// GET /api/jobs/{job_id}/provers
+///
+/// Get list of provers who have submitted results for this job.
+/// Returns prover pubkeys, submission times, and consensus status.
+#[get("/api/jobs/{job_id}/provers")]
+async fn get_job_provers(data: web::Data<AppState>, job_id: web::Path<i64>) -> impl Responder {
+    log::info!("Fetching provers for job_id: {}", *job_id);
+
+    // Query fhe_results to get all provers who submitted for this job
+    let provers_query = sqlx::query_as::<_, ProverResultRow>(
+        r#"
+        SELECT
+            prover_pubkey,
+            commitment,
+            created_at
+        FROM fhe_results
+        WHERE job_id = $1
+        ORDER BY created_at ASC
+        "#
+    )
+    .bind(*job_id)
+    .fetch_all(&data.db_pool)
+    .await;
+
+    match provers_query {
+        Ok(rows) => {
+            let provers: Vec<serde_json::Value> = rows
+                .into_iter()
+                .enumerate()
+                .map(|(i, row)| {
+                    json!({
+                        "index": i + 1,
+                        "prover_pubkey": row.prover_pubkey,
+                        "commitment": row.commitment,
+                        "submitted_at": row.created_at.map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string()),
+                        "status": "verified"
+                    })
+                })
+                .collect();
+
+            HttpResponse::Ok().json(json!({
+                "job_id": *job_id,
+                "prover_count": provers.len(),
+                "provers": provers
+            }))
+        }
+        Err(e) => {
+            log::error!("Failed to fetch provers for job {}: {}", *job_id, e);
+            HttpResponse::InternalServerError().json(json!({
+                "error": format!("Database error: {}", e)
+            }))
+        }
+    }
+}
+
 /// GET /api/jobs/{job_id}/result
 ///
 /// Get FHE computation result for a completed job.
@@ -1907,6 +1973,7 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         .service(confirm_job_transaction)
         .service(get_job_status)
         .service(get_job_details) // GET /api/jobs/{job_id} - full job details
+        .service(get_job_provers) // GET /api/jobs/{job_id}/provers - prover consensus info
         .service(get_job_result) // GET /api/jobs/{job_id}/result - FHE result
         .service(delete_job_data)
         .service(upload_witness)

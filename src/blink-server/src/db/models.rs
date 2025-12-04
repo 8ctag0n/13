@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 /// Represents a temporary job data entry stored in the database
@@ -16,11 +16,13 @@ pub struct TempJobData {
     pub required_provers: i16,
     pub consensus_threshold: i16,
     pub status: String,
-    pub payment_method: String,             // "SOL" or "wZEC"
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+    pub expires_at: NaiveDateTime,
     pub payment_token_mint: Option<String>, // SPL token mint for wZEC
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-    pub expires_at: DateTime<Utc>,
+    pub payment_method: String,             // "SOL" or "wZEC"
+    pub tx_signature: Option<String>,       // Transaction signature
+    pub expected_count: Option<i16>,        // Expected count for operations (Sum, Average, etc.)
 }
 
 /// Enum representing the different states a job can be in
@@ -93,4 +95,5 @@ pub struct InsertJobData {
     pub consensus_threshold: i16,
     pub payment_method: String,             // "SOL" or "wZEC"
     pub payment_token_mint: Option<String>, // SPL token mint for wZEC payments
+    pub expected_count: Option<i16>,        // Expected count for operations (Sum, Average, etc.)
 }
