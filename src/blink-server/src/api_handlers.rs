@@ -1811,6 +1811,44 @@ async fn check_server_key_exists(
     }
 }
 
+/// GET /api/jobs/{job_id}/chain-status
+///
+/// Get job status directly from blockchain_jobs (synced from chain).
+/// Useful for getting witness_hash and current on-chain status.
+#[get("/api/jobs/{job_id}/chain-status")]
+async fn get_job_chain_status(data: web::Data<AppState>, job_id: web::Path<i64>) -> impl Responder {
+    log::info!("Fetching chain status for job_id: {}", *job_id);
+
+    let query = sqlx::query_as::<_, (String, Option<String>)>(
+        "SELECT status, witness_hash FROM blockchain_jobs WHERE job_id = $1"
+    )
+    .bind(*job_id)
+    .fetch_optional(&data.db_pool)
+    .await;
+
+    match query {
+        Ok(Some((status, witness_hash))) => {
+            HttpResponse::Ok().json(json!({
+                "job_id": *job_id,
+                "status": status,
+                "witness_hash": witness_hash
+            }))
+        }
+        Ok(None) => {
+            HttpResponse::NotFound().json(json!({
+                "error": "Job not found in blockchain_jobs (chain sync may not have run yet)",
+                "job_id": *job_id
+            }))
+        }
+        Err(e) => {
+            log::error!("Failed to fetch chain status: {}", e);
+            HttpResponse::InternalServerError().json(json!({
+                "error": format!("Database error: {}", e)
+            }))
+        }
+    }
+}
+
 /// GET /api/jobs/{job_id}/result
 ///
 /// Get FHE computation result for a completed job.
