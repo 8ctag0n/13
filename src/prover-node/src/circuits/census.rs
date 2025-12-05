@@ -3,8 +3,8 @@
 //! Implements Sum operation for network member counting
 
 use anyhow::{Context, Result};
-use tfhe::prelude::*;
-use tfhe::{FheUint16, FheUint32, FheUint8};
+use zyberlink_fhe::prelude::*;
+use zyberlink_fhe::{FheUint16, FheUint32, FheUint8};
 
 pub struct CensusCircuit;
 

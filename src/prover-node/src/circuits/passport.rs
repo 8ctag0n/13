@@ -3,8 +3,8 @@
 //! Implements Threshold and RangeCheck operations for zk-passport
 
 use anyhow::{Context, Result};
-use tfhe::prelude::{FheOrd, FheTryTrivialEncrypt, IfThenElse};
-use tfhe::{FheBool, FheUint8};
+use zyberlink_fhe::prelude::{FheOrd, FheTryTrivialEncrypt, IfThenElse};
+use zyberlink_fhe::{FheBool, FheUint8};
 
 pub struct PassportCircuit;
 

@@ -28,7 +28,6 @@ use zyberlink_types::{CircuitType, FheOperation, FhePredicate, HistogramBin, Job
 
 mod circuits;
 mod config;
-mod fhe_engine;
 mod halo2_prover;
 mod roi_calculator;
 mod tui;
@@ -36,8 +35,8 @@ mod witness_encryption;
 mod witness_fetcher;
 mod wizard;
 
-use fhe_engine::FheEngine;
-use fhe_engine::FhePredicate as FheEnginePredicate; // Alias to avoid conflict
+// FHE engine from shared crate (eliminates duplicate code)
+use zyberlink_fhe::{FheEngine, deserialize_server_key};
 use halo2_prover::{Halo2Prover, OrchardWitness};
 use roi_calculator::ROICalculator;
 use witness_encryption::WitnessEncryption;
@@ -324,7 +323,7 @@ impl ProverNode {
             info!("Initializing FHE engine with server key from: {}", key_path);
             let server_key_bytes =
                 std::fs::read(key_path).context("Failed to read FHE server key file")?;
-            let server_key = fhe_engine::deserialize_server_key(&server_key_bytes)
+            let server_key = deserialize_server_key(&server_key_bytes)
                 .context("Failed to deserialize FHE server key")?;
             let engine = FheEngine::new(server_key);
             info!("FHE engine ready");
@@ -750,7 +749,7 @@ impl ProverNode {
 
                 // Deserialize server key and create FHE engine
                 info!("[Job {}] Initializing FHE engine from witness...", job_id);
-                let server_key = fhe_engine::deserialize_server_key(server_key_bytes)
+                let server_key = deserialize_server_key(server_key_bytes)
                     .context("Failed to deserialize server key from witness")?;
                 let engine = Arc::new(FheEngine::new(server_key));
                 info!("[Job {}] FHE engine initialized", job_id);
@@ -1081,24 +1080,8 @@ impl ProverNode {
                     // Convert Vec<Vec<u8>> to Vec<&[u8]>
                     let input_refs: Vec<&[u8]> = inputs.iter().map(|v| v.as_slice()).collect();
 
-                    // Convert zyberlink_types::FhePredicate to fhe_engine::FhePredicate
-                    let fhe_engine_predicate = match predicate {
-                        zyberlink_types::fhe::FhePredicate::Equals(val) => {
-                            FheEnginePredicate::EqualTo(*val)
-                        }
-                        zyberlink_types::fhe::FhePredicate::GreaterThan(val) => {
-                            FheEnginePredicate::GreaterThan(*val)
-                        }
-                        zyberlink_types::fhe::FhePredicate::LessThan(val) => {
-                            FheEnginePredicate::LessThan(*val)
-                        }
-                        _ => anyhow::bail!(
-                            "Unsupported FhePredicate type for CountIf in prover-node"
-                        ),
-                    };
-
-                    // Compute count_if
-                    engine.compute_count_if(&input_refs, fhe_engine_predicate)
+                    // Compute count_if (zyberlink-fhe now uses FhePredicate directly)
+                    engine.compute_count_if(&input_refs, predicate)
                 }
 
                 FheOperation::Histogram { ref bins } => {

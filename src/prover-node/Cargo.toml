@@ -53,9 +53,8 @@ zeroize = { version = "1.8", features = ["derive"] }
 reqwest = { version = "0.12", features = ["blocking", "json"] }
 blake2 = "0.10"
 
-# FHE (Fully Homomorphic Encryption) dependencies
-tfhe = { version = "0.10", features = ["integer", "x86_64-unix"] }
-sha3 = "0.10"
+# FHE (Fully Homomorphic Encryption) - using shared crate
+zyberlink-fhe = { path = "../shared/fhe" }
 
 # TUI dependencies
 ratatui = "0.26"

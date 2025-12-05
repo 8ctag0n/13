@@ -6,6 +6,7 @@ members = [
     "src/blink-server",
     "src/shared/types",
     "src/shared/crypto",
+    "src/shared/fhe",
     "src/fhe-cli",
     "src/test-utils",
 ]

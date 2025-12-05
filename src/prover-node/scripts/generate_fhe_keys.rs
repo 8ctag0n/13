@@ -13,8 +13,9 @@ use clap::Parser;
 use std::fs;
 use std::path::PathBuf;
 
-// Import from prover_node library
-use prover_node::{fhe_engine, generate_fhe_keys};
+// Import from prover_node library and zyberlink-fhe
+use prover_node::generate_fhe_keys;
+use zyberlink_fhe::{serialize_server_key, serialize_client_key};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -51,9 +52,9 @@ fn main() -> Result<()> {
     println!("\nSerializing keys...");
 
     let client_bytes =
-        fhe_engine::serialize_client_key(&client_key).context("Failed to serialize client key")?;
+        serialize_client_key(&client_key).context("Failed to serialize client key")?;
     let server_bytes =
-        fhe_engine::serialize_server_key(&server_key).context("Failed to serialize server key")?;
+        serialize_server_key(&server_key).context("Failed to serialize server key")?;
 
     fs::write(&client_key_path, &client_bytes).context("Failed to write client key file")?;
     fs::write(&server_key_path, &server_bytes).context("Failed to write server key file")?;
@@ -74,8 +75,8 @@ fn main() -> Result<()> {
     if let Some(test_value) = args.test_value {
         println!("\nGenerating test encrypted value...");
 
-        use tfhe::prelude::*;
-        use tfhe::FheUint8;
+        use zyberlink_fhe::prelude::*;
+        use zyberlink_fhe::FheUint8;
 
         let encrypted = FheUint8::try_encrypt(test_value, &client_key)
             .context("Failed to encrypt test value")?;

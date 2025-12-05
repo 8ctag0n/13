@@ -11060,6 +11060,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "zyberlink-fhe"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bincode",
+ "serde",
+ "sha3",
+ "tfhe",
+ "thiserror 1.0.69",
+ "tokio",
+ "zyberlink-types",
+]
+
+[[package]]
 name = "zyberlink-prover"
 version = "0.1.0"
 dependencies = [
@@ -11090,16 +11104,15 @@ dependencies = [
  "reqwest 0.12.24",
  "serde",
  "serde_json",
- "sha3",
  "shellexpand",
  "solana-client",
  "solana-sdk",
- "tfhe",
  "tokio",
  "url",
  "urlencoding",
  "x25519-dalek",
  "zeroize",
+ "zyberlink-fhe",
  "zyberlink-sdk",
  "zyberlink-types",
 ]

@@ -4,8 +4,8 @@
 
 use super::passport::PassportCircuit;
 use anyhow::{Context, Result};
-use tfhe::prelude::*;
-use tfhe::{FheBool, FheUint8};
+use zyberlink_fhe::prelude::*;
+use zyberlink_fhe::{FheBool, FheUint8};
 use zyberlink_types::fhe::FhePredicate;
 
 pub struct VotingCircuit;
