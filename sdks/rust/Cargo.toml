@@ -15,7 +15,25 @@ thiserror.workspace = true
 anyhow.workspace = true
 blake2 = "0.10"
 
+# High-level client dependencies
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+reqwest = { workspace = true, features = ["json"] }
+serde_json.workspace = true
+hex.workspace = true
+base64 = "0.21"
+dirs = "5.0"
+bincode = "1.3"
+
+# Logging
+log.workspace = true
+env_logger.workspace = true
+
+# ZyberLink crates
 zyberlink-types = { path = "../../src/shared/types" }
+zyberlink-fhe = { path = "../../src/shared/fhe" }
+
+# Re-export tfhe types
+tfhe = { version = "0.10", default-features = false, features = ["integer", "x86_64-unix"] }
 
 [dev-dependencies]
 solana-program-test.workspace = true

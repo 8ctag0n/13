@@ -11122,10 +11122,15 @@ name = "zyberlink-sdk"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64 0.21.7",
+ "bincode",
  "blake2",
  "borsh 1.6.0",
  "chacha20poly1305",
+ "dirs 5.0.1",
+ "env_logger 0.11.8",
  "hex",
+ "log",
  "rand 0.8.5",
  "reqwest 0.11.27",
  "serde",
@@ -11134,10 +11139,12 @@ dependencies = [
  "solana-client",
  "solana-program-test",
  "solana-sdk",
+ "tfhe",
  "thiserror 1.0.69",
  "tokio",
  "x25519-dalek",
  "zyberlink",
+ "zyberlink-fhe",
  "zyberlink-types",
 ]
 
