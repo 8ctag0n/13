@@ -37,7 +37,7 @@ solana-client = "2.1"
 solana-program-test = "2.1"
 solana-program = "2.1"
 zyberlink-types = { path = "../../src/shared/types" }
-zyberlink-sdk = { path = "../../src/sdk" }
+zyberlink-sdk = { path = "../../sdks/rust" }
 zyberlink = { path = "../../src/programs/zyberlink" }
 
 # FHE dependencies for testing

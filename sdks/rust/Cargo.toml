@@ -15,12 +15,12 @@ thiserror.workspace = true
 anyhow.workspace = true
 blake2 = "0.10"
 
-zyberlink-types = { path = "../shared/types" }
+zyberlink-types = { path = "../../src/shared/types" }
 
 [dev-dependencies]
 solana-program-test.workspace = true
 tokio = { workspace = true, features = ["test-util", "rt-multi-thread", "macros"] }
-zyberlink = { path = "../programs/zyberlink", features = ["no-entrypoint"] }
+zyberlink = { path = "../../src/programs/zyberlink", features = ["no-entrypoint"] }
 reqwest.workspace = true
 hex.workspace = true
 serde_json.workspace = true

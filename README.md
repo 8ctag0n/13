@@ -18,7 +18,7 @@
 |----------|------|-------------|
 | GitBook Docs | [/docs/book](docs/book) | Full documentation (EN/ES) |
 | FHE CLI | [/src/fhe-cli](src/fhe-cli) | Client-side encryption tool |
-| Rust SDK | [/src/sdk](src/sdk) | Integration library for Rust apps |
+| Rust SDK | [/sdks/rust](sdks/rust) | Integration library for Rust apps |
 | API Reference | [/docs/book/en/guides/api-reference.md](docs/book/en/guides/api-reference.md) | Backend API endpoints |
 
 ## Overview
@@ -125,7 +125,7 @@ cargo build --release
 
 ## SDK Integration
 
-Rust library for programmatic integration. Path: [/src/sdk](src/sdk)
+Rust library for programmatic integration. Path: [/sdks/rust](sdks/rust)
 
 ```rust
 use zyberlink_sdk::ZyberClient;

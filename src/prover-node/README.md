@@ -795,7 +795,7 @@ The TUI displays:
 
 ## Related Documentation
 
-- [ZyberLink SDK](/src/sdk/README.md) - Client library for job creation
+- [ZyberLink SDK](/sdks/rust/README.md) - Client library for job creation
 - [Witness Backend](/src/witness-backend/README.md) - Witness storage service
 - [On-Chain Program](/src/program/README.md) - Solana smart contract
 - [FHE Operations](/src/shared/types/src/fhe.rs) - FHE operation definitions

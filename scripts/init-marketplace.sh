@@ -150,7 +150,7 @@ cd ../..
 log_step "Initializing marketplace..."
 
 # Try using SDK example first, fallback to manual instructions
-cargo run --manifest-path src/sdk/Cargo.toml --example initialize_program --release || {
+cargo run --manifest-path sdks/rust/Cargo.toml --example initialize_program --release || {
     # If SDK example fails, show manual instructions
     log_warn "SDK example failed. Trying alternative method..."
 

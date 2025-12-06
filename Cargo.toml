@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "src/sdk",
+    "sdks/rust",
     "src/prover-node",
     "src/witness-storage",
     "src/blink-server",

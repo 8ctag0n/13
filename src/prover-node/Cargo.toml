@@ -31,7 +31,7 @@ hex = "0.4"
 solana-sdk.workspace = true
 solana-client.workspace = true
 
-zyberlink-sdk = { path = "../sdk" }
+zyberlink-sdk = { path = "../../sdks/rust" }
 zyberlink-types = { path = "../shared/types" }
 
 # Halo2 and Zcash Orchard dependencies

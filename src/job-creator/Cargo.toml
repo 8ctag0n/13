@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-zyberlink-sdk = { path = "../sdk" }
+zyberlink-sdk = { path = "../../sdks/rust" }
 zyberlink-types = { path = "../shared/types" }
 zyberlink-fhe = { path = "../shared/fhe" }
 solana-sdk = "2.3"

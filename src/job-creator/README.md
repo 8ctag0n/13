@@ -584,7 +584,7 @@ Key dependencies from `Cargo.toml`:
 
 ## Related Documentation
 
-- [Zyberlink SDK](/src/sdk/README.md) - SDK documentation for program interaction
+- [Zyberlink SDK](/sdks/rust/README.md) - SDK documentation for program interaction
 - [FHE Types](/src/shared/types/src/fhe.rs) - FHE operation definitions
 - [Blink Server](/src/blink-server/README.md) - Backend witness storage
 - [Program Documentation](/programs/zyberlink-market/README.md) - Solana program details

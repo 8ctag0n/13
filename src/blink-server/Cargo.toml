@@ -51,7 +51,7 @@ sqlx = { version = "0.7", features = ["runtime-tokio-native-tls", "postgres", "c
 chrono = { version = "0.4", features = ["serde"] }
 
 # SDK and types
-zyberlink-sdk = { path = "../sdk" }
+zyberlink-sdk = { path = "../../sdks/rust" }
 zyberlink-types = { path = "../shared/types" }
 borsh = { workspace = true }
 
