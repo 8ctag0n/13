@@ -21,6 +21,9 @@
 // High-level client (recommended)
 pub mod zyber;
 pub mod config;
+pub mod prepared;
+pub mod fluent;
+pub mod batch;
 
 // Low-level modules
 pub mod client;
@@ -34,6 +37,9 @@ pub mod transaction;
 // Re-export high-level API
 pub use zyber::{Zyber, ZyberBuilder};
 pub use config::NetworkConfig;
+pub use prepared::{PreparedOperation, CostEstimate, SimulationResult, OperationPdas};
+pub use fluent::{FluentOperation, RetryPolicy, ErrorAction, OperationError, IntoFluent};
+pub use batch::{BatchBuilder, BatchOp, BatchResult, BatchSummary};
 
 // Re-export low-level API
 pub use client::*;

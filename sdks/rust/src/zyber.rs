@@ -30,8 +30,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::batch::BatchBuilder;
 use crate::client::MarketplaceClient;
 use crate::config::{default_keypair_path, keys_dir, NetworkConfig};
+use crate::fluent::FluentOperation;
+use crate::prepared::PreparedOperation;
 use zyberlink_types::{FheConsensusConfig, FheOperation, FhePredicate};
 
 /// High-level ZyberLink client
@@ -382,6 +385,173 @@ impl Zyber {
             }
         }
         Ok(true) // No matches - innocent
+    }
+
+    // =========================================================================
+    // Prepared Operations (Layer 2 API)
+    // =========================================================================
+
+    /// Prepare a sum operation for inspection before execution
+    ///
+    /// # Example
+    /// ```ignore
+    /// let prep = zyber.prepare_sum(&[100, 200, 300]).await?;
+    ///
+    /// // Inspect costs
+    /// println!("Cost: {} SOL", prep.estimate_cost().total_sol());
+    ///
+    /// // Simulate first
+    /// prep.simulate().await?;
+    ///
+    /// // Execute when ready
+    /// let result = prep.execute().await?;
+    /// ```
+    pub async fn prepare_sum(&mut self, values: &[u8]) -> Result<PreparedOperation> {
+        let op = FheOperation::Sum {
+            expected_count: values.len() as u16,
+        };
+        self.prepare(op, values).await
+    }
+
+    /// Prepare an average operation for inspection before execution
+    pub async fn prepare_average(&mut self, values: &[u8]) -> Result<PreparedOperation> {
+        let op = FheOperation::Sum {
+            expected_count: values.len() as u16,
+        };
+        self.prepare(op, values).await
+    }
+
+    /// Prepare a count_if operation for inspection before execution
+    pub async fn prepare_count_if(
+        &mut self,
+        values: &[u8],
+        op: &str,
+        threshold: u8,
+    ) -> Result<PreparedOperation> {
+        let predicate = match op {
+            ">" | "gt" => FhePredicate::GreaterThan(threshold),
+            "<" | "lt" => FhePredicate::LessThan(threshold),
+            "==" | "eq" | "=" => FhePredicate::Equals(threshold),
+            "!=" | "ne" => FhePredicate::NotEquals(threshold),
+            _ => return Err(anyhow!("Unknown operator: {}. Use >, <, ==, or !=", op)),
+        };
+
+        let operation = FheOperation::CountIf {
+            predicate,
+            expected_count: values.len() as u16,
+        };
+        self.prepare(operation, values).await
+    }
+
+    /// Prepare an FHE operation (internal)
+    async fn prepare(&mut self, operation: FheOperation, values: &[u8]) -> Result<PreparedOperation> {
+        // Ensure keys are ready
+        self.ensure_keys().await?;
+
+        // Encrypt values
+        let encrypted_values = zyberlink_fhe::encrypt_values(values, self.client_key()?)
+            .context("Failed to encrypt values")?;
+
+        // Serialize for transport
+        let witness_data = bincode::serialize(&encrypted_values)
+            .context("Failed to serialize encrypted values")?;
+
+        // Compute witness commitment
+        use blake2::{Blake2s256, Digest};
+        let mut hasher = Blake2s256::new();
+        hasher.update(&witness_data);
+        let witness_commitment: [u8; 32] = hasher.finalize().into();
+
+        // Get next job ID
+        let job_id = self.fetch_next_job_id()?;
+
+        // Build FHE config
+        let fhe_config = FheConsensusConfig {
+            operation: operation.clone(),
+            required_provers: self.required_provers,
+            consensus_threshold: self.required_provers,
+            submission_timeout_secs: self.timeout.as_secs() as i64,
+        };
+
+        // Wrap client in Arc for sharing
+        let client = Arc::new(MarketplaceClient::new_with_commitment(
+            self.config.rpc_url.clone(),
+            self.config.program_id,
+            solana_sdk::commitment_config::CommitmentConfig::confirmed(),
+        ));
+
+        Ok(PreparedOperation::new(
+            operation,
+            witness_data,
+            witness_commitment,
+            job_id,
+            fhe_config,
+            self.price_lamports,
+            self.timeout,
+            self.config.clone(),
+            client,
+            self.keypair.clone(),
+            self.http.clone(),
+            Arc::new(self.client_key()?.clone()),
+        ))
+    }
+
+    // =========================================================================
+    // Fluent Operations (Layer 1 API)
+    // =========================================================================
+
+    /// Create a fluent sum operation with configurable retry and error handling
+    ///
+    /// # Example
+    /// ```ignore
+    /// let result = zyber.sum_fluent(&[100, 200, 300])
+    ///     .with_retry(3)
+    ///     .with_timeout(Duration::from_secs(60))
+    ///     .on_error(|e| if e.is_timeout() { ErrorAction::Retry } else { ErrorAction::Fail })
+    ///     .await?;
+    /// ```
+    pub async fn sum_fluent(&mut self, values: &[u8]) -> Result<FluentOperation> {
+        let prepared = self.prepare_sum(values).await?;
+        Ok(FluentOperation::new(prepared))
+    }
+
+    /// Create a fluent average operation
+    pub async fn average_fluent(&mut self, values: &[u8]) -> Result<FluentOperation> {
+        let prepared = self.prepare_average(values).await?;
+        Ok(FluentOperation::new(prepared))
+    }
+
+    /// Create a fluent count_if operation
+    pub async fn count_if_fluent(
+        &mut self,
+        values: &[u8],
+        op: &str,
+        threshold: u8,
+    ) -> Result<FluentOperation> {
+        let prepared = self.prepare_count_if(values, op, threshold).await?;
+        Ok(FluentOperation::new(prepared))
+    }
+
+    // =========================================================================
+    // Batch Operations
+    // =========================================================================
+
+    /// Create a batch of operations to execute in parallel
+    ///
+    /// # Example
+    /// ```ignore
+    /// let results = zyber.batch()
+    ///     .sum(&values_a)
+    ///     .average(&values_b)
+    ///     .count_if(&values_c, ">", 50)
+    ///     .execute_parallel().await?;
+    ///
+    /// println!("Sum: {}", results.results[0].unwrap());
+    /// println!("Avg: {}", results.results[1].unwrap());
+    /// println!("Count: {}", results.results[2].unwrap());
+    /// ```
+    pub fn batch(&mut self) -> BatchBuilder<'_> {
+        BatchBuilder::new(self)
     }
 
     // =========================================================================
