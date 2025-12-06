@@ -6,8 +6,9 @@
 /// 3. Provers reach consensus on vote tallies
 /// 4. Payment distribution and verification
 use anyhow::Result;
-use tfhe::prelude::*;
-use tfhe::{generate_keys, set_server_key, ConfigBuilder, FheUint8};
+use zyberlink_fhe::prelude::*;
+use zyberlink_fhe::{generate_keys, FheUint8};
+use zyberlink_fhe::tfhe_reexport::set_server_key;
 use zyberlink_types::fhe::FhePredicate;
 
 #[test]
@@ -18,8 +19,7 @@ fn test_fhe_voting_basic_count() -> Result<()> {
 
     // Step 1: Generate FHE keys
     println!("Step 1: Generating FHE keys...");
-    let config = ConfigBuilder::default().build();
-    let (client_key, server_key) = generate_keys(config);
+    let (client_key, server_key) = generate_keys()?;
     set_server_key(server_key.clone());
     println!("  ✓ Keys generated");
 
@@ -99,8 +99,7 @@ fn test_fhe_voting_consensus() -> Result<()> {
 
     println!("\n=== FHE Voting Consensus Test ===\n");
 
-    let config = ConfigBuilder::default().build();
-    let (client_key, server_key) = generate_keys(config);
+    let (client_key, server_key) = generate_keys()?;
     set_server_key(server_key.clone());
 
     // Create encrypted votes
@@ -129,7 +128,7 @@ fn test_fhe_voting_consensus() -> Result<()> {
         let count_bytes = VotingCircuit::compute_count_if(input_refs, &predicate)?;
 
         // Hash result
-        use sha3::{Digest, Sha3_256};
+        use zyberlink_fhe::sha3_reexport::{Digest, Sha3_256};
         let mut hasher = Sha3_256::new();
         hasher.update(&count_bytes);
         let hash: [u8; 32] = hasher.finalize().into();
@@ -166,8 +165,7 @@ fn test_fhe_voting_age_eligibility() -> Result<()> {
 
     println!("\n=== FHE Voting Age Eligibility Test ===\n");
 
-    let config = ConfigBuilder::default().build();
-    let (client_key, server_key) = generate_keys(config);
+    let (client_key, server_key) = generate_keys()?;
     set_server_key(server_key);
 
     // 100 participants with different ages
@@ -222,8 +220,7 @@ fn test_fhe_voting_dao_scenario() -> Result<()> {
 
     println!("\n=== FHE DAO Voting Scenario Test ===\n");
 
-    let config = ConfigBuilder::default().build();
-    let (client_key, server_key) = generate_keys(config);
+    let (client_key, server_key) = generate_keys()?;
     set_server_key(server_key);
 
     // DAO Proposal: 3 options (0=Abstain, 1=Yes, 2=No)
@@ -324,8 +321,7 @@ fn test_fhe_voting_performance_large_scale() -> Result<()> {
 
     println!("\n=== FHE Voting Large Scale Performance Test ===\n");
 
-    let config = ConfigBuilder::default().build();
-    let (client_key, server_key) = generate_keys(config);
+    let (client_key, server_key) = generate_keys()?;
     set_server_key(server_key);
 
     // 500 voters, 5 options

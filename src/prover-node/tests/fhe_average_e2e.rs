@@ -6,8 +6,9 @@
 /// 3. Provers reach consensus on the result
 /// 4. Payment distribution and verification
 use anyhow::Result;
-use tfhe::prelude::*;
-use tfhe::{generate_keys, set_server_key, ConfigBuilder, FheUint16, FheUint8};
+use zyberlink_fhe::prelude::*;
+use zyberlink_fhe::{generate_keys, FheUint8, FheUint16};
+use zyberlink_fhe::tfhe_reexport::set_server_key;
 
 #[test]
 fn test_fhe_average_basic_computation() -> Result<()> {
@@ -18,8 +19,7 @@ fn test_fhe_average_basic_computation() -> Result<()> {
 
     // Step 1: Generate FHE keys (client side)
     println!("Step 1: Generating FHE keys...");
-    let config = ConfigBuilder::default().build();
-    let (client_key, server_key) = generate_keys(config);
+    let (client_key, server_key) = generate_keys()?;
     set_server_key(server_key.clone());
     println!("  ✓ Keys generated");
 
@@ -84,8 +84,7 @@ fn test_fhe_average_consensus_simulation() -> Result<()> {
     println!("\n=== FHE Average Consensus Test ===\n");
 
     // Setup
-    let config = ConfigBuilder::default().build();
-    let (client_key, server_key) = generate_keys(config);
+    let (client_key, server_key) = generate_keys()?;
     set_server_key(server_key.clone());
 
     // Client encrypts data
@@ -114,7 +113,7 @@ fn test_fhe_average_consensus_simulation() -> Result<()> {
         let result_bytes = bincode::serialize(&(encrypted_sum.clone(), count))?;
 
         // Hash result (what gets submitted on-chain)
-        use sha3::{Digest, Sha3_256};
+        use zyberlink_fhe::sha3_reexport::{Digest, Sha3_256};
         let mut hasher = Sha3_256::new();
         hasher.update(&result_bytes);
         let hash: [u8; 32] = hasher.finalize().into();
@@ -152,8 +151,7 @@ fn test_fhe_average_large_dataset() -> Result<()> {
 
     println!("\n=== FHE Average Large Dataset Test ===\n");
 
-    let config = ConfigBuilder::default().build();
-    let (client_key, server_key) = generate_keys(config);
+    let (client_key, server_key) = generate_keys()?;
     set_server_key(server_key);
 
     // Create 100 ages with realistic distribution

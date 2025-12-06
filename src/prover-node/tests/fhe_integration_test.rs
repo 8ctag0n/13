@@ -6,8 +6,8 @@
 /// 3. Prover-side computation
 /// 4. Result hashing for consensus
 /// 5. Client-side decryption and verification
-use prover_node::{fhe_engine::FheEngine, generate_fhe_keys};
-use tfhe::{prelude::*, FheUint8};
+use prover_node::{FheEngine, generate_fhe_keys};
+use zyberlink_fhe::{prelude::*, FheUint8};
 
 #[test]
 fn test_fhe_engine_integration() {
@@ -222,7 +222,7 @@ fn test_fhe_performance_benchmark() {
 
 #[test]
 fn test_fhe_key_serialization_roundtrip() {
-    use prover_node::fhe_engine::{
+    use zyberlink_fhe::{
         deserialize_client_key, deserialize_server_key, serialize_client_key, serialize_server_key,
     };
 

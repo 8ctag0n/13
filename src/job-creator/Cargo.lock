@@ -2156,8 +2156,8 @@ dependencies = [
  "serde_json",
  "solana-client",
  "solana-sdk",
- "tfhe",
  "tokio",
+ "zyberlink-fhe",
  "zyberlink-sdk",
  "zyberlink-types",
 ]
@@ -7348,6 +7348,19 @@ checksum = "91e19ebc2adc8f83e43039e79776e3fda8ca919132d68a1fed6a5faca2683748"
 dependencies = [
  "cc",
  "pkg-config",
+]
+
+[[package]]
+name = "zyberlink-fhe"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bincode",
+ "serde",
+ "sha3",
+ "tfhe",
+ "thiserror 1.0.69",
+ "zyberlink-types",
 ]
 
 [[package]]

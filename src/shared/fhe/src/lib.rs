@@ -80,3 +80,8 @@ pub use tfhe::prelude;
 pub mod tfhe_reexport {
     pub use tfhe::*;
 }
+
+/// Re-export sha3 for hashing (used in tests and consensus)
+pub mod sha3_reexport {
+    pub use sha3::*;
+}

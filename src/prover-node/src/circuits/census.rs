@@ -120,12 +120,12 @@ impl CensusCircuit {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tfhe::prelude::{FheDecrypt, FheTryEncrypt};
-    use tfhe::{generate_keys, set_server_key, ClientKey, ConfigBuilder, ServerKey};
+    use zyberlink_fhe::prelude::{FheDecrypt, FheTryEncrypt};
+    use zyberlink_fhe::tfhe_reexport::set_server_key;
+    use zyberlink_fhe::{generate_keys, ClientKey, ServerKey};
 
     fn generate_test_keys() -> (ClientKey, ServerKey) {
-        let config = ConfigBuilder::default().build();
-        generate_keys(config)
+        generate_keys().unwrap()
     }
 
     #[test]

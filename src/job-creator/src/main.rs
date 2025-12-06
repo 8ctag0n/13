@@ -10,7 +10,7 @@ use solana_sdk::{
     transaction::Transaction,
 };
 use std::time::Duration;
-use tfhe::{prelude::*, ClientKey, ConfigBuilder, FheUint8, generate_keys};
+use zyberlink_fhe::{prelude::*, ClientKey, FheUint8, generate_keys};
 use zyberlink_sdk::MarketplaceSDK;
 use zyberlink_types::fhe::{FheConsensusConfig, FheOperation, FhePredicate};
 
@@ -608,8 +608,7 @@ async fn run_verified_job(
 /// - Add/Multiply/Threshold/RangeCheck: Single FheUint8 serialized directly
 /// - Sum/Average/CountIf: Vec<Vec<u8>> with each value serialized separately
 fn create_fhe_data_with_values(values: &[u8], operation: &FheOperation) -> Result<(Vec<u8>, Vec<u8>, ClientKey)> {
-    let config = ConfigBuilder::default().build();
-    let (client_key, server_key) = generate_keys(config);
+    let (client_key, server_key) = generate_keys()?;
 
     let encrypted_bytes = match operation {
         // Single-value operations: serialize FheUint8 directly
@@ -968,8 +967,7 @@ async fn run_continuous(
 
 /// Create FHE encrypted data for testing (continuous mode)
 fn create_fhe_data(operation: &FheOperation) -> Result<(Vec<u8>, Vec<u8>)> {
-    let config = ConfigBuilder::default().build();
-    let (client_key, server_key) = generate_keys(config);
+    let (client_key, server_key) = generate_keys()?;
 
     let encrypted_bytes = match operation {
         FheOperation::Sum { expected_count }

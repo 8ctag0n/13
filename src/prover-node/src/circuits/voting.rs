@@ -186,12 +186,13 @@ impl VotingCircuit {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tfhe::{generate_keys, set_server_key, ClientKey, ConfigBuilder, ServerKey};
+    use zyberlink_fhe::prelude::*;
+    use zyberlink_fhe::tfhe_reexport::set_server_key;
+    use zyberlink_fhe::{generate_keys, ClientKey, ServerKey};
     use zyberlink_types::fhe::FhePredicate;
 
     fn generate_test_keys() -> (ClientKey, ServerKey) {
-        let config = ConfigBuilder::default().build();
-        generate_keys(config)
+        generate_keys().unwrap()
     }
 
     #[test]
