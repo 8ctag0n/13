@@ -1,6 +1,9 @@
 [workspace]
 members = [
-    "zyberlink",
+    "zyberlink",  # DEPRECATED - will be removed after migration
+    "bedrock",
+    "zk-generator",
+    "fhe-generator",
 ]
 resolver = "2"
 
@@ -17,8 +20,9 @@ borsh = { version = "1.5.7", features = ["derive"] }
 thiserror = "1.0"
 # NOTE: spl-token removed - not used in on-chain program
 
-# Shared types (using relative path outside workspace)
+# Shared libraries (using relative path outside workspace)
 zyberlink-types = { path = "../shared/types" }
+zyberlink-jobs = { path = "../shared/jobs" }
 
 # Testing
 solana-program-test = "2.3"

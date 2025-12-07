@@ -11074,6 +11074,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "zyberlink-jobs"
+version = "0.1.0"
+dependencies = [
+ "borsh 1.6.0",
+ "solana-program",
+ "zyberlink-types",
+]
+
+[[package]]
 name = "zyberlink-prover"
 version = "0.1.0"
 dependencies = [

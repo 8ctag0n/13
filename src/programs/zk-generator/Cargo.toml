@@ -1,0 +1,27 @@
+[package]
+name = "zk-generator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "ZyberLink ZK Generator - Zero-knowledge proof job processing"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "zk_generator"
+
+[features]
+no-entrypoint = []
+test-sbf = []
+
+[dependencies]
+solana-program.workspace = true
+borsh.workspace = true
+thiserror.workspace = true
+zyberlink-types.workspace = true
+zyberlink-jobs.workspace = true
+
+[dev-dependencies]
+solana-program-test.workspace = true
+solana-sdk.workspace = true
+tokio.workspace = true
