@@ -2,6 +2,7 @@
 // Privacy-preserving FHE computation on Solana
 
 export { Zyber, BatchBuilder } from './client';
+export { ZkClient, MIN_PROVER_STAKE, type ZkClientOptions, type ProverStakeInfo, type CreateZkJobParams, type SubmitProofParams } from './zk-client';
 
 export {
   // Network
