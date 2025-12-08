@@ -6,6 +6,9 @@ use solana_program::pubkey::Pubkey;
 /// Seeds for config PDA
 pub const CONFIG_SEED: &[u8] = b"config";
 
+/// Default minimum validator stake (0.1 SOL)
+pub const DEFAULT_MIN_VALIDATOR_STAKE: u64 = 100_000_000;
+
 /// Bedrock global configuration
 ///
 /// PDA: ["config"]
@@ -20,11 +23,20 @@ pub struct BedrockConfig {
     /// FHE Generator program ID
     pub fhe_generator_program: Pubkey,
 
+    /// Threshold encryption public key (for encrypting witness data)
+    pub threshold_pubkey: Pubkey,
+
     /// Next job ID counter (shared across all generators)
     pub next_job_id: u64,
 
     /// Total registered provers
     pub total_provers: u64,
+
+    /// Total registered validators
+    pub total_validators: u64,
+
+    /// Minimum stake for validators (in lamports)
+    pub min_validator_stake: u64,
 
     /// Total completed jobs
     pub total_jobs_completed: u64,
@@ -37,8 +49,9 @@ pub struct BedrockConfig {
 }
 
 impl BedrockConfig {
-    /// Size: 32 + 32 + 32 + 8 + 8 + 8 + 1 + 1 = 122 bytes
-    pub const SIZE: usize = 122;
+    /// Size: 32 + 32 + 32 + 32 + 8 + 8 + 8 + 8 + 8 + 1 + 1 = 170 bytes
+    /// Allocate 256 for future expansion
+    pub const SIZE: usize = 256;
 
     pub fn new(
         admin: Pubkey,
@@ -50,8 +63,11 @@ impl BedrockConfig {
             admin,
             zk_generator_program,
             fhe_generator_program,
+            threshold_pubkey: Pubkey::default(),
             next_job_id: 1,
             total_provers: 0,
+            total_validators: 0,
+            min_validator_stake: DEFAULT_MIN_VALIDATOR_STAKE,
             total_jobs_completed: 0,
             is_initialized: true,
             bump,

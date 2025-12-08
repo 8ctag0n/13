@@ -4,6 +4,7 @@ members = [
     "bedrock",
     "zk-generator",
     "fhe-generator",
+    "threshold",
 ]
 resolver = "2"
 
@@ -23,6 +24,9 @@ thiserror = "1.0"
 # Shared libraries (using relative path outside workspace)
 zyberlink-types = { path = "../shared/types" }
 zyberlink-jobs = { path = "../shared/jobs" }
+
+# Internal programs (for CPI)
+bedrock = { path = "bedrock", features = ["no-entrypoint"] }
 
 # Testing
 solana-program-test = "2.3"

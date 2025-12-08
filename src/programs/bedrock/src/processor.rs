@@ -4,12 +4,16 @@ use solana_program::{account_info::AccountInfo, entrypoint::ProgramResult, pubke
 
 pub mod initialize;
 pub mod register_prover;
+pub mod register_validator;
 pub mod slash_prover;
+pub mod slash_validator;
 pub mod update_prover_stats;
 
 pub use initialize::*;
 pub use register_prover::*;
+pub use register_validator::*;
 pub use slash_prover::*;
+pub use slash_validator::*;
 pub use update_prover_stats::*;
 
 /// Process a Bedrock instruction
@@ -41,5 +45,15 @@ pub fn process_instruction(
             job_completed,
             job_failed,
         } => process_update_prover_stats(program_id, accounts, job_completed, job_failed),
+
+        BedrockInstruction::RegisterValidator {
+            endpoint,
+            region,
+            stake,
+        } => process_register_validator(program_id, accounts, endpoint, region, stake),
+
+        BedrockInstruction::SlashValidator { amount, reason } => {
+            process_slash_validator(program_id, accounts, amount, reason)
+        }
     }
 }

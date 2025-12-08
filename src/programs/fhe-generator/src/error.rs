@@ -34,6 +34,30 @@ pub enum FheGeneratorError {
 
     #[error("Unauthorized")]
     Unauthorized,
+
+    #[error("Job not pending")]
+    JobNotPending,
+
+    #[error("Insufficient funds")]
+    InsufficientFunds,
+
+    #[error("Arithmetic overflow")]
+    Overflow,
+
+    #[error("Invalid escrow account")]
+    InvalidEscrow,
+
+    #[error("Invalid job status")]
+    InvalidJobStatus,
+
+    #[error("Insufficient FHE results")]
+    InsufficientResults,
+
+    #[error("Already finalized")]
+    AlreadyFinalized,
+
+    #[error("Invalid consensus account")]
+    InvalidConsensus,
 }
 
 impl From<FheGeneratorError> for ProgramError {

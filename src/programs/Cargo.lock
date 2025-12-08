@@ -1373,6 +1373,7 @@ checksum = "835a3dc7d1ec9e75e2b5fb4ba75396837112d2060b03f7d43bc1897c7f7211da"
 name = "fhe-generator"
 version = "0.1.0"
 dependencies = [
+ "bedrock",
  "borsh 1.5.7",
  "solana-program",
  "solana-program-test",
@@ -7088,6 +7089,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "threshold"
+version = "0.1.0"
+dependencies = [
+ "bedrock",
+ "borsh 1.5.7",
+ "solana-program",
+ "thiserror 2.0.17",
+ "zyberlink-jobs",
+ "zyberlink-types",
+]
+
+[[package]]
 name = "time"
 version = "0.3.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8184,6 +8197,7 @@ dependencies = [
 name = "zk-generator"
 version = "0.1.0"
 dependencies = [
+ "bedrock",
  "borsh 1.5.7",
  "solana-program",
  "solana-program-test",

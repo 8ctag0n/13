@@ -33,11 +33,25 @@
 //!
 //! # Supported Circuits
 //!
-//! - `CIRCUIT_ZCASH_ORCHARD` (0) - Zcash Orchard proof
-//! - `CIRCUIT_ZCASH_SAPLING` (1) - Zcash Sapling proof
-//! - `CIRCUIT_ANONYMOUS_VOTE` (2) - Anonymous voting proof
-//! - `CIRCUIT_CREDENTIAL` (3) - Credential verification proof
+//! ## Legacy (v1.x)
+//! - `ZcashOrchard` (0) - Zcash Orchard proof
+//! - `ZcashSapling` (1) - Zcash Sapling proof
+//! - `AnonymousVote` (2) - Anonymous voting proof
+//! - `Credential` (3) - Credential verification proof
+//!
+//! ## Core Primitives (v2.0)
+//! - `ProofOfInnocence` (10) - Merkle non-membership proof (blacklist)
+//!
+//! ## Verticals (v2.0)
+//! - `PrivateVote` (20) - Anonymous DAO voting
+//! - `PrivateVoteWithPoI` (21) - Voting with conflict of interest check
+//! - `MarketBet` (30) - Private prediction market bet
+//! - `MarketBetWithPoI` (31) - Bet with insider trading check
+//! - `MarketClaim` (32) - Claim market winnings
+//! - `PortfolioCompliance` (40) - Regulatory compliance proof
+//! - `PortfolioNetWorth` (41) - Net worth threshold proof
 
+pub mod circuits;
 pub mod error;
 pub mod instruction;
 pub mod processor;

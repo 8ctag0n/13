@@ -20,6 +20,7 @@ borsh.workspace = true
 thiserror.workspace = true
 zyberlink-types.workspace = true
 zyberlink-jobs.workspace = true
+bedrock.workspace = true
 
 [dev-dependencies]
 solana-program-test.workspace = true

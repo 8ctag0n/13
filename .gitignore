@@ -306,6 +306,7 @@ temp/
 book/
 # But track docs/book/ (GitBook source files)
 !docs/book/
+
 docs-private
 # Sphinx
 docs/_build/
@@ -406,7 +407,7 @@ docs/planning/
 docs/strategy-internal/
 docs/strategy/
 docs/private/
-
+docs/zk-circuits
 # ============================================
 # Misc
 # ============================================

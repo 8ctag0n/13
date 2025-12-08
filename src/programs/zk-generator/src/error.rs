@@ -28,6 +28,18 @@ pub enum ZkGeneratorError {
 
     #[error("Unauthorized")]
     Unauthorized,
+
+    #[error("Job not pending")]
+    JobNotPending,
+
+    #[error("Insufficient funds")]
+    InsufficientFunds,
+
+    #[error("Arithmetic overflow")]
+    Overflow,
+
+    #[error("Invalid escrow account")]
+    InvalidEscrow,
 }
 
 impl From<ZkGeneratorError> for ProgramError {

@@ -27,6 +27,7 @@
 //! - `SlashProver` - Slash a misbehaving prover
 //! - `UpdateProverStats` - Update prover reputation (CPI from generators)
 
+pub mod cpi;
 pub mod error;
 pub mod instruction;
 pub mod processor;
@@ -35,6 +36,7 @@ pub mod state;
 #[cfg(not(feature = "no-entrypoint"))]
 pub mod entrypoint;
 
+pub use cpi::*;
 pub use error::*;
 pub use instruction::*;
 pub use processor::*;

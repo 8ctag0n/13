@@ -28,6 +28,18 @@ pub enum BedrockError {
 
     #[error("Arithmetic overflow")]
     ArithmeticOverflow,
+
+    #[error("Validator not found")]
+    ValidatorNotFound,
+
+    #[error("Validator already registered")]
+    ValidatorAlreadyRegistered,
+
+    #[error("Endpoint too long")]
+    EndpointTooLong,
+
+    #[error("Validator not active")]
+    ValidatorNotActive,
 }
 
 impl From<BedrockError> for ProgramError {

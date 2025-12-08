@@ -3,6 +3,8 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use solana_program::pubkey::Pubkey;
 
+use crate::state::ValidatorRegion;
+
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
 pub enum BedrockInstruction {
     /// Initialize the bedrock config
@@ -40,6 +42,27 @@ pub enum BedrockInstruction {
     /// 1. `[writable]` Prover account
     /// 2. `[]` Config
     UpdateProverStats { job_completed: bool, job_failed: bool },
+
+    /// Register a new validator for threshold encryption
+    ///
+    /// Accounts:
+    /// 0. `[signer]` Validator wallet
+    /// 1. `[writable]` Validator account PDA
+    /// 2. `[writable]` Config
+    /// 3. `[]` System program
+    RegisterValidator {
+        endpoint: String,
+        region: ValidatorRegion,
+        stake: u64,
+    },
+
+    /// Slash a validator (admin only)
+    ///
+    /// Accounts:
+    /// 0. `[signer]` Admin
+    /// 1. `[writable]` Validator account
+    /// 2. `[]` Config
+    SlashValidator { amount: u64, reason: SlashReason },
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Copy)]
@@ -47,4 +70,5 @@ pub enum SlashReason {
     Timeout,
     InvalidResult,
     ConsensusMismatch,
+    InvalidKeyShare,
 }
