@@ -50,6 +50,9 @@ hex = "0.4"
 sqlx = { version = "0.7", features = ["runtime-tokio-native-tls", "postgres", "chrono", "migrate"] }
 chrono = { version = "0.4", features = ["serde"] }
 
+# UUID for x402 tokens
+uuid = { version = "1.10", features = ["v4"] }
+
 # SDK and types
 zyberlink-sdk = { path = "../../sdks/rust" }
 zyberlink-types = { path = "../shared/types" }

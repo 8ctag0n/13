@@ -7,6 +7,7 @@ mod job_finalizer;
 mod prover_sync;
 mod tx_builder;
 mod validators;
+mod x402;
 
 use actix_cors::Cors;
 use actix_web::{get, middleware, web, App, HttpResponse, HttpServer, Responder};
@@ -182,6 +183,15 @@ async fn main() -> std::io::Result<()> {
     log::info!("  GET    /api/jobs/{{job_id}}              (full job details)");
     log::info!("  DELETE /api/jobs/{{job_id}}");
     log::info!("");
+    log::info!("x402 Anti-Spam Layer:");
+    log::info!("  POST   /api/x402/quote           (get price quote)");
+    log::info!("  POST   /api/x402/estimate        (estimate without quote)");
+    log::info!("  POST   /api/x402/build-payment   (build payment instruction)");
+    log::info!("  POST   /api/x402/confirm         (confirm payment, get token)");
+    log::info!("  POST   /api/x402/witness         (upload witness with token)");
+    log::info!("  POST   /api/x402/create-job      (create job with token)");
+    log::info!("  GET    /api/x402/token/{{id}}/status");
+    log::info!("");
     log::info!("Legacy Blinks:");
     log::info!("  GET    /actions.json");
     log::info!("  GET    /api/actions/fund-prover");
@@ -203,6 +213,7 @@ async fn main() -> std::io::Result<()> {
                 "Authorization",
                 "Content-Encoding",
                 "Accept-Encoding",
+                "X-Payment-Token",
             ])
             .max_age(3600);
 
@@ -223,6 +234,8 @@ async fn main() -> std::io::Result<()> {
             .service(actions::post_fund_prover_action)
             // New marketplace API
             .configure(api_handlers::configure_routes)
+            // x402 Anti-Spam Payment Layer
+            .configure(x402::configure_routes)
     })
     .bind((host.as_str(), port))?
     .run()
