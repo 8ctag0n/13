@@ -31,4 +31,25 @@ pub enum ZkGeneratorInstruction {
 
     /// Cancel a pending job (creator only)
     CancelJob,
+
+    // === Prover Stake Management ===
+
+    /// Register as a prover with initial stake
+    /// Requires minimum 0.5 SOL stake
+    RegisterProver {
+        /// Initial stake amount in lamports
+        stake_amount: u64,
+    },
+
+    /// Deposit additional stake
+    DepositStake {
+        /// Amount to deposit in lamports
+        amount: u64,
+    },
+
+    /// Withdraw available stake (not locked in jobs)
+    WithdrawStake {
+        /// Amount to withdraw in lamports
+        amount: u64,
+    },
 }

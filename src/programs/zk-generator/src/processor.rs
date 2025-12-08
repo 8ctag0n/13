@@ -6,12 +6,14 @@ pub mod cancel_job;
 pub mod claim_job;
 pub mod create_job;
 pub mod dispute_proof;
+pub mod stake;
 pub mod submit_proof;
 
 pub use cancel_job::*;
 pub use claim_job::*;
 pub use create_job::*;
 pub use dispute_proof::*;
+pub use stake::*;
 pub use submit_proof::*;
 
 /// Process a ZK Generator instruction
@@ -53,5 +55,17 @@ pub fn process_instruction(
         }
 
         ZkGeneratorInstruction::CancelJob => process_cancel_job(program_id, accounts),
+
+        ZkGeneratorInstruction::RegisterProver { stake_amount } => {
+            stake::process_register_prover(program_id, accounts, stake_amount)
+        }
+
+        ZkGeneratorInstruction::DepositStake { amount } => {
+            stake::process_deposit_stake(program_id, accounts, amount)
+        }
+
+        ZkGeneratorInstruction::WithdrawStake { amount } => {
+            stake::process_withdraw_stake(program_id, accounts, amount)
+        }
     }
 }
