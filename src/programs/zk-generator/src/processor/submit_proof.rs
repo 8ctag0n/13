@@ -1,4 +1,8 @@
 //! SubmitProof instruction processor
+//!
+//! This module handles proof submission for ZK jobs.
+//! Only the proof hash is stored on-chain for cost efficiency.
+//! Full proof verification happens during disputes (see dispute_proof.rs).
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use solana_program::{
@@ -22,6 +26,9 @@ const PROTOCOL_FEE_BPS: u64 = 250;
 const BPS_DENOMINATOR: u64 = 10_000;
 
 /// Process SubmitProof instruction
+///
+/// Submits a proof hash for a claimed job. The actual proof is stored off-chain
+/// and can be verified on-chain only if disputed during the dispute window.
 ///
 /// Accounts:
 /// 0. `[signer]` Prover wallet (must match job.prover)
@@ -129,7 +136,7 @@ pub fn process_submit_proof(
         .checked_add(prover_payout)
         .ok_or(ZkGeneratorError::Overflow)?;
 
-    // Complete the job
+    // Complete the job (starts dispute window)
     zk_job.common.complete(proof_hash);
 
     // Save updated job
@@ -140,6 +147,7 @@ pub fn process_submit_proof(
     msg!("  Job ID: {}", zk_job.common.id);
     msg!("  Prover: {}", prover_info.key);
     msg!("  Proof hash: {:?}", &proof_hash[..8]);
+    msg!("  Dispute window: 24 hours");
 
     Ok(())
 }

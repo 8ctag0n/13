@@ -2,15 +2,17 @@
 
 use solana_program::{account_info::AccountInfo, entrypoint::ProgramResult, pubkey::Pubkey};
 
-pub mod create_job;
-pub mod claim_job;
-pub mod submit_proof;
 pub mod cancel_job;
+pub mod claim_job;
+pub mod create_job;
+pub mod dispute_proof;
+pub mod submit_proof;
 
-pub use create_job::*;
-pub use claim_job::*;
-pub use submit_proof::*;
 pub use cancel_job::*;
+pub use claim_job::*;
+pub use create_job::*;
+pub use dispute_proof::*;
+pub use submit_proof::*;
 
 /// Process a ZK Generator instruction
 pub fn process_instruction(
@@ -44,6 +46,10 @@ pub fn process_instruction(
 
         ZkGeneratorInstruction::SubmitProof { proof_hash } => {
             process_submit_proof(program_id, accounts, proof_hash)
+        }
+
+        ZkGeneratorInstruction::DisputeProof { proof, public_inputs } => {
+            dispute_proof::process_dispute_proof(program_id, accounts, &proof, &public_inputs)
         }
 
         ZkGeneratorInstruction::CancelJob => process_cancel_job(program_id, accounts),

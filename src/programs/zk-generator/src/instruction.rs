@@ -16,8 +16,18 @@ pub enum ZkGeneratorInstruction {
     /// Claim a pending job
     ClaimJob,
 
-    /// Submit proof for a claimed job
+    /// Submit proof hash for a claimed job
+    /// Full proof verification only happens during disputes
     SubmitProof { proof_hash: [u8; 32] },
+
+    /// Dispute a submitted proof by providing the full proof for on-chain verification
+    /// Must be called within the dispute window (24 hours after completion)
+    DisputeProof {
+        /// The full ZK proof bytes (256 bytes for Groth16)
+        proof: Vec<u8>,
+        /// Public inputs for circuit verification
+        public_inputs: Vec<u8>,
+    },
 
     /// Cancel a pending job (creator only)
     CancelJob,

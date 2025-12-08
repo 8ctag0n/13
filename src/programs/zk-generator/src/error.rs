@@ -40,6 +40,15 @@ pub enum ZkGeneratorError {
 
     #[error("Invalid escrow account")]
     InvalidEscrow,
+
+    #[error("Dispute window expired")]
+    DisputeWindowExpired,
+
+    #[error("Job already disputed")]
+    AlreadyDisputed,
+
+    #[error("Proof hash mismatch")]
+    ProofHashMismatch,
 }
 
 impl From<ZkGeneratorError> for ProgramError {
