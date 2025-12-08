@@ -74,7 +74,7 @@ pub fn process_register_validator(
     }
 
     // Load config to check minimum stake
-    let mut config = BedrockConfig::try_from_slice(&config_info.data.borrow())?;
+    let mut config = BedrockConfig::deserialize(&mut &config_info.data.borrow()[..])?;
 
     // Verify minimum stake
     if stake < config.min_validator_stake {

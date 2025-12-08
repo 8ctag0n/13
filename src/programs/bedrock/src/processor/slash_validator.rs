@@ -42,7 +42,7 @@ pub fn process_slash_validator(
     }
 
     // Load and verify config
-    let config = BedrockConfig::try_from_slice(&config_info.data.borrow())?;
+    let config = BedrockConfig::deserialize(&mut &config_info.data.borrow()[..])?;
 
     if admin_info.key != &config.admin {
         msg!("Invalid admin authority");
@@ -50,7 +50,7 @@ pub fn process_slash_validator(
     }
 
     // Load validator account
-    let mut validator = ValidatorAccount::try_from_slice(&validator_account_info.data.borrow())?;
+    let mut validator = ValidatorAccount::deserialize(&mut &validator_account_info.data.borrow()[..])?;
 
     // Verify validator PDA
     let (validator_pda, _bump) = Pubkey::find_program_address(

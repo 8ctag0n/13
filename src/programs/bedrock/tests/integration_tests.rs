@@ -101,7 +101,7 @@ async fn test_initialize() {
 
     // Verify config was created
     let config_account = banks_client.get_account(config_pda).await.unwrap().unwrap();
-    let config = BedrockConfig::try_from_slice(&config_account.data).unwrap();
+    let config: BedrockConfig = BorshDeserialize::deserialize(&mut &config_account.data[..]).unwrap();
 
     assert_eq!(config.admin, payer.pubkey());
     assert_eq!(config.zk_generator_program, zk_gen);

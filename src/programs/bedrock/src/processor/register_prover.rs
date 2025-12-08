@@ -123,7 +123,7 @@ pub fn process_register_prover(
     prover.serialize(&mut &mut prover_data[..])?;
 
     // Update config statistics
-    let mut config = BedrockConfig::try_from_slice(&config_info.data.borrow())?;
+    let mut config = BedrockConfig::deserialize(&mut &config_info.data.borrow()[..])?;
     config.total_provers = config.total_provers.saturating_add(1);
 
     let mut config_data = config_info.try_borrow_mut_data()?;

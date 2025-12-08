@@ -44,7 +44,7 @@ pub fn process_slash_prover(
     }
 
     // Load config and verify caller is a registered generator
-    let config = BedrockConfig::try_from_slice(&config_info.data.borrow())?;
+    let config = BedrockConfig::deserialize(&mut &config_info.data.borrow()[..])?;
 
     if !config.is_registered_generator(caller_info.key) {
         msg!("Caller is not a registered generator program");
@@ -58,7 +58,7 @@ pub fn process_slash_prover(
     }
 
     // Load prover
-    let mut prover = ProverAccount::try_from_slice(&prover_account_info.data.borrow())?;
+    let mut prover = ProverAccount::deserialize(&mut &prover_account_info.data.borrow()[..])?;
 
     // Slash the prover
     let slashed_amount = prover.slash(amount);
