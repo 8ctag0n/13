@@ -9,13 +9,13 @@ export {
   type NetworkConfig,
   NETWORKS,
 
-  // Operations
+  // FHE Operations
   type FheOperationType,
   type PredicateOp,
   type FhePredicate,
   type FheOperation,
 
-  // Jobs
+  // FHE Jobs
   type JobStatus,
   type Job,
   type JobOptions,
@@ -34,4 +34,20 @@ export {
 
   // Options
   type ZyberOptions,
+
+  // ZK Circuit Types (v2.0)
+  ZkCircuitType,
+  isV2Circuit,
+  requiresPoI,
+
+  // ZK Jobs
+  type ZkJob,
+  type ZkJobOptions,
+
+  // Dispute System
+  DISPUTE_WINDOW_SECONDS,
+  DISPUTE_BOND_LAMPORTS,
+  DISPUTE_REWARD_BPS,
+  type DisputeResult,
+  type DisputeProofParams,
 } from './types';

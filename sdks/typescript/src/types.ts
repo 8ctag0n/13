@@ -166,3 +166,116 @@ export interface ZyberOptions {
   /** Default job options */
   defaultJobOptions?: JobOptions;
 }
+
+// =============================================================================
+// ZK Circuit Types (v2.0 - for zk-generator program)
+// =============================================================================
+
+/**
+ * ZK Circuit types supported by zk-generator program.
+ *
+ * IDs are grouped by category:
+ * - 0-9: Legacy circuits (v1.x compatibility)
+ * - 10-19: Core privacy primitives
+ * - 20-29: Voting circuits
+ * - 30-39: Market circuits
+ * - 40-49: Portfolio circuits
+ */
+export enum ZkCircuitType {
+  // Legacy circuits (v1.x)
+  ZcashOrchard = 0,
+  ZcashSapling = 1,
+  AnonymousVote = 2,
+  Credential = 3,
+
+  // Core primitives (v2.0)
+  ProofOfInnocence = 10,
+
+  // Voting circuits (v2.0)
+  PrivateVote = 20,
+  PrivateVoteWithPoI = 21,
+
+  // Market circuits (v2.0)
+  MarketBet = 30,
+  MarketBetWithPoI = 31,
+  MarketClaim = 32,
+
+  // Portfolio circuits (v2.0)
+  PortfolioCompliance = 40,
+  PortfolioNetWorth = 41,
+
+  // Future
+  FutarchyConditional = 50,
+}
+
+/** Check if circuit type is v2.0 */
+export function isV2Circuit(circuitType: ZkCircuitType): boolean {
+  return circuitType >= 10;
+}
+
+/** Check if circuit requires PoI integration */
+export function requiresPoI(circuitType: ZkCircuitType): boolean {
+  return [
+    ZkCircuitType.PrivateVoteWithPoI,
+    ZkCircuitType.MarketBetWithPoI,
+    ZkCircuitType.PortfolioCompliance,
+  ].includes(circuitType);
+}
+
+// =============================================================================
+// ZK Job Types
+// =============================================================================
+
+export interface ZkJob {
+  id: number;
+  creator: Address;
+  prover?: Address;
+  circuitType: ZkCircuitType;
+  status: JobStatus;
+  witnessHash: Uint8Array;
+  witnessSize: number;
+  proofHash?: Uint8Array;
+  priceLamports: bigint;
+  createdAt: number;
+  timeoutAt: number;
+}
+
+export interface ZkJobOptions {
+  /** Price to pay prover in lamports */
+  priceLamports?: bigint;
+  /** Timeout in seconds */
+  timeoutSeconds?: number;
+}
+
+// =============================================================================
+// Dispute Types
+// =============================================================================
+
+/** Dispute window duration (24 hours in seconds) */
+export const DISPUTE_WINDOW_SECONDS = 24 * 60 * 60;
+
+/** Minimum bond required to dispute (0.1 SOL) */
+export const DISPUTE_BOND_LAMPORTS = 100_000_000n;
+
+/** Reward percentage for successful dispute (50%) */
+export const DISPUTE_REWARD_BPS = 5000;
+
+export interface DisputeResult {
+  /** Whether the dispute was successful (proof was invalid) */
+  proofInvalid: boolean;
+  /** Amount slashed from prover (if proof invalid) */
+  slashedAmount?: bigint;
+  /** Reward given to disputor (if proof invalid) */
+  disputorReward?: bigint;
+  /** Bond forfeited (if proof valid) */
+  bondForfeited?: bigint;
+}
+
+export interface DisputeProofParams {
+  /** Job account address */
+  jobAddress: Address;
+  /** Full ZK proof bytes (256 bytes for Groth16) */
+  proof: Uint8Array;
+  /** Public inputs for circuit verification */
+  publicInputs: Uint8Array;
+}
