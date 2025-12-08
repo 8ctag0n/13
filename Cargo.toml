@@ -4,6 +4,7 @@ members = [
     "src/prover-node",
     "src/witness-storage",
     "src/blink-server",
+    "src/x402-server",
     "src/shared/types",
     "src/shared/crypto",
     "src/shared/fhe",

@@ -331,7 +331,7 @@ pub struct MetricsResponse {
 /// 2. Store in database with status="pending_tx"
 /// 3. Build unsigned Solana transaction
 /// 4. Return transaction to client for signing
-#[post("/api/jobs/validate-and-build")]
+#[post("/api/jobs/fhe/validate-and-build")]
 async fn validate_and_build_job(
     data: web::Data<AppState>,
     req: web::Json<ValidateJobRequest>,
@@ -449,7 +449,7 @@ async fn validate_and_build_job(
 ///
 /// Returns compute data for provers.
 /// Only returns data if job status is "active" (on-chain confirmed).
-#[get("/api/jobs/{job_id}/compute-data")]
+#[get("/api/jobs/fhe/{job_id}/compute-data")]
 async fn get_compute_data(data: web::Data<AppState>, job_id: web::Path<i64>) -> impl Responder {
     log::info!("Fetching compute data for job_id: {}", *job_id);
 
@@ -498,7 +498,7 @@ async fn get_compute_data(data: web::Data<AppState>, job_id: web::Path<i64>) -> 
 ///
 /// Note: In production, this should verify the transaction signature on-chain
 /// before updating status. For PoC, we trust the client.
-#[post("/api/jobs/{job_id}/confirm")]
+#[post("/api/jobs/fhe/{job_id}/confirm")]
 async fn confirm_job_transaction(
     data: web::Data<AppState>,
     job_id: web::Path<i64>,
@@ -548,7 +548,7 @@ async fn confirm_job_transaction(
 /// GET /api/jobs/{job_id}/status
 ///
 /// Get current status of a job
-#[get("/api/jobs/{job_id}/status")]
+#[get("/api/jobs/fhe/{job_id}/status")]
 async fn get_job_status(data: web::Data<AppState>, job_id: web::Path<i64>) -> impl Responder {
     log::info!("Fetching status for job_id: {}", *job_id);
 
@@ -567,11 +567,11 @@ async fn get_job_status(data: web::Data<AppState>, job_id: web::Path<i64>) -> im
     }
 }
 
-/// GET /api/jobs/{job_id}
+/// GET /api/jobs/fhe/{job_id}
 ///
-/// Get full details of a specific job (without encrypted data).
+/// Get full details of a specific FHE job (without encrypted data).
 /// Combines data from temp_job_data and blockchain_jobs tables.
-#[get("/api/jobs/{job_id}")]
+#[get("/api/jobs/fhe/{job_id}")]
 async fn get_job_details(data: web::Data<AppState>, job_id: web::Path<i64>) -> impl Responder {
     log::info!("Fetching full details for job_id: {}", *job_id);
 
@@ -686,11 +686,11 @@ async fn get_job_details(data: web::Data<AppState>, job_id: web::Path<i64>) -> i
     }
 }
 
-/// DELETE /api/jobs/{job_id}
+/// DELETE /api/jobs/fhe/{job_id}
 ///
-/// Delete job data (cleanup).
+/// Delete FHE job data (cleanup).
 /// Only allowed if job is in terminal state (completed/failed).
-#[delete("/api/jobs/{job_id}")]
+#[delete("/api/jobs/fhe/{job_id}")]
 async fn delete_job_data(data: web::Data<AppState>, job_id: web::Path<i64>) -> impl Responder {
     log::info!("Deleting job_id: {}", *job_id);
 
@@ -745,11 +745,11 @@ async fn delete_job_data(data: web::Data<AppState>, job_id: web::Path<i64>) -> i
 ///   - sort (optional): Sort order ("recent", "oldest", "price")
 ///
 /// Examples:
-///   - GET /api/jobs                  → List all jobs
-///   - GET /api/jobs?status=pending   → List only pending jobs
-///   - GET /api/jobs?creator=WALLET   → List jobs from specific wallet
-///   - GET /api/jobs?page=2&limit=10  → Paginated results
-#[get("/api/jobs")]
+///   - GET /api/jobs/fhe                  → List all FHE jobs
+///   - GET /api/jobs/fhe?status=pending   → List only pending FHE jobs
+///   - GET /api/jobs/fhe?creator=WALLET   → List FHE jobs from specific wallet
+///   - GET /api/jobs/fhe?page=2&limit=10  → Paginated results
+#[get("/api/jobs/fhe")]
 async fn list_jobs(data: web::Data<AppState>, query: web::Query<ListJobsQuery>) -> impl Responder {
     log::info!("Listing jobs with filter: {:?}", query.status);
 
@@ -1819,11 +1819,11 @@ async fn check_server_key_exists(
     }
 }
 
-/// GET /api/jobs/{job_id}/chain-status
+/// GET /api/jobs/fhe/{job_id}/chain-status
 ///
-/// Get job status directly from blockchain_jobs (synced from chain).
+/// Get FHE job status directly from blockchain_jobs (synced from chain).
 /// Useful for getting witness_hash and current on-chain status.
-#[get("/api/jobs/{job_id}/chain-status")]
+#[get("/api/jobs/fhe/{job_id}/chain-status")]
 async fn get_job_chain_status(data: web::Data<AppState>, job_id: web::Path<i64>) -> impl Responder {
     log::info!("Fetching chain status for job_id: {}", *job_id);
 
@@ -1865,11 +1865,11 @@ struct ProverResultRow {
     created_at: Option<chrono::NaiveDateTime>,
 }
 
-/// GET /api/jobs/{job_id}/provers
+/// GET /api/jobs/fhe/{job_id}/provers
 ///
-/// Get list of provers who have submitted results for this job.
+/// Get list of provers who have submitted results for this FHE job.
 /// Returns prover pubkeys, submission times, and consensus status.
-#[get("/api/jobs/{job_id}/provers")]
+#[get("/api/jobs/fhe/{job_id}/provers")]
 async fn get_job_provers(data: web::Data<AppState>, job_id: web::Path<i64>) -> impl Responder {
     log::info!("Fetching provers for job_id: {}", *job_id);
 
@@ -1920,11 +1920,11 @@ async fn get_job_provers(data: web::Data<AppState>, job_id: web::Path<i64>) -> i
     }
 }
 
-/// GET /api/jobs/{job_id}/result
+/// GET /api/jobs/fhe/{job_id}/result
 ///
 /// Get FHE computation result for a completed job.
 /// Searches fhe_results table by job_id directly.
-#[get("/api/jobs/{job_id}/result")]
+#[get("/api/jobs/fhe/{job_id}/result")]
 async fn get_job_result(data: web::Data<AppState>, job_id: web::Path<i64>) -> impl Responder {
     log::info!("Fetching FHE result for job_id: {}", *job_id);
 

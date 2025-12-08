@@ -7,7 +7,8 @@ mod job_finalizer;
 mod prover_sync;
 mod tx_builder;
 mod validators;
-mod x402;
+mod x402_client;
+mod zk_handlers;
 
 use actix_cors::Cors;
 use actix_web::{get, middleware, web, App, HttpResponse, HttpServer, Responder};
@@ -25,6 +26,7 @@ pub struct AppState {
     pub sdk_builder: InstructionBuilder,
     pub rpc_url: String,
     pub program_id: Pubkey,
+    pub x402_url: String,
 }
 
 /// Health check endpoint
@@ -86,6 +88,9 @@ async fn main() -> std::io::Result<()> {
         .unwrap_or_else(|_| "ZyberLinkProgram11111111111111111111111111".to_string());
     let program_id = Pubkey::from_str(&program_id_str).expect("Invalid PROGRAM_ID");
 
+    let x402_url =
+        env::var("X402_URL").unwrap_or_else(|_| "http://localhost:8081".to_string());
+
     let cleanup_interval_secs = env::var("CLEANUP_INTERVAL_SECS")
         .unwrap_or_else(|_| "3600".to_string())
         .parse::<u64>()
@@ -122,6 +127,7 @@ async fn main() -> std::io::Result<()> {
         sdk_builder,
         rpc_url: rpc_url.clone(),
         program_id,
+        x402_url: x402_url.clone(),
     });
 
     // ========================================================================
@@ -173,24 +179,24 @@ async fn main() -> std::io::Result<()> {
     log::info!("  Program ID: {}", program_id);
     log::info!("  Cleanup Interval: {}s", cleanup_interval_secs);
     log::info!("");
-    log::info!("API Endpoints:");
+    log::info!("FHE Jobs API:");
     log::info!("  GET    /health");
-    log::info!("  GET    /api/jobs                         (blockchain jobs, filter: ?status=pending|claimed|completed)");
-    log::info!("  POST   /api/jobs/validate-and-build");
-    log::info!("  GET    /api/jobs/{{job_id}}/compute-data");
-    log::info!("  POST   /api/jobs/{{job_id}}/confirm");
-    log::info!("  GET    /api/jobs/{{job_id}}/status");
-    log::info!("  GET    /api/jobs/{{job_id}}              (full job details)");
-    log::info!("  DELETE /api/jobs/{{job_id}}");
+    log::info!("  GET    /api/jobs/fhe                         (list FHE jobs)");
+    log::info!("  POST   /api/jobs/fhe/validate-and-build");
+    log::info!("  GET    /api/jobs/fhe/{{job_id}}/compute-data");
+    log::info!("  POST   /api/jobs/fhe/{{job_id}}/confirm");
+    log::info!("  GET    /api/jobs/fhe/{{job_id}}/status");
+    log::info!("  GET    /api/jobs/fhe/{{job_id}}              (full job details)");
+    log::info!("  DELETE /api/jobs/fhe/{{job_id}}");
     log::info!("");
-    log::info!("x402 Anti-Spam Layer:");
-    log::info!("  POST   /api/x402/quote           (get price quote)");
-    log::info!("  POST   /api/x402/estimate        (estimate without quote)");
-    log::info!("  POST   /api/x402/build-payment   (build payment instruction)");
-    log::info!("  POST   /api/x402/confirm         (confirm payment, get token)");
-    log::info!("  POST   /api/x402/witness         (upload witness with token)");
-    log::info!("  POST   /api/x402/create-job      (create job with token)");
-    log::info!("  GET    /api/x402/token/{{id}}/status");
+    log::info!("ZK Jobs API:");
+    log::info!("  GET    /api/jobs/zk                          (list ZK jobs)");
+    log::info!("  POST   /api/jobs/zk/validate-and-build");
+    log::info!("  GET    /api/jobs/zk/{{job_id}}/status");
+    log::info!("  POST   /api/jobs/zk/{{job_id}}/confirm");
+    log::info!("");
+    log::info!("x402 Anti-Spam Layer (external service):");
+    log::info!("  URL: {}", x402_url);
     log::info!("");
     log::info!("Legacy Blinks:");
     log::info!("  GET    /actions.json");
@@ -232,10 +238,10 @@ async fn main() -> std::io::Result<()> {
             // Legacy blinks
             .service(actions::get_fund_prover_action)
             .service(actions::post_fund_prover_action)
-            // New marketplace API
+            // FHE Jobs API
             .configure(api_handlers::configure_routes)
-            // x402 Anti-Spam Payment Layer
-            .configure(x402::configure_routes)
+            // ZK Jobs API
+            .configure(zk_handlers::configure_routes)
     })
     .bind((host.as_str(), port))?
     .run()
