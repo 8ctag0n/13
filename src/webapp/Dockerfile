@@ -1,11 +1,11 @@
 # ZyberLink Frontend Dockerfile
-# Multi-stage build for production
+# Multi-stage build with Bun for faster builds
 
-# Stage 1: Build
-FROM docker.io/library/node:22-alpine AS builder
+# Stage 1: Build with Bun
+FROM docker.io/oven/bun:1-alpine AS builder
 WORKDIR /app
-COPY package*.json ./
-RUN npm ci
+COPY package.json bun.lock* ./
+RUN bun install --frozen-lockfile || bun install
 COPY . .
 
 ARG VITE_API_URL=""
@@ -13,7 +13,7 @@ ARG VITE_SOLANA_RPC_URL="http://localhost:8899"
 ENV VITE_API_URL=$VITE_API_URL
 ENV VITE_SOLANA_RPC_URL=$VITE_SOLANA_RPC_URL
 
-RUN npm run build
+RUN bun run build
 
 # Stage 2: Production nginx
 FROM docker.io/library/nginx:alpine
