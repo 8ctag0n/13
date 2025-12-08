@@ -203,6 +203,14 @@ db-reset: ## Reset database (drop and recreate)
 	@podman exec zyberlink-postgres psql -U zyberlink -d postgres -c "CREATE DATABASE zyberlink;"
 	@echo "$(GREEN) Database reset$(NC)"
 
+db-migrate: ## Run database migrations manually
+	@echo "$(BLUE)Running database migrations...$(NC)"
+	@for f in src/blink-server/migrations/*.sql; do \
+		echo "  Applying: $$(basename $$f)"; \
+		podman exec -i zyberlink-postgres psql -U zyberlink -d zyberlink < "$$f" 2>/dev/null || true; \
+	done
+	@echo "$(GREEN)Migrations complete$(NC)"
+
 db-clean-jobs: ## Clean jobs, provers, witnesses and FHE results (frees disk space)
 	@echo "$(YELLOW)  Cleaning all job-related data...$(NC)"
 	@podman exec zyberlink-postgres psql -U zyberlink -d zyberlink -c "TRUNCATE blockchain_jobs, temp_job_data, provers, witnesses, fhe_results CASCADE;" 2>/dev/null || true
@@ -964,3 +972,133 @@ d-status: ## [DEVNET] Show status
 	@echo ""
 	@echo "Provers:"
 	@pgrep -a -f "zyberlink-prover" 2>/dev/null || echo "  No provers running"
+
+# ============================================================================
+# x402 Anti-Spam Payment Tests
+# ============================================================================
+
+x402-quote: ## [x402] Test quote endpoint
+	@echo "$(BLUE)Testing x402 quote endpoint...$(NC)"
+	@# Detect backend URL
+	@if [ -f ".env.containers" ]; then \
+		BACKEND="http://localhost:9000"; \
+	else \
+		BACKEND="http://localhost:8080"; \
+	fi; \
+	echo "Backend: $$BACKEND"; \
+	echo ""; \
+	echo "Circuit Type 10 (PoI - 0.05 SOL):"; \
+	curl -s "$$BACKEND/api/x402/quote" \
+		-H "Content-Type: application/json" \
+		-d '{"circuit_type": 10, "payer": "11111111111111111111111111111111"}' | jq .; \
+	echo ""; \
+	echo "Circuit Type 30 (Market - 0.075 SOL):"; \
+	curl -s "$$BACKEND/api/x402/quote" \
+		-H "Content-Type: application/json" \
+		-d '{"circuit_type": 30, "payer": "11111111111111111111111111111111"}' | jq .
+
+x402-estimate: ## [x402] Test price estimation (no quote created)
+	@echo "$(BLUE)Testing x402 price estimation...$(NC)"
+	@if [ -f ".env.containers" ]; then \
+		BACKEND="http://localhost:9000"; \
+	else \
+		BACKEND="http://localhost:8080"; \
+	fi; \
+	echo "Backend: $$BACKEND"; \
+	echo ""; \
+	for ct in 0 10 20 30 40; do \
+		PRICE=$$(curl -s "$$BACKEND/api/x402/estimate" \
+			-H "Content-Type: application/json" \
+			-d "{\"circuit_type\": $$ct}" | jq -r '.price_sol'); \
+		echo "  Circuit $$ct: $$PRICE SOL"; \
+	done
+
+x402-flow: ## [x402] Test full payment flow (quote -> pay -> token)
+	@echo "$(BLUE)Testing x402 full payment flow...$(NC)"
+	@if [ -f ".env.containers" ]; then \
+		BACKEND="http://localhost:9000"; \
+	elif [ -f "src/blink-server/.env" ]; then \
+		BACKEND="http://localhost:8080"; \
+	else \
+		echo "$(RED)ERROR: No env file found. Run 'make c1' or 'make l1' first$(NC)"; \
+		exit 1; \
+	fi; \
+	echo "Backend: $$BACKEND"; \
+	echo ""; \
+	echo "Step 1: Get quote for PrivateVote (circuit 20)..."; \
+	QUOTE=$$(curl -s "$$BACKEND/api/x402/quote" \
+		-H "Content-Type: application/json" \
+		-d '{"circuit_type": 20, "payer": "11111111111111111111111111111111"}'); \
+	echo "$$QUOTE" | jq .; \
+	QUOTE_ID=$$(echo "$$QUOTE" | jq -r '.quote_id'); \
+	PRICE=$$(echo "$$QUOTE" | jq -r '.price_lamports'); \
+	echo ""; \
+	echo "Quote ID: $$QUOTE_ID"; \
+	echo "Price: $$PRICE lamports"; \
+	echo ""; \
+	echo "Step 2: Build payment instruction..."; \
+	curl -s "$$BACKEND/api/x402/build-payment" \
+		-H "Content-Type: application/json" \
+		-d "{\"quote_id\": \"$$QUOTE_ID\", \"payer\": \"11111111111111111111111111111111\", \"amount\": \"$$PRICE\", \"recipient\": \"ZYBRtreasury11111111111111111111111111111111\"}" | jq .; \
+	echo ""; \
+	echo "Step 3: Confirm payment (mock signature)..."; \
+	TOKEN=$$(curl -s "$$BACKEND/api/x402/confirm" \
+		-H "Content-Type: application/json" \
+		-d "{\"quote_id\": \"$$QUOTE_ID\", \"signed_transaction\": \"bW9ja190cmFuc2FjdGlvbg==\", \"signature\": \"mock_signature_$(date +%s)\"}"); \
+	echo "$$TOKEN" | jq .; \
+	TOKEN_ID=$$(echo "$$TOKEN" | jq -r '.token_id'); \
+	echo ""; \
+	echo "Token ID: $$TOKEN_ID"; \
+	echo ""; \
+	echo "Step 4: Check token status..."; \
+	curl -s "$$BACKEND/api/x402/token/$$TOKEN_ID/status" | jq .; \
+	echo ""; \
+	echo "$(GREEN)x402 flow test complete!$(NC)"
+
+x402-witness: ## [x402] Test witness upload with token
+	@echo "$(BLUE)Testing x402 witness upload...$(NC)"
+	@if [ -f ".env.containers" ]; then \
+		BACKEND="http://localhost:9000"; \
+	else \
+		BACKEND="http://localhost:8080"; \
+	fi; \
+	echo "Backend: $$BACKEND"; \
+	echo ""; \
+	echo "Step 1: Get quote and token..."; \
+	QUOTE=$$(curl -s "$$BACKEND/api/x402/quote" \
+		-H "Content-Type: application/json" \
+		-d '{"circuit_type": 20, "payer": "test_payer"}'); \
+	QUOTE_ID=$$(echo "$$QUOTE" | jq -r '.quote_id'); \
+	TOKEN=$$(curl -s "$$BACKEND/api/x402/confirm" \
+		-H "Content-Type: application/json" \
+		-d "{\"quote_id\": \"$$QUOTE_ID\", \"signed_transaction\": \"bW9jaw==\", \"signature\": \"sig_$(date +%s)\"}"); \
+	TOKEN_ID=$$(echo "$$TOKEN" | jq -r '.token_id'); \
+	echo "Token: $$TOKEN_ID"; \
+	echo ""; \
+	echo "Step 2: Upload witness with token..."; \
+	WITNESS_DATA="test_witness_data_$(date +%s)"; \
+	RESULT=$$(curl -s "$$BACKEND/api/x402/witness" \
+		-H "Content-Type: application/octet-stream" \
+		-H "X-Payment-Token: $$TOKEN_ID" \
+		--data-binary "$$WITNESS_DATA"); \
+	echo "$$RESULT" | jq .; \
+	COMMITMENT=$$(echo "$$RESULT" | jq -r '.commitment'); \
+	echo ""; \
+	echo "Witness commitment: $$COMMITMENT"; \
+	echo ""; \
+	echo "Step 3: Try upload without token (should fail 402)..."; \
+	HTTP_CODE=$$(curl -s -o /dev/null -w "%{http_code}" "$$BACKEND/api/x402/witness" \
+		-H "Content-Type: application/octet-stream" \
+		--data-binary "no_token_data"); \
+	if [ "$$HTTP_CODE" = "402" ]; then \
+		echo "$(GREEN)Correctly returned 402 Payment Required$(NC)"; \
+	else \
+		echo "$(RED)Expected 402, got $$HTTP_CODE$(NC)"; \
+	fi
+
+x402-all: x402-estimate x402-quote x402-flow x402-witness ## [x402] Run all x402 tests
+	@echo ""
+	@echo "$(GREEN)=== All x402 tests completed! ===$(NC)"
+
+# Aliases for quick testing
+t-x402: x402-all ## Alias: run all x402 tests
