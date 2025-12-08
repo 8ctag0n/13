@@ -1,0 +1,29 @@
+{
+  "name": "zyberlink-circuits",
+  "version": "0.1.0",
+  "description": "ZK Circuits for ZyberLink - VERIFY_GROTH16, VERIFY_PLONK, VERIFY_HALO2",
+  "scripts": {
+    "build:groth16": "cd verify-groth16 && bash build.sh",
+    "build:plonk": "cd verify-plonk && bash build.sh",
+    "build:halo2": "cd verify-halo2 && bash build.sh",
+    "build:all": "npm run build:groth16 && npm run build:plonk && npm run build:halo2",
+    "test": "mocha --require ts-node/register 'test/**/*.test.ts'",
+    "setup:ptau": "bash scripts/setup_ptau.sh",
+    "clean": "rm -rf verify-groth16/build verify-plonk/build verify-halo2/build"
+  },
+  "devDependencies": {
+    "@types/chai": "^4.3.11",
+    "@types/mocha": "^10.0.6",
+    "@types/node": "^20.10.0",
+    "chai": "^4.3.10",
+    "circom_tester": "^0.0.19",
+    "circomlibjs": "^0.1.7",
+    "mocha": "^10.2.0",
+    "snarkjs": "^0.7.3",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
