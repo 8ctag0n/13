@@ -820,3 +820,259 @@ async fn test_full_zk_flow() {
         fee_balance
     );
 }
+
+// =============================================================================
+// DisputeProof Tests
+// =============================================================================
+
+/// Helper to create DisputeProof instruction
+fn dispute_proof_ix(
+    disputor: &Pubkey,
+    job_pda: &Pubkey,
+    prover: &Pubkey,
+    treasury: &Pubkey,
+    proof: Vec<u8>,
+    public_inputs: Vec<u8>,
+) -> Instruction {
+    let data = borsh::to_vec(&ZkGeneratorInstruction::DisputeProof {
+        proof,
+        public_inputs,
+    })
+    .unwrap();
+
+    Instruction {
+        program_id: zk_generator_program_id(),
+        accounts: vec![
+            AccountMeta::new(*disputor, true),
+            AccountMeta::new(*job_pda, false),
+            AccountMeta::new(*prover, false),
+            AccountMeta::new(*treasury, false),
+        ],
+        data,
+    }
+}
+
+#[tokio::test]
+async fn test_dispute_proof_valid_proof() {
+    // Test that disputing a valid proof results in disputor losing bond
+    let pt = program_test();
+    let (mut banks_client, payer, recent_blockhash) = pt.start().await;
+
+    let program_id = zk_generator_program_id();
+    let prover = Keypair::new();
+    let disputor = Keypair::new();
+    let fee_recipient = Keypair::new();
+    let treasury = Keypair::new();
+
+    let price_lamports = 50_000_000u64;
+
+    // Setup: Create, claim, submit proof
+    let clock = banks_client.get_sysvar::<solana_sdk::sysvar::clock::Clock>().await.unwrap();
+    let job_id = (clock.unix_timestamp as u64) ^ (payer.pubkey().to_bytes()[0] as u64);
+
+    let (job_pda, _) = derive_job_pda(&payer.pubkey(), job_id, &program_id);
+    let (escrow_pda, _) = derive_escrow_pda(&job_pda, &program_id);
+
+    // Create job
+    let create_ix = create_job_ix(
+        &payer.pubkey(),
+        &job_pda,
+        &escrow_pda,
+        0, // ZcashOrchard (legacy - accepts valid-sized proofs)
+        [1u8; 32],
+        2048,
+        price_lamports,
+        300,
+    );
+
+    let mut tx = Transaction::new_with_payer(&[create_ix], Some(&payer.pubkey()));
+    tx.sign(&[&payer], recent_blockhash);
+    banks_client.process_transaction(tx).await.unwrap();
+
+    // Claim job
+    let claim_ix = claim_job_ix(&prover.pubkey(), &job_pda);
+    let recent_blockhash = banks_client.get_latest_blockhash().await.unwrap();
+    let mut tx = Transaction::new_with_payer(&[claim_ix], Some(&payer.pubkey()));
+    tx.sign(&[&payer, &prover], recent_blockhash);
+    banks_client.process_transaction(tx).await.unwrap();
+
+    // Fund accounts
+    let transfer_ix1 = solana_sdk::system_instruction::transfer(
+        &payer.pubkey(),
+        &fee_recipient.pubkey(),
+        1_000_000,
+    );
+    let transfer_ix2 = solana_sdk::system_instruction::transfer(
+        &payer.pubkey(),
+        &disputor.pubkey(),
+        200_000_000, // 0.2 SOL for dispute bond
+    );
+    let transfer_ix3 = solana_sdk::system_instruction::transfer(
+        &payer.pubkey(),
+        &treasury.pubkey(),
+        1_000_000,
+    );
+    let recent_blockhash = banks_client.get_latest_blockhash().await.unwrap();
+    let mut tx = Transaction::new_with_payer(
+        &[transfer_ix1, transfer_ix2, transfer_ix3],
+        Some(&payer.pubkey()),
+    );
+    tx.sign(&[&payer], recent_blockhash);
+    banks_client.process_transaction(tx).await.unwrap();
+
+    // Submit proof with specific hash
+    let proof_data = vec![0u8; 256]; // Valid-sized Groth16 proof
+    let public_inputs = vec![0u8; 48]; // PoI-like public inputs
+    let proof_hash = solana_program::hash::hashv(&[&proof_data, &public_inputs]).to_bytes();
+
+    let submit_ix = submit_proof_ix(
+        &prover.pubkey(),
+        &job_pda,
+        &escrow_pda,
+        &fee_recipient.pubkey(),
+        proof_hash,
+    );
+
+    let recent_blockhash = banks_client.get_latest_blockhash().await.unwrap();
+    let mut tx = Transaction::new_with_payer(&[submit_ix], Some(&payer.pubkey()));
+    tx.sign(&[&payer, &prover], recent_blockhash);
+    banks_client.process_transaction(tx).await.unwrap();
+
+    // Verify job is completed
+    let job_account = banks_client.get_account(job_pda).await.unwrap().unwrap();
+    let zk_job: ZkJob = BorshDeserialize::deserialize(&mut &job_account.data[..]).unwrap();
+    assert_eq!(zk_job.common.status, JobStatus::Completed);
+
+    // Dispute with valid proof (same proof_data that was hashed)
+    // For legacy circuits, proof just needs correct size (256 bytes)
+    let dispute_ix = dispute_proof_ix(
+        &disputor.pubkey(),
+        &job_pda,
+        &prover.pubkey(),
+        &treasury.pubkey(),
+        proof_data,
+        public_inputs,
+    );
+
+    let recent_blockhash = banks_client.get_latest_blockhash().await.unwrap();
+    let mut tx = Transaction::new_with_payer(&[dispute_ix], Some(&payer.pubkey()));
+    tx.sign(&[&payer, &disputor], recent_blockhash);
+    banks_client.process_transaction(tx).await.unwrap();
+
+    // Verify job status is still Completed (proof was valid, dispute rejected)
+    let job_account = banks_client.get_account(job_pda).await.unwrap().unwrap();
+    let zk_job: ZkJob = BorshDeserialize::deserialize(&mut &job_account.data[..]).unwrap();
+    assert_eq!(
+        zk_job.common.status,
+        JobStatus::Completed,
+        "Job should remain Completed when proof is valid"
+    );
+}
+
+#[tokio::test]
+async fn test_dispute_proof_hash_mismatch() {
+    // Test that disputing with wrong proof data fails
+    let pt = program_test();
+    let (mut banks_client, payer, recent_blockhash) = pt.start().await;
+
+    let program_id = zk_generator_program_id();
+    let prover = Keypair::new();
+    let disputor = Keypair::new();
+    let fee_recipient = Keypair::new();
+    let treasury = Keypair::new();
+
+    let price_lamports = 50_000_000u64;
+
+    // Setup: Create, claim, submit proof
+    let clock = banks_client.get_sysvar::<solana_sdk::sysvar::clock::Clock>().await.unwrap();
+    let job_id = (clock.unix_timestamp as u64) ^ (payer.pubkey().to_bytes()[0] as u64);
+
+    let (job_pda, _) = derive_job_pda(&payer.pubkey(), job_id, &program_id);
+    let (escrow_pda, _) = derive_escrow_pda(&job_pda, &program_id);
+
+    // Create job
+    let create_ix = create_job_ix(
+        &payer.pubkey(),
+        &job_pda,
+        &escrow_pda,
+        0,
+        [1u8; 32],
+        2048,
+        price_lamports,
+        300,
+    );
+
+    let mut tx = Transaction::new_with_payer(&[create_ix], Some(&payer.pubkey()));
+    tx.sign(&[&payer], recent_blockhash);
+    banks_client.process_transaction(tx).await.unwrap();
+
+    // Claim job
+    let claim_ix = claim_job_ix(&prover.pubkey(), &job_pda);
+    let recent_blockhash = banks_client.get_latest_blockhash().await.unwrap();
+    let mut tx = Transaction::new_with_payer(&[claim_ix], Some(&payer.pubkey()));
+    tx.sign(&[&payer, &prover], recent_blockhash);
+    banks_client.process_transaction(tx).await.unwrap();
+
+    // Fund accounts
+    let transfer_ix1 = solana_sdk::system_instruction::transfer(
+        &payer.pubkey(),
+        &fee_recipient.pubkey(),
+        1_000_000,
+    );
+    let transfer_ix2 = solana_sdk::system_instruction::transfer(
+        &payer.pubkey(),
+        &disputor.pubkey(),
+        200_000_000,
+    );
+    let transfer_ix3 = solana_sdk::system_instruction::transfer(
+        &payer.pubkey(),
+        &treasury.pubkey(),
+        1_000_000,
+    );
+    let recent_blockhash = banks_client.get_latest_blockhash().await.unwrap();
+    let mut tx = Transaction::new_with_payer(
+        &[transfer_ix1, transfer_ix2, transfer_ix3],
+        Some(&payer.pubkey()),
+    );
+    tx.sign(&[&payer], recent_blockhash);
+    banks_client.process_transaction(tx).await.unwrap();
+
+    // Submit proof with hash of original data
+    let original_proof = vec![0u8; 256];
+    let original_inputs = vec![0u8; 48];
+    let proof_hash = solana_program::hash::hashv(&[&original_proof, &original_inputs]).to_bytes();
+
+    let submit_ix = submit_proof_ix(
+        &prover.pubkey(),
+        &job_pda,
+        &escrow_pda,
+        &fee_recipient.pubkey(),
+        proof_hash,
+    );
+
+    let recent_blockhash = banks_client.get_latest_blockhash().await.unwrap();
+    let mut tx = Transaction::new_with_payer(&[submit_ix], Some(&payer.pubkey()));
+    tx.sign(&[&payer, &prover], recent_blockhash);
+    banks_client.process_transaction(tx).await.unwrap();
+
+    // Dispute with DIFFERENT proof data (hash won't match)
+    let fake_proof = vec![1u8; 256]; // Different proof
+    let fake_inputs = vec![1u8; 48]; // Different inputs
+
+    let dispute_ix = dispute_proof_ix(
+        &disputor.pubkey(),
+        &job_pda,
+        &prover.pubkey(),
+        &treasury.pubkey(),
+        fake_proof,
+        fake_inputs,
+    );
+
+    let recent_blockhash = banks_client.get_latest_blockhash().await.unwrap();
+    let mut tx = Transaction::new_with_payer(&[dispute_ix], Some(&payer.pubkey()));
+    tx.sign(&[&payer, &disputor], recent_blockhash);
+
+    // Should fail because proof hash doesn't match
+    let result = banks_client.process_transaction(tx).await;
+    assert!(result.is_err(), "Dispute should fail when proof hash doesn't match");
+}

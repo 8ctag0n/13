@@ -246,75 +246,41 @@ pub fn process_dispute_proof(
     let proof_valid = verify_circuit_proof(circuit_type, proof, public_inputs, current_time)?;
 
     if proof_valid {
-        // Proof is valid - disputor loses bond (anti-spam measure)
+        // Proof is valid - dispute rejected
+        // MVP: Just emit events, actual bond/slashing requires escrow infrastructure
         msg!("Proof verified successfully - dispute REJECTED");
-        msg!("Disputor bond forfeited to treasury");
+        msg!("  Disputor: {}", disputor_info.key);
+        msg!("  Job: {}", job_info.key);
+        msg!("  Circuit: {}", circuit_type.name());
 
-        // Transfer disputor's bond to treasury
-        let bond = DISPUTE_BOND_LAMPORTS.min(disputor_info.lamports());
-        if bond > 0 {
-            **disputor_info.try_borrow_mut_lamports()? = disputor_info
-                .lamports()
-                .checked_sub(bond)
-                .ok_or(ZkGeneratorError::InsufficientFunds)?;
-            **treasury_info.try_borrow_mut_lamports()? = treasury_info
-                .lamports()
-                .checked_add(bond)
-                .ok_or(ZkGeneratorError::Overflow)?;
-        }
-
-        // Job status remains Completed
-        msg!("  Bond transferred: {} lamports", bond);
+        // In production: disputor would lose their bond from a dispute escrow PDA
+        // For now, job status remains Completed
     } else {
-        // Proof is invalid - slash prover, reward disputor
+        // Proof is invalid - dispute accepted
         msg!("Proof verification FAILED - dispute ACCEPTED");
-        msg!("Prover will be slashed");
+        msg!("  Prover {} submitted invalid proof", prover_info.key);
+        msg!("  Job: {}", job_info.key);
 
-        // Calculate slash amount (could be based on job price or prover stake)
+        // Calculate theoretical slash amounts for logging
         let slash_amount = zk_job.common.price_lamports;
         let disputor_reward = slash_amount
             .saturating_mul(DISPUTE_REWARD_BPS)
             .saturating_div(10_000);
         let treasury_portion = slash_amount.saturating_sub(disputor_reward);
 
-        // Transfer from prover to disputor (reward)
-        let available_slash = slash_amount.min(prover_info.lamports());
-        let actual_reward = disputor_reward.min(available_slash);
-        let actual_treasury = available_slash.saturating_sub(actual_reward);
+        msg!("  Slash amount: {} lamports", slash_amount);
+        msg!("  Disputor reward: {} lamports", disputor_reward);
+        msg!("  Treasury portion: {} lamports", treasury_portion);
 
-        if actual_reward > 0 {
-            **prover_info.try_borrow_mut_lamports()? = prover_info
-                .lamports()
-                .checked_sub(actual_reward)
-                .ok_or(ZkGeneratorError::InsufficientFunds)?;
-            **disputor_info.try_borrow_mut_lamports()? = disputor_info
-                .lamports()
-                .checked_add(actual_reward)
-                .ok_or(ZkGeneratorError::Overflow)?;
-        }
+        // In production: prover would be slashed from their stake escrow
+        // For now, just update job status
 
-        // Transfer remaining slash to treasury
-        if actual_treasury > 0 {
-            **prover_info.try_borrow_mut_lamports()? = prover_info
-                .lamports()
-                .checked_sub(actual_treasury)
-                .ok_or(ZkGeneratorError::InsufficientFunds)?;
-            **treasury_info.try_borrow_mut_lamports()? = treasury_info
-                .lamports()
-                .checked_add(actual_treasury)
-                .ok_or(ZkGeneratorError::Overflow)?;
-        }
-
-        // Update job status to Disputed
-        zk_job.common.status = JobStatus::Failed; // Using Failed as Disputed for now
+        // Update job status to Failed (disputed)
+        zk_job.common.status = JobStatus::Failed;
 
         // Save updated job
         let mut job_data = job_info.try_borrow_mut_data()?;
         zk_job.serialize(&mut &mut job_data[..])?;
-
-        msg!("  Prover slashed: {} lamports", available_slash);
-        msg!("  Disputor reward: {} lamports", actual_reward);
-        msg!("  Treasury: {} lamports", actual_treasury);
     }
 
     Ok(())
