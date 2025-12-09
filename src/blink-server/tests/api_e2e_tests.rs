@@ -1,15 +1,19 @@
 // E2E tests for blink-server API
-// These tests require the server to be running on http://127.0.0.1:8080
+// These tests require the server to be running
+// Set TEST_SERVER_URL env var or defaults to http://127.0.0.1:3000
 
 use serde_json::json;
+use std::sync::LazyLock;
 
-const BASE_URL: &str = "http://127.0.0.1:8080";
+static BASE_URL: LazyLock<String> = LazyLock::new(|| {
+    std::env::var("TEST_SERVER_URL").unwrap_or_else(|_| "http://127.0.0.1:3000".to_string())
+});
 
 #[tokio::test]
 async fn test_health_endpoint() {
     let client = reqwest::Client::new();
     let response = client
-        .get(format!("{}/health", BASE_URL))
+        .get(format!("{}/health", *BASE_URL))
         .send()
         .await
         .expect("Failed to send request");
@@ -31,7 +35,7 @@ async fn test_estimate_cost_tier1_add() {
     });
 
     let response = client
-        .post(format!("{}/api/estimate-cost", BASE_URL))
+        .post(format!("{}/api/estimate-cost", *BASE_URL))
         .json(&payload)
         .send()
         .await
@@ -56,7 +60,7 @@ async fn test_estimate_cost_tier1_multiply() {
     });
 
     let response = client
-        .post(format!("{}/api/estimate-cost", BASE_URL))
+        .post(format!("{}/api/estimate-cost", *BASE_URL))
         .json(&payload)
         .send()
         .await
@@ -81,7 +85,7 @@ async fn test_estimate_cost_tier2_sum() {
     });
 
     let response = client
-        .post(format!("{}/api/estimate-cost", BASE_URL))
+        .post(format!("{}/api/estimate-cost", *BASE_URL))
         .json(&payload)
         .send()
         .await
@@ -111,7 +115,7 @@ async fn test_estimate_cost_tier3_threshold() {
     });
 
     let response = client
-        .post(format!("{}/api/estimate-cost", BASE_URL))
+        .post(format!("{}/api/estimate-cost", *BASE_URL))
         .json(&payload)
         .send()
         .await
@@ -136,7 +140,7 @@ async fn test_estimate_cost_tier3_range_check() {
     });
 
     let response = client
-        .post(format!("{}/api/estimate-cost", BASE_URL))
+        .post(format!("{}/api/estimate-cost", *BASE_URL))
         .json(&payload)
         .send()
         .await
@@ -160,7 +164,7 @@ async fn test_estimate_cost_tier4_average() {
     });
 
     let response = client
-        .post(format!("{}/api/estimate-cost", BASE_URL))
+        .post(format!("{}/api/estimate-cost", *BASE_URL))
         .json(&payload)
         .send()
         .await
@@ -188,7 +192,7 @@ async fn test_estimate_cost_tier4_count_if() {
     });
 
     let response = client
-        .post(format!("{}/api/estimate-cost", BASE_URL))
+        .post(format!("{}/api/estimate-cost", *BASE_URL))
         .json(&payload)
         .send()
         .await
@@ -210,7 +214,7 @@ async fn test_estimate_cost_tier5_histogram_5bins() {
     });
 
     let response = client
-        .post(format!("{}/api/estimate-cost", BASE_URL))
+        .post(format!("{}/api/estimate-cost", *BASE_URL))
         .json(&payload)
         .send()
         .await
@@ -249,7 +253,7 @@ async fn test_estimate_cost_tier5_histogram_10bins() {
     });
 
     let response = client
-        .post(format!("{}/api/estimate-cost", BASE_URL))
+        .post(format!("{}/api/estimate-cost", *BASE_URL))
         .json(&payload)
         .send()
         .await
@@ -291,7 +295,7 @@ async fn test_estimate_cost_histogram_without_operation_value() {
     });
 
     let response = client
-        .post(format!("{}/api/estimate-cost", BASE_URL))
+        .post(format!("{}/api/estimate-cost", *BASE_URL))
         .json(&payload)
         .send()
         .await
@@ -319,7 +323,7 @@ async fn test_estimate_cost_pricing_scales_with_provers() {
         "required_provers": 3
     });
     let response_3 = client
-        .post(format!("{}/api/estimate-cost", BASE_URL))
+        .post(format!("{}/api/estimate-cost", *BASE_URL))
         .json(&payload_3)
         .send()
         .await
@@ -333,7 +337,7 @@ async fn test_estimate_cost_pricing_scales_with_provers() {
         "required_provers": 7
     });
     let response_7 = client
-        .post(format!("{}/api/estimate-cost", BASE_URL))
+        .post(format!("{}/api/estimate-cost", *BASE_URL))
         .json(&payload_7)
         .send()
         .await
@@ -363,7 +367,7 @@ async fn test_estimate_cost_unknown_operation() {
     });
 
     let response = client
-        .post(format!("{}/api/estimate-cost", BASE_URL))
+        .post(format!("{}/api/estimate-cost", *BASE_URL))
         .json(&payload)
         .send()
         .await
@@ -410,7 +414,7 @@ async fn test_estimate_cost_all_operations() {
         }
 
         let response = client
-            .post(format!("{}/api/estimate-cost", BASE_URL))
+            .post(format!("{}/api/estimate-cost", *BASE_URL))
             .json(&payload)
             .send()
             .await
@@ -450,7 +454,7 @@ async fn test_estimate_cost_all_operations() {
 async fn test_network_stats_endpoint_returns_200() {
     let client = reqwest::Client::new();
     let response = client
-        .get(format!("{}/api/stats/network", BASE_URL))
+        .get(format!("{}/api/stats/network", *BASE_URL))
         .send()
         .await
         .expect("Failed to send request");
@@ -462,7 +466,7 @@ async fn test_network_stats_endpoint_returns_200() {
 async fn test_network_stats_has_required_fields() {
     let client = reqwest::Client::new();
     let response = client
-        .get(format!("{}/api/stats/network", BASE_URL))
+        .get(format!("{}/api/stats/network", *BASE_URL))
         .send()
         .await
         .expect("Failed to send request");
@@ -486,8 +490,8 @@ async fn test_network_stats_has_required_fields() {
         "Missing data_encrypted_bytes"
     );
     assert!(
-        body.get("data_encrypted_tb").is_some(),
-        "Missing data_encrypted_tb"
+        body.get("data_encrypted_formatted").is_some(),
+        "Missing data_encrypted_formatted"
     );
     assert!(
         body.get("uptime_seconds").is_some(),
@@ -503,7 +507,7 @@ async fn test_network_stats_has_required_fields() {
 async fn test_network_stats_values_are_valid() {
     let client = reqwest::Client::new();
     let response = client
-        .get(format!("{}/api/stats/network", BASE_URL))
+        .get(format!("{}/api/stats/network", *BASE_URL))
         .send()
         .await
         .expect("Failed to send request");
@@ -542,26 +546,27 @@ async fn test_network_stats_values_are_valid() {
 }
 
 #[tokio::test]
-async fn test_network_stats_data_tb_calculation() {
+async fn test_network_stats_data_formatted() {
     let client = reqwest::Client::new();
     let response = client
-        .get(format!("{}/api/stats/network", BASE_URL))
+        .get(format!("{}/api/stats/network", *BASE_URL))
         .send()
         .await
         .expect("Failed to send request");
 
     let body: serde_json::Value = response.json().await.expect("Failed to parse JSON");
 
-    let data_bytes = body["data_encrypted_bytes"].as_i64().unwrap() as f64;
-    let data_tb = body["data_encrypted_tb"].as_f64().unwrap();
+    let data_bytes = body["data_encrypted_bytes"].as_i64().unwrap();
+    let data_formatted = body["data_encrypted_formatted"].as_str().unwrap();
 
-    // Verify TB calculation: bytes / (1024^4)
-    let expected_tb = data_bytes / (1024.0 * 1024.0 * 1024.0 * 1024.0);
-    let diff = (data_tb - expected_tb).abs();
+    // Verify formatted string is present and reasonable
     assert!(
-        diff < 0.0001,
-        "data_encrypted_tb calculation mismatch: {} vs {}",
-        data_tb,
-        expected_tb
+        !data_formatted.is_empty(),
+        "data_encrypted_formatted should not be empty"
     );
+
+    // If bytes is 0, formatted should be "0 B"
+    if data_bytes == 0 {
+        assert_eq!(data_formatted, "0 B", "Zero bytes should format as '0 B'");
+    }
 }

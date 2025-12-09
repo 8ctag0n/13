@@ -23,6 +23,8 @@ pub struct AttestationRow {
     pub created_at: NaiveDateTime,
     pub used_for_dispute: bool,
     pub dispute_tx_signature: Option<String>,
+    pub proof_json: Option<serde_json::Value>,
+    pub retention_expires_at: Option<NaiveDateTime>,
 }
 
 // =============================================================================
@@ -32,7 +34,7 @@ pub struct AttestationRow {
 pub struct AttestationQueries;
 
 impl AttestationQueries {
-    /// Insert a new attestation
+    /// Insert a new attestation with optional proof storage
     pub async fn insert(
         pool: &PgPool,
         job_id: i64,
@@ -41,6 +43,7 @@ impl AttestationQueries {
         vk_hash: &str,
         verification_result: bool,
         verification_time_ms: i32,
+        proof_json: Option<&serde_json::Value>,
     ) -> Result<i64> {
         let row: (i64,) = sqlx::query_as(
             r#"
@@ -50,9 +53,11 @@ impl AttestationQueries {
                 witness,
                 vk_hash,
                 verification_result,
-                verification_time_ms
+                verification_time_ms,
+                proof_json,
+                retention_expires_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, CASE WHEN $7 IS NOT NULL THEN NOW() + INTERVAL '30 days' ELSE NULL END)
             RETURNING id
             "#,
         )
@@ -62,6 +67,7 @@ impl AttestationQueries {
         .bind(vk_hash)
         .bind(verification_result)
         .bind(verification_time_ms)
+        .bind(proof_json)
         .fetch_one(pool)
         .await
         .map_err(|e| anyhow!("Failed to insert attestation: {}", e))?;
@@ -76,7 +82,8 @@ impl AttestationQueries {
             SELECT
                 id, job_id, circuit_type, witness, vk_hash,
                 verification_result, verification_time_ms,
-                created_at, used_for_dispute, dispute_tx_signature
+                created_at, used_for_dispute, dispute_tx_signature,
+                proof_json, retention_expires_at
             FROM attestations
             WHERE job_id = $1
             ORDER BY created_at DESC
@@ -98,7 +105,8 @@ impl AttestationQueries {
             SELECT
                 id, job_id, circuit_type, witness, vk_hash,
                 verification_result, verification_time_ms,
-                created_at, used_for_dispute, dispute_tx_signature
+                created_at, used_for_dispute, dispute_tx_signature,
+                proof_json, retention_expires_at
             FROM attestations
             WHERE id = $1
             "#,
@@ -150,7 +158,8 @@ impl AttestationQueries {
             SELECT
                 id, job_id, circuit_type, witness, vk_hash,
                 verification_result, verification_time_ms,
-                created_at, used_for_dispute, dispute_tx_signature
+                created_at, used_for_dispute, dispute_tx_signature,
+                proof_json, retention_expires_at
             FROM attestations
             WHERE circuit_type = $1
             ORDER BY created_at DESC
@@ -179,7 +188,8 @@ impl AttestationQueries {
             SELECT
                 id, job_id, circuit_type, witness, vk_hash,
                 verification_result, verification_time_ms,
-                created_at, used_for_dispute, dispute_tx_signature
+                created_at, used_for_dispute, dispute_tx_signature,
+                proof_json, retention_expires_at
             FROM attestations
             WHERE verification_result = $1
             ORDER BY created_at DESC
@@ -260,6 +270,23 @@ impl AttestationQueries {
         .execute(pool)
         .await
         .map_err(|e| anyhow!("Failed to cleanup attestations: {}", e))?;
+
+        Ok(result.rows_affected())
+    }
+
+    /// Clear expired proof_json data (keeps attestation, just removes proof)
+    pub async fn cleanup_expired_proofs(pool: &PgPool) -> Result<u64> {
+        let result = sqlx::query(
+            r#"
+            UPDATE attestations
+            SET proof_json = NULL
+            WHERE retention_expires_at < NOW()
+            AND proof_json IS NOT NULL
+            "#,
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| anyhow!("Failed to cleanup expired proofs: {}", e))?;
 
         Ok(result.rows_affected())
     }

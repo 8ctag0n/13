@@ -538,6 +538,10 @@ async fn submit_zk_proof(
                             }
                         };
 
+                        // Parse proof JSON for storage (enables trustless verification)
+                        let proof_json: Option<serde_json::Value> =
+                            serde_json::from_str(&body.proof).ok();
+
                         match AttestationQueries::insert(
                             &data.db_pool,
                             *job_id,
@@ -546,6 +550,7 @@ async fn submit_zk_proof(
                             &witness.vk_hash,
                             true,
                             result.verification_time_ms as i32,
+                            proof_json.as_ref(),
                         )
                         .await
                         {
@@ -696,6 +701,70 @@ async fn get_attestation(
     }
 }
 
+/// GET /api/jobs/zk/{job_id}/proof
+///
+/// Download full proof for local verification with snarkjs.
+/// Returns the original proof JSON that was submitted.
+#[get("/api/jobs/zk/{job_id}/proof")]
+async fn get_zk_proof_download(
+    data: web::Data<AppState>,
+    job_id: web::Path<i64>,
+) -> impl Responder {
+    log::info!("Downloading proof for job_id: {}", *job_id);
+
+    // First get the job to get circuit_type and public_inputs
+    let job = match ZkJobQueries::get_job_by_id(&data.db_pool, *job_id).await {
+        Ok(Some(job)) => job,
+        Ok(None) => {
+            return HttpResponse::NotFound().json(json!({
+                "error": "Job not found",
+                "job_id": *job_id
+            }));
+        }
+        Err(e) => {
+            log::error!("Failed to fetch job: {}", e);
+            return HttpResponse::InternalServerError().json(json!({
+                "error": format!("Database error: {}", e)
+            }));
+        }
+    };
+
+    // Get attestation with proof
+    match AttestationQueries::get_by_job_id(&data.db_pool, *job_id).await {
+        Ok(Some(attestation)) => {
+            if let Some(proof) = attestation.proof_json {
+                HttpResponse::Ok().json(json!({
+                    "job_id": *job_id,
+                    "circuit_type": attestation.circuit_type,
+                    "proof": proof,
+                    "public_inputs": job.public_inputs,
+                    "vk_hash": attestation.vk_hash,
+                    "verification_result": attestation.verification_result,
+                    "retention_expires_at": attestation.retention_expires_at.map(|dt| dt.to_string())
+                }))
+            } else {
+                HttpResponse::Gone().json(json!({
+                    "error": "Proof no longer available",
+                    "details": "Proof was cleared after retention period expired",
+                    "job_id": *job_id
+                }))
+            }
+        }
+        Ok(None) => {
+            HttpResponse::NotFound().json(json!({
+                "error": "Attestation not found",
+                "job_id": *job_id
+            }))
+        }
+        Err(e) => {
+            log::error!("Failed to fetch attestation: {}", e);
+            HttpResponse::InternalServerError().json(json!({
+                "error": format!("Database error: {}", e)
+            }))
+        }
+    }
+}
+
 // =============================================================================
 // Route Configuration
 // =============================================================================
@@ -707,5 +776,6 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         .service(submit_zk_proof)
         .service(list_zk_jobs)
         .service(get_zk_job_details)
-        .service(get_attestation);
+        .service(get_attestation)
+        .service(get_zk_proof_download);
 }

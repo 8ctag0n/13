@@ -1,13 +1,14 @@
 use sqlx::PgPool;
 use tokio::time::{interval, Duration};
 
-use crate::db::{JobQueries, NonceQueries};
+use crate::db::{AttestationQueries, JobQueries, NonceQueries};
 
 /// Background cleanup service
 ///
 /// Runs periodic cleanup tasks:
 /// - Delete expired jobs (24h+ old)
 /// - Delete old nonces (1 day+ old)
+/// - Clear expired proof_json from attestations (30 days)
 pub struct CleanupService {
     pool: PgPool,
     interval_secs: u64,
@@ -48,6 +49,10 @@ impl CleanupService {
 
             if let Err(e) = self.cleanup_old_witnesses().await {
                 log::error!("Failed to cleanup old witnesses: {}", e);
+            }
+
+            if let Err(e) = self.cleanup_expired_proofs().await {
+                log::error!("Failed to cleanup expired proofs: {}", e);
             }
         }
     }
@@ -160,6 +165,20 @@ impl CleanupService {
                 timeout_count,
                 orphan_count
             );
+        }
+
+        Ok(())
+    }
+
+    /// Clear expired proof_json data from attestations
+    /// Keeps attestation record, just removes the full proof JSON
+    async fn cleanup_expired_proofs(&self) -> Result<(), sqlx::Error> {
+        let count = AttestationQueries::cleanup_expired_proofs(&self.pool)
+            .await
+            .map_err(|e| sqlx::Error::Protocol(format!("Cleanup failed: {}", e)))?;
+
+        if count > 0 {
+            log::info!("Cleaned up {} expired proof JSON records", count);
         }
 
         Ok(())
