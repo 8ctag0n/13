@@ -61,4 +61,15 @@ borsh = { workspace = true }
 # HTTP client for x402-server communication
 reqwest = { workspace = true }
 
+# Zero-knowledge proof verification (Groth16 with arkworks)
+ark-groth16 = "0.4"
+ark-bn254 = "0.4"
+ark-serialize = "0.4"
+ark-std = "0.4"
+ark-relations = "0.4"
+ark-ec = "0.4"
+ark-ff = "0.4"
+ark-snark = "0.4"
+num-bigint = "0.4"
+
 [dev-dependencies]

@@ -5,6 +5,7 @@ mod cleanup;
 mod db;
 mod job_finalizer;
 mod prover_sync;
+mod services;
 mod tx_builder;
 mod validators;
 mod x402_client;
@@ -16,9 +17,12 @@ use solana_sdk::pubkey::Pubkey;
 use solana_sdk::signer::Signer;
 use sqlx::PgPool;
 use std::env;
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 use zyberlink_sdk::instructions::InstructionBuilder;
+
+use services::AttestationService;
 
 /// Application state shared across handlers
 pub struct AppState {
@@ -96,6 +100,9 @@ async fn main() -> std::io::Result<()> {
         .parse::<u64>()
         .unwrap_or(3600); // Default: 1 hour
 
+    let vk_directory = env::var("VK_DIRECTORY")
+        .unwrap_or_else(|_| "./verification_keys".to_string());
+
     // ========================================================================
     // Database Setup
     // ========================================================================
@@ -117,6 +124,30 @@ async fn main() -> std::io::Result<()> {
 
     log::info!("Initializing SDK instruction builder...");
     let sdk_builder = InstructionBuilder::new(program_id);
+
+    // ========================================================================
+    // Attestation Service Setup
+    // ========================================================================
+
+    log::info!("Initializing AttestationService...");
+    let vk_path = PathBuf::from(&vk_directory);
+    let attestation_service = match AttestationService::new(&vk_path) {
+        Ok(service) => {
+            let circuits = service.available_circuits();
+            if circuits.is_empty() {
+                log::warn!("AttestationService initialized but NO verification keys loaded!");
+                log::warn!("Proofs will not be verified. Set VK_DIRECTORY env var with VK files.");
+            } else {
+                log::info!("AttestationService ready with {} circuit types: {:?}", circuits.len(), circuits);
+            }
+            Some(Arc::new(service))
+        }
+        Err(e) => {
+            log::warn!("Failed to initialize AttestationService: {}", e);
+            log::warn!("ZK proof verification will be disabled. To enable, provide VKs in: {}", vk_directory);
+            None
+        }
+    };
 
     // ========================================================================
     // Application State
@@ -223,7 +254,7 @@ async fn main() -> std::io::Result<()> {
             ])
             .max_age(3600);
 
-        App::new()
+        let mut app = App::new()
             .app_data(app_state.clone())
             // Increase JSON payload limit for large TFHE ServerKeys (up to 200 MB)
             .app_data(web::JsonConfig::default().limit(200 * 1024 * 1024))
@@ -241,7 +272,14 @@ async fn main() -> std::io::Result<()> {
             // FHE Jobs API
             .configure(api_handlers::configure_routes)
             // ZK Jobs API
-            .configure(zk_handlers::configure_routes)
+            .configure(zk_handlers::configure_routes);
+
+        // Add AttestationService if available
+        if let Some(service) = attestation_service.clone() {
+            app = app.app_data(web::Data::from(service));
+        }
+
+        app
     })
     .bind((host.as_str(), port))?
     .run()

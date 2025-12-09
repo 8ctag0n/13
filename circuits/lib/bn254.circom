@@ -176,12 +176,8 @@ template G1AddOrIdentity() {
     adder.p1 <== p1;
     adder.p2 <== p2;
 
-    // Multiplexar basado en selector
-    // Si p1 = (0,0), necesitamos manejo especial
-    signal is_p1_identity <== (p1[0] == 0) * (p1[1] == 0) ? 1 : 0;
-
     // out = selector * (p1 + p2) + (1 - selector) * p1
-    // Pero si p1 es identidad y selector = 1, out = p2
+    // Simplificado: out = p1 + selector * (adder.out - p1)
     out[0] <== selector * (adder.out[0] - p1[0]) + p1[0];
     out[1] <== selector * (adder.out[1] - p1[1]) + p1[1];
 }
@@ -207,12 +203,17 @@ template MultiScalarMulG1(max_points) {
     partial_sums[0][1] <== 0;
 
     component adders[max_points];
+    component enable_checks[max_points];
     for (var i = 0; i < max_points; i++) {
+        // Verificar si i < num_points usando LessThan
+        enable_checks[i] = LessThan(32);
+        enable_checks[i].in[0] <== i;
+        enable_checks[i].in[1] <== num_points;
+
         adders[i] = G1AddConditional();
         adders[i].p1 <== partial_sums[i];
         adders[i].p2 <== scalar_muls[i].out;
-        // Solo sumar si i < num_points
-        adders[i].enable <== i < num_points ? 1 : 0;
+        adders[i].enable <== enable_checks[i].out;
 
         partial_sums[i + 1][0] <== adders[i].out[0];
         partial_sums[i + 1][1] <== adders[i].out[1];

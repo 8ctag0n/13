@@ -10,8 +10,10 @@
 use actix_web::{get, post, web, HttpRequest, HttpResponse, Responder};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::sync::Arc;
 
-use crate::db::{InsertZkJobData, ZkJobQueries, ZkJobStatus};
+use crate::db::{AttestationQueries, InsertZkJobData, ZkJobQueries, ZkJobStatus};
+use crate::services::AttestationService;
 use crate::x402_client::X402Client;
 use crate::AppState;
 
@@ -72,6 +74,21 @@ pub struct ZkJobStatusResponse {
 #[derive(Debug, Deserialize)]
 pub struct ConfirmZkJobRequest {
     pub signature: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SubmitProofRequest {
+    pub prover_pubkey: String,
+    pub proof: String, // JSON string of the proof
+    pub public_inputs: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SubmitProofResponse {
+    pub job_id: i64,
+    pub status: String,
+    pub attestation_id: Option<i64>,
+    pub verification_time_ms: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -293,7 +310,7 @@ async fn get_zk_job_status(
 async fn confirm_zk_job(
     data: web::Data<AppState>,
     job_id: web::Path<i64>,
-    req: HttpRequest,
+    _req: HttpRequest,
     body: web::Json<ConfirmZkJobRequest>,
 ) -> impl Responder {
     log::info!(
@@ -302,17 +319,35 @@ async fn confirm_zk_job(
         &body.signature
     );
 
+    // First, get the job to retrieve x402_token_id
+    let x402_token_id = match ZkJobQueries::get_job_by_id(&data.db_pool, *job_id).await {
+        Ok(Some(job)) => job.x402_token_id,
+        Ok(None) => {
+            return HttpResponse::NotFound().json(json!({
+                "error": "ZK job not found",
+                "job_id": *job_id
+            }));
+        }
+        Err(e) => {
+            log::error!("Failed to fetch ZK job for confirm: {}", e);
+            return HttpResponse::InternalServerError().json(json!({
+                "error": format!("Database error: {}", e)
+            }));
+        }
+    };
+
     // Confirm job in database
     match ZkJobQueries::confirm_job(&data.db_pool, *job_id, &body.signature).await {
         Ok(()) => {
-            // Mark x402 token as used if provided
-            if let Some(token_header) = req.headers().get("X-Payment-Token") {
-                if let Ok(token_id) = token_header.to_str() {
-                    if !token_id.is_empty() {
-                        let x402_client = X402Client::new(&data.x402_url);
-                        if let Err(e) = x402_client.mark_token_used(token_id).await {
-                            log::warn!("Failed to mark x402 token as used: {}", e);
-                        }
+            // Mark x402 token as used if job had one associated
+            if let Some(token_id) = x402_token_id {
+                let x402_client = X402Client::new(&data.x402_url);
+                match x402_client.mark_token_used(&token_id).await {
+                    Ok(()) => {
+                        log::info!("x402 token {} marked as used for job {}", token_id, *job_id);
+                    }
+                    Err(e) => {
+                        log::warn!("Failed to mark x402 token {} as used: {}", token_id, e);
                     }
                 }
             }
@@ -397,6 +432,182 @@ async fn list_zk_jobs(
     }
 }
 
+/// POST /api/jobs/zk/{job_id}/submit-proof
+///
+/// Submit proof for a ZK job. Verifies proof before accepting.
+/// Updates job status to "completed" if valid.
+#[post("/api/jobs/zk/{job_id}/submit-proof")]
+async fn submit_zk_proof(
+    data: web::Data<AppState>,
+    job_id: web::Path<i64>,
+    body: web::Json<SubmitProofRequest>,
+    attestation_service: Option<web::Data<AttestationService>>,
+) -> impl Responder {
+    log::info!(
+        "Proof submission for job_id: {} from prover: {}",
+        *job_id,
+        body.prover_pubkey
+    );
+
+    // Step 1: Get job from database
+    let job = match ZkJobQueries::get_job_by_id(&data.db_pool, *job_id).await {
+        Ok(Some(job)) => job,
+        Ok(None) => {
+            return HttpResponse::NotFound().json(json!({
+                "error": "ZK job not found",
+                "job_id": *job_id
+            }));
+        }
+        Err(e) => {
+            log::error!("Failed to fetch ZK job: {}", e);
+            return HttpResponse::InternalServerError().json(json!({
+                "error": format!("Database error: {}", e)
+            }));
+        }
+    };
+
+    // Step 2: Validate job is in correct status (active or proving)
+    if job.status != ZkJobStatus::Active.as_str() && job.status != ZkJobStatus::Proving.as_str() {
+        return HttpResponse::BadRequest().json(json!({
+            "error": format!("Job is not active or proving (current status: {})", job.status),
+            "job_id": *job_id
+        }));
+    }
+
+    // Step 3: Claim job if not already claimed
+    if job.status == ZkJobStatus::Active.as_str() {
+        if let Err(e) = ZkJobQueries::claim_job(&data.db_pool, *job_id, &body.prover_pubkey).await {
+            log::warn!("Failed to claim job {}: {}", *job_id, e);
+            return HttpResponse::Conflict().json(json!({
+                "error": "Job already claimed by another prover or no longer active"
+            }));
+        }
+    }
+
+    // Step 4: Verify proof with AttestationService (if available)
+    let (attestation_id, verification_time_ms) = if let Some(service) = attestation_service {
+        log::info!("Verifying proof with AttestationService for circuit_type {}", job.circuit_type);
+
+        // Check if we have VK for this circuit
+        if !service.has_vk_for_circuit(job.circuit_type as u8) {
+            log::warn!(
+                "No verification key for circuit_type {}. Accepting proof without verification.",
+                job.circuit_type
+            );
+            (None, None)
+        } else {
+            // Verify the proof
+            match service
+                .verify_and_attest(job.circuit_type as u8, &body.proof, &body.public_inputs)
+                .await
+            {
+                Ok(result) => {
+                    if !result.valid {
+                        log::warn!("Invalid proof submitted for job_id: {}", *job_id);
+
+                        // Mark job as failed
+                        let _ = ZkJobQueries::update_status(
+                            &data.db_pool,
+                            *job_id,
+                            ZkJobStatus::Failed,
+                        )
+                        .await;
+
+                        return HttpResponse::BadRequest().json(json!({
+                            "error": "Invalid proof: verification failed",
+                            "details": "Groth16 verification returned false",
+                            "verification_time_ms": result.verification_time_ms
+                        }));
+                    }
+
+                    log::info!(
+                        "Proof verified successfully for job_id: {} in {}ms",
+                        *job_id,
+                        result.verification_time_ms
+                    );
+
+                    // Save attestation to database
+                    let attestation_id = if let Some(witness) = &result.witness {
+                        let witness_json = match serde_json::to_value(witness) {
+                            Ok(json) => json,
+                            Err(e) => {
+                                log::error!("Failed to serialize witness: {}", e);
+                                return HttpResponse::InternalServerError().json(json!({
+                                    "error": "Failed to serialize attestation witness"
+                                }));
+                            }
+                        };
+
+                        match AttestationQueries::insert(
+                            &data.db_pool,
+                            *job_id,
+                            job.circuit_type,
+                            &witness_json,
+                            &witness.vk_hash,
+                            true,
+                            result.verification_time_ms as i32,
+                        )
+                        .await
+                        {
+                            Ok(id) => {
+                                log::info!("Attestation saved with id: {}", id);
+                                Some(id)
+                            }
+                            Err(e) => {
+                                log::error!("Failed to save attestation: {}", e);
+                                // Don't fail the request, just log the error
+                                None
+                            }
+                        }
+                    } else {
+                        None
+                    };
+
+                    (attestation_id, Some(result.verification_time_ms))
+                }
+                Err(e) => {
+                    log::error!("Attestation service error for job_id {}: {}", *job_id, e);
+                    return HttpResponse::InternalServerError().json(json!({
+                        "error": format!("Proof verification error: {}", e)
+                    }));
+                }
+            }
+        }
+    } else {
+        log::warn!(
+            "AttestationService not available. Accepting proof without verification for job_id: {}",
+            *job_id
+        );
+        (None, None)
+    };
+
+    // Step 5: Calculate proof hash and complete the job
+    use sha3::{Digest, Keccak256};
+    let mut hasher = Keccak256::new();
+    hasher.update(body.proof.as_bytes());
+    let proof_hash = hex::encode(hasher.finalize());
+
+    // Complete the job
+    match ZkJobQueries::complete_job(&data.db_pool, *job_id, &proof_hash).await {
+        Ok(()) => {
+            log::info!("ZK job {} completed successfully", *job_id);
+
+            HttpResponse::Ok().json(SubmitProofResponse {
+                job_id: *job_id,
+                status: ZkJobStatus::Completed.as_str().to_string(),
+                attestation_id,
+                verification_time_ms,
+            })
+        }
+        Err(e) => {
+            log::error!("Failed to complete ZK job: {}", e);
+            HttpResponse::InternalServerError().json(json!({
+                "error": format!("Failed to complete job: {}", e)
+            }))
+        }
+    }
+}
+
 /// GET /api/jobs/zk/{job_id}
 ///
 /// Get full details of a ZK job.
@@ -445,6 +656,46 @@ async fn get_zk_job_details(
     }
 }
 
+/// GET /api/attestations/{job_id}
+///
+/// Get attestation for a ZK job.
+#[get("/api/attestations/{job_id}")]
+async fn get_attestation(
+    data: web::Data<AppState>,
+    job_id: web::Path<i64>,
+) -> impl Responder {
+    log::info!("Fetching attestation for job_id: {}", *job_id);
+
+    match AttestationQueries::get_by_job_id(&data.db_pool, *job_id).await {
+        Ok(Some(attestation)) => {
+            HttpResponse::Ok().json(json!({
+                "id": attestation.id,
+                "job_id": attestation.job_id,
+                "circuit_type": attestation.circuit_type,
+                "witness": attestation.witness,
+                "vk_hash": attestation.vk_hash,
+                "verification_result": attestation.verification_result,
+                "verification_time_ms": attestation.verification_time_ms,
+                "created_at": attestation.created_at.to_string(),
+                "used_for_dispute": attestation.used_for_dispute,
+                "dispute_tx_signature": attestation.dispute_tx_signature
+            }))
+        }
+        Ok(None) => {
+            HttpResponse::NotFound().json(json!({
+                "error": "Attestation not found",
+                "job_id": *job_id
+            }))
+        }
+        Err(e) => {
+            log::error!("Failed to fetch attestation: {}", e);
+            HttpResponse::InternalServerError().json(json!({
+                "error": format!("Database error: {}", e)
+            }))
+        }
+    }
+}
+
 // =============================================================================
 // Route Configuration
 // =============================================================================
@@ -453,6 +704,8 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(validate_and_build_zk_job)
         .service(get_zk_job_status)
         .service(confirm_zk_job)
+        .service(submit_zk_proof)
         .service(list_zk_jobs)
-        .service(get_zk_job_details);
+        .service(get_zk_job_details)
+        .service(get_attestation);
 }

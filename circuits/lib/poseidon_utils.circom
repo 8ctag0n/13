@@ -5,6 +5,7 @@ pragma circom 2.1.6;
 // ============================================================================
 
 include "circomlib/circuits/poseidon.circom";
+include "circomlib/circuits/comparators.circom";
 
 // Hash de array de longitud variable (hasta max_len elementos)
 template PoseidonArray(max_len) {
@@ -26,15 +27,20 @@ template PoseidonArray(max_len) {
     // Hashes sucesivos
     component hashers[max_len - 1];
     component selectors[max_len - 1];
+    component len_checks[max_len - 1];
 
     for (var i = 1; i < max_len; i++) {
         hashers[i - 1] = Poseidon(2);
         hashers[i - 1].inputs[0] <== hashes[i - 1];
         hashers[i - 1].inputs[1] <== in[i];
 
-        // Solo incluir si i < len
+        // Solo incluir si i < len (usando LessThan)
+        len_checks[i - 1] = LessThan(32);
+        len_checks[i - 1].in[0] <== i;
+        len_checks[i - 1].in[1] <== len;
+
         selectors[i - 1] = Selector();
-        selectors[i - 1].condition <== i < len ? 1 : 0;
+        selectors[i - 1].condition <== len_checks[i - 1].out;
         selectors[i - 1].in_true <== hashers[i - 1].out;
         selectors[i - 1].in_false <== hashes[i - 1];
 

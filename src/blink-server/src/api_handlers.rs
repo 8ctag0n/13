@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use solana_sdk::{message::Message, pubkey::Pubkey, transaction::Transaction};
 use solana_client::rpc_client::RpcClient;
-use std::str::FromStr;
 
 use crate::db::{FheResultQueries, InsertJobData, JobQueries, JobStatus, NetworkMetricsQueries, ServerKeyQueries, WitnessQueries};
 use crate::validators::{JobValidator, ValidateJobRequest};

@@ -19,13 +19,13 @@ include "../lib/bn254.circom";
 include "../lib/poseidon_utils.circom";
 include "../lib/pairing.circom";
 
-// Configuración
-var MAX_PUBLIC_INPUTS = 32;
-var MAX_IC = 33;
-
 // ============================================================================
 // Circuito Principal
 // ============================================================================
+
+// Constantes hardcodeadas (circom no permite usar funciones como parámetros de template)
+// MAX_PUBLIC_INPUTS = 32
+// MAX_IC = 33 (MAX_PUBLIC_INPUTS + 1)
 
 template VerifyGroth16() {
     // ========================================================================
@@ -50,11 +50,11 @@ template VerifyGroth16() {
     signal input vk_beta[2][2];        // β ∈ G2
     signal input vk_gamma[2][2];       // γ ∈ G2
     signal input vk_delta[2][2];       // δ ∈ G2
-    signal input vk_ic[MAX_IC][2];     // IC[0..l] ∈ G1
+    signal input vk_ic[33][2];         // IC[0..l] ∈ G1 (MAX_IC = 33)
     signal input num_public_inputs;    // Número de public inputs
 
     // Public inputs del proof P1
-    signal input public_inputs[MAX_PUBLIC_INPUTS];
+    signal input public_inputs[32];    // MAX_PUBLIC_INPUTS = 32
 
     // Attestation witness (generado por backend después de verificar P1)
     signal input verification_witness;
@@ -63,7 +63,7 @@ template VerifyGroth16() {
     // PASO 1: Verificar hash del Verification Key
     // ========================================================================
 
-    component vk_hasher = PoseidonVK(MAX_IC);
+    component vk_hasher = PoseidonVK(33);  // MAX_IC = 33
     vk_hasher.alpha <== vk_alpha;
     vk_hasher.beta <== vk_beta;
     vk_hasher.gamma <== vk_gamma;
@@ -77,7 +77,7 @@ template VerifyGroth16() {
     // PASO 2: Verificar hash de public inputs
     // ========================================================================
 
-    component pi_hasher = PoseidonArray(MAX_PUBLIC_INPUTS);
+    component pi_hasher = PoseidonArray(32);  // MAX_PUBLIC_INPUTS = 32
     pi_hasher.in <== public_inputs;
     pi_hasher.len <== num_public_inputs;
 
@@ -87,13 +87,13 @@ template VerifyGroth16() {
     // PASO 3: Calcular vk_x = IC[0] + Σ(public_inputs[i] · IC[i+1])
     // ========================================================================
 
-    signal ic_subset[MAX_PUBLIC_INPUTS][2];
-    for (var i = 0; i < MAX_PUBLIC_INPUTS; i++) {
+    signal ic_subset[32][2];  // MAX_PUBLIC_INPUTS = 32
+    for (var i = 0; i < 32; i++) {
         ic_subset[i][0] <== vk_ic[i + 1][0];
         ic_subset[i][1] <== vk_ic[i + 1][1];
     }
 
-    component msm = MultiScalarMulG1(MAX_PUBLIC_INPUTS);
+    component msm = MultiScalarMulG1(32);  // MAX_PUBLIC_INPUTS = 32
     msm.scalars <== public_inputs;
     msm.points <== ic_subset;
     msm.num_points <== num_public_inputs;
@@ -149,8 +149,8 @@ template VerifyGroth16() {
 
     // num_public_inputs en rango válido
     signal num_pi_check;
-    num_pi_check <== num_public_inputs * (MAX_PUBLIC_INPUTS + 1 - num_public_inputs);
-    // Debe ser >= 0 (si num_public_inputs está en [0, MAX_PUBLIC_INPUTS])
+    num_pi_check <== num_public_inputs * (32 + 1 - num_public_inputs);  // MAX_PUBLIC_INPUTS = 32
+    // Debe ser >= 0 (si num_public_inputs está en [0, 32])
 }
 
 component main {public [vk_hash, public_inputs_hash, verification_result]} = VerifyGroth16();
