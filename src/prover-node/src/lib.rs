@@ -27,12 +27,14 @@ pub mod witness_encryption;
 pub mod witness_fetcher;
 
 // Re-export commonly used types from new modules
-pub use core::{CircuitCategory, CircuitRegistry};
+pub use core::{CircuitCategory, CircuitRegistry, JobProcessor};
 pub use engines::ProofType;
 
 // Re-export legacy types for backwards compatibility
 pub use circuits::{CensusCircuit, DemographicsCircuit, PassportCircuit, VotingCircuit};
+pub use config::{ProverConfig, ProverConfiguration};
 pub use halo2_prover::{Halo2Prover, OrchardWitness};
+pub use roi_calculator::ROICalculator;
 pub use witness_encryption::{EncryptedWitness, WitnessEncryption};
 pub use witness_fetcher::WitnessFetcher;
 
