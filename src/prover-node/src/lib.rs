@@ -28,7 +28,8 @@ pub mod witness_fetcher;
 
 // Re-export commonly used types from new modules
 pub use core::{CircuitCategory, CircuitRegistry, JobProcessor};
-pub use engines::ProofType;
+pub use engines::{ArkworksProver, ProofType, ZkEngine, ZkProofResult, ZkProver};
+pub use services::{DiscoveredJob, JobPoller, WitnessService};
 
 // Re-export legacy types for backwards compatibility
 pub use circuits::{CensusCircuit, DemographicsCircuit, PassportCircuit, VotingCircuit};

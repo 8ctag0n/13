@@ -11201,6 +11201,7 @@ name = "zyberlink-prover"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "bincode",
  "blake2",
  "blake2b_simd",
@@ -11226,6 +11227,7 @@ dependencies = [
  "ratatui",
  "reqwest 0.12.24",
  "serde",
+ "serde-big-array",
  "serde_json",
  "shellexpand",
  "solana-client",
