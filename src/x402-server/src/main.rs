@@ -6,6 +6,9 @@
 mod db;
 mod handlers;
 mod models;
+mod blink_client;
+mod rate_limit;
+mod gateway;
 
 use actix_cors::Cors;
 use actix_web::{web, App, HttpServer};
@@ -15,6 +18,8 @@ use std::env;
 /// Application state shared across handlers
 pub struct AppState {
     pub db_pool: PgPool,
+    pub blink_client: blink_client::BlinkClient,
+    pub rate_limiter: rate_limit::GlobalRateLimiter,
 }
 
 #[tokio::main]
@@ -35,17 +40,27 @@ async fn main() -> std::io::Result<()> {
         .expect("X402_PORT must be a valid port number");
 
     let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    let blink_url = env::var("BLINK_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
 
     // Create database connection pool
     let pool = db::create_pool(&database_url)
         .await
         .expect("Failed to create database pool");
 
-    let app_state = web::Data::new(AppState { db_pool: pool });
+    // Initialize blink client and rate limiter
+    let blink_client = blink_client::BlinkClient::new(&blink_url);
+    let rate_limiter = rate_limit::create_rate_limiter(10); // 10 req/min for unauthenticated
+
+    let app_state = web::Data::new(AppState {
+        db_pool: pool,
+        blink_client,
+        rate_limiter,
+    });
 
     log::info!("Configuration:");
     log::info!("  Host: {}", host);
     log::info!("  Port: {}", port);
+    log::info!("  Blink URL: {}", blink_url);
     log::info!("");
     log::info!("Endpoints:");
     log::info!("  GET    /health                    (health check)");
@@ -66,6 +81,11 @@ async fn main() -> std::io::Result<()> {
     log::info!("  Protected Operations:");
     log::info!("  POST   /api/witness               (upload witness with token)");
     log::info!("  POST   /api/create-job            (create job with token)");
+    log::info!("");
+    log::info!("  Gateway (token-validated proxy):");
+    log::info!("  POST   /gateway/zk/create          (validate + proxy ZK job)");
+    log::info!("  POST   /gateway/fhe/create         (validate + proxy FHE job)");
+    log::info!("  GET    /gateway/health             (gateway health check)");
     log::info!("");
     log::info!("Circuit Type Pricing:");
     log::info!("  0-9   (FHE):        0.01 SOL");
@@ -88,6 +108,7 @@ async fn main() -> std::io::Result<()> {
             .wrap(cors)
             .app_data(app_state.clone())
             .configure(handlers::configure_routes)
+            .configure(gateway::configure_gateway_routes)
     })
     .bind((host.as_str(), port))?
     .run()

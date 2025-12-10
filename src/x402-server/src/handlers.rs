@@ -547,7 +547,6 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         .service(confirm_payment)
         .service(validate_token)
         .service(mark_token_used_endpoint)
-        .service(get_token_status)
-        .service(upload_witness_with_token)
-        .service(create_job_with_token);
+        .service(get_token_status);
+    // Note: upload_witness and create_job removed - will be proxied to blink in Fase 2
 }

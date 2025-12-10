@@ -139,7 +139,7 @@ fn generate_job_id() -> i64 {
 ///
 /// Validates ZK job data and stores in database.
 /// Requires X-Payment-Token header from x402-server.
-#[post("/api/jobs/zk/validate-and-build")]
+#[post("/internal/zk/validate-and-build")]
 async fn validate_and_build_zk_job(
     data: web::Data<AppState>,
     req: HttpRequest,
@@ -267,7 +267,7 @@ async fn validate_and_build_zk_job(
 /// GET /api/jobs/zk/{job_id}/status
 ///
 /// Get current status of a ZK job.
-#[get("/api/jobs/zk/{job_id}/status")]
+#[get("/internal/zk/{job_id}/status")]
 async fn get_zk_job_status(
     data: web::Data<AppState>,
     job_id: web::Path<i64>,
@@ -306,7 +306,7 @@ async fn get_zk_job_status(
 ///
 /// Confirm ZK job transaction was successfully submitted on-chain.
 /// Updates job status from "pending_tx" to "active".
-#[post("/api/jobs/zk/{job_id}/confirm")]
+#[post("/internal/zk/{job_id}/confirm")]
 async fn confirm_zk_job(
     data: web::Data<AppState>,
     job_id: web::Path<i64>,
@@ -373,7 +373,7 @@ async fn confirm_zk_job(
 /// GET /api/jobs/zk
 ///
 /// List ZK jobs with optional filtering.
-#[get("/api/jobs/zk")]
+#[get("/internal/zk")]
 async fn list_zk_jobs(
     data: web::Data<AppState>,
     query: web::Query<ListZkJobsQuery>,
@@ -436,7 +436,7 @@ async fn list_zk_jobs(
 ///
 /// Submit proof for a ZK job. Verifies proof before accepting.
 /// Updates job status to "completed" if valid.
-#[post("/api/jobs/zk/{job_id}/submit-proof")]
+#[post("/internal/zk/{job_id}/submit-proof")]
 async fn submit_zk_proof(
     data: web::Data<AppState>,
     job_id: web::Path<i64>,
@@ -616,7 +616,7 @@ async fn submit_zk_proof(
 /// GET /api/jobs/zk/{job_id}
 ///
 /// Get full details of a ZK job.
-#[get("/api/jobs/zk/{job_id}")]
+#[get("/internal/zk/{job_id}")]
 async fn get_zk_job_details(
     data: web::Data<AppState>,
     job_id: web::Path<i64>,
@@ -661,10 +661,10 @@ async fn get_zk_job_details(
     }
 }
 
-/// GET /api/attestations/{job_id}
+/// GET /internal/attestations/{job_id}
 ///
 /// Get attestation for a ZK job.
-#[get("/api/attestations/{job_id}")]
+#[get("/internal/attestations/{job_id}")]
 async fn get_attestation(
     data: web::Data<AppState>,
     job_id: web::Path<i64>,
@@ -705,7 +705,7 @@ async fn get_attestation(
 ///
 /// Download full proof for local verification with snarkjs.
 /// Returns the original proof JSON that was submitted.
-#[get("/api/jobs/zk/{job_id}/proof")]
+#[get("/internal/zk/{job_id}/proof")]
 async fn get_zk_proof_download(
     data: web::Data<AppState>,
     job_id: web::Path<i64>,
