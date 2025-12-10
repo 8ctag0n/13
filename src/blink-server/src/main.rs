@@ -11,7 +11,8 @@ mod validators;
 mod x402_client;
 mod zk_handlers;
 
-use actix_cors::Cors;
+// NOTE: CORS removed - internal service only
+// use actix_cors::Cors;
 use actix_web::{get, middleware, web, App, HttpResponse, HttpServer, Responder};
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::signer::Signer;
@@ -35,12 +36,28 @@ pub struct AppState {
 
 /// Health check endpoint
 #[get("/health")]
-async fn health_check() -> impl Responder {
-    HttpResponse::Ok().json(serde_json::json!({
-        "status": "ok",
-        "service": "zyberlink-blink-server",
-        "version": env!("CARGO_PKG_VERSION")
-    }))
+async fn health_check(data: web::Data<AppState>) -> impl Responder {
+    // Quick DB check
+    let db_ok = sqlx::query("SELECT 1")
+        .fetch_one(&data.db_pool)
+        .await
+        .is_ok();
+
+    let status = if db_ok { "ok" } else { "degraded" };
+    let body = serde_json::json!({
+        "status": status,
+        "service": "blink-server-internal",
+        "version": env!("CARGO_PKG_VERSION"),
+        "checks": {
+            "database": db_ok
+        }
+    });
+
+    if db_ok {
+        HttpResponse::Ok().json(body)
+    } else {
+        HttpResponse::ServiceUnavailable().json(body)
+    }
 }
 
 /// Serve actions.json at root (legacy blinks support)
@@ -77,7 +94,7 @@ async fn main() -> std::io::Result<()> {
 
     let host = env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
     let port = env::var("PORT")
-        .unwrap_or_else(|_| "3000".to_string())
+        .unwrap_or_else(|_| "8080".to_string())
         .parse::<u16>()
         .expect("PORT must be a valid u16");
 
@@ -210,29 +227,24 @@ async fn main() -> std::io::Result<()> {
     log::info!("  Program ID: {}", program_id);
     log::info!("  Cleanup Interval: {}s", cleanup_interval_secs);
     log::info!("");
-    log::info!("FHE Jobs API:");
+    log::info!("Internal FHE API:");
     log::info!("  GET    /health");
-    log::info!("  GET    /api/jobs/fhe                         (list FHE jobs)");
-    log::info!("  POST   /api/jobs/fhe/validate-and-build");
-    log::info!("  GET    /api/jobs/fhe/{{job_id}}/compute-data");
-    log::info!("  POST   /api/jobs/fhe/{{job_id}}/confirm");
-    log::info!("  GET    /api/jobs/fhe/{{job_id}}/status");
-    log::info!("  GET    /api/jobs/fhe/{{job_id}}              (full job details)");
-    log::info!("  DELETE /api/jobs/fhe/{{job_id}}");
+    log::info!("  GET    /internal/fhe/list                    (list FHE jobs)");
+    log::info!("  POST   /internal/fhe/validate-and-build");
+    log::info!("  GET    /internal/fhe/{{job_id}}/compute-data");
+    log::info!("  POST   /internal/fhe/{{job_id}}/confirm");
+    log::info!("  GET    /internal/fhe/{{job_id}}/status");
+    log::info!("  GET    /internal/fhe/{{job_id}}              (full job details)");
+    log::info!("  DELETE /internal/fhe/{{job_id}}");
     log::info!("");
-    log::info!("ZK Jobs API:");
-    log::info!("  GET    /api/jobs/zk                          (list ZK jobs)");
-    log::info!("  POST   /api/jobs/zk/validate-and-build");
-    log::info!("  GET    /api/jobs/zk/{{job_id}}/status");
-    log::info!("  POST   /api/jobs/zk/{{job_id}}/confirm");
+    log::info!("Internal ZK API:");
+    log::info!("  GET    /internal/zk                          (list ZK jobs)");
+    log::info!("  POST   /internal/zk/validate-and-build");
+    log::info!("  GET    /internal/zk/{{job_id}}/status");
+    log::info!("  POST   /internal/zk/{{job_id}}/confirm");
     log::info!("");
-    log::info!("x402 Anti-Spam Layer (external service):");
-    log::info!("  URL: {}", x402_url);
-    log::info!("");
-    log::info!("Legacy Blinks:");
-    log::info!("  GET    /actions.json");
-    log::info!("  GET    /api/actions/fund-prover");
-    log::info!("  POST   /api/actions/fund-prover");
+    log::info!("NOTE: This is an INTERNAL service (port {})", port);
+    log::info!("      Should only be accessed via public-api gateway");
     log::info!("");
     log::info!("Server starting on {}:{}", host, port);
     log::info!("=================================================");
@@ -242,17 +254,8 @@ async fn main() -> std::io::Result<()> {
     // ========================================================================
 
     HttpServer::new(move || {
-        let cors = Cors::default()
-            .allow_any_origin()
-            .allowed_methods(vec!["GET", "POST", "PUT", "DELETE", "OPTIONS"])
-            .allowed_headers(vec![
-                "Content-Type",
-                "Authorization",
-                "Content-Encoding",
-                "Accept-Encoding",
-                "X-Payment-Token",
-            ])
-            .max_age(3600);
+        // NOTE: CORS removed - this is an internal service
+        // All external requests go through public-api gateway
 
         let mut app = App::new()
             .app_data(app_state.clone())
@@ -261,7 +264,6 @@ async fn main() -> std::io::Result<()> {
             // Increase raw payload limit for witness data (up to 200 MB)
             .app_data(web::PayloadConfig::default().limit(200 * 1024 * 1024))
             .wrap(middleware::Logger::default())
-            .wrap(cors)
             // Core endpoints
             .service(health_check)
             .service(actions_json)
