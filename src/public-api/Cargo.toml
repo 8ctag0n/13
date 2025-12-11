@@ -13,3 +13,8 @@ reqwest = { version = "0.11", features = ["json"] }
 governor = "0.6"
 log = "0.4"
 env_logger = "0.10"
+solana-sdk = "2.3"
+solana-client = "2.3"
+solana-transaction-status = "2.3"
+anyhow = "1.0"
+hex = "0.4"
