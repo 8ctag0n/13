@@ -1160,3 +1160,115 @@ x402-all: x402-estimate x402-quote x402-flow x402-witness ## [x402] Run all x402
 
 # Aliases for quick testing
 t-x402: x402-all ## Alias: run all x402 tests
+
+# ============================================================================
+# Prover Refactor Commands
+# ============================================================================
+
+.PHONY: prover-check prover-test prover-bench prover-refactor-health prover-setup-circuits prover-verify-deps
+
+prover-check: ## Check prover-node compilation
+	@echo "$(BLUE)Checking prover-node compilation...$(NC)"
+	@cd src/prover-node && cargo check --all-targets
+	@echo "$(GREEN)✓ Prover check passed$(NC)"
+
+prover-test: ## Run prover-node tests (unit + integration)
+	@echo "$(BLUE)Running prover-node tests...$(NC)"
+	@cd src/prover-node && cargo test --lib
+	@echo "$(GREEN)✓ Prover tests passed$(NC)"
+
+prover-test-all: ## Run all prover tests including ignored ones
+	@echo "$(BLUE)Running all prover tests (including E2E)...$(NC)"
+	@cd src/prover-node && cargo test --lib
+	@cd src/prover-node && cargo test --test '*' -- --ignored
+	@echo "$(GREEN)✓ All prover tests passed$(NC)"
+
+prover-bench: ## Run prover benchmarks
+	@echo "$(BLUE)Running prover benchmarks...$(NC)"
+	@cd src/prover-node && cargo bench --no-run
+	@echo "$(GREEN)✓ Benchmarks compiled$(NC)"
+
+prover-lint: ## Run clippy on prover-node
+	@echo "$(BLUE)Running clippy on prover-node...$(NC)"
+	@cd src/prover-node && cargo clippy --all-targets -- -D warnings
+	@echo "$(GREEN)✓ No clippy warnings$(NC)"
+
+prover-fmt-check: ## Check prover-node formatting
+	@echo "$(BLUE)Checking prover-node formatting...$(NC)"
+	@cd src/prover-node && cargo fmt -- --check
+	@echo "$(GREEN)✓ Formatting OK$(NC)"
+
+prover-fmt: ## Format prover-node code
+	@echo "$(BLUE)Formatting prover-node...$(NC)"
+	@cd src/prover-node && cargo fmt
+	@echo "$(GREEN)✓ Code formatted$(NC)"
+
+prover-setup-circuits: ## Setup circuits directory for prover
+	@echo "$(BLUE)Setting up prover circuits...$(NC)"
+	@bash scripts/setup_prover_circuits.sh
+	@echo "$(GREEN)✓ Circuits setup complete$(NC)"
+
+prover-verify-deps: ## Verify prover dependencies (snarkjs, etc.)
+	@echo "$(BLUE)Verifying prover dependencies...$(NC)"
+	@echo -n "  rustc: "
+	@rustc --version || echo "$(RED)NOT FOUND$(NC)"
+	@echo -n "  cargo: "
+	@cargo --version || echo "$(RED)NOT FOUND$(NC)"
+	@echo -n "  snarkjs: "
+	@snarkjs --version 2>/dev/null || echo "$(YELLOW)NOT FOUND (required for ZK proofs)$(NC)"
+	@echo -n "  bun: "
+	@bun --version 2>/dev/null || (echo -n "node: " && node --version 2>/dev/null || echo "$(YELLOW)Neither bun nor node found$(NC)")
+	@echo -n "  docker: "
+	@docker --version || echo "$(YELLOW)NOT FOUND (required for E2E tests)$(NC)"
+	@echo "$(GREEN)✓ Dependency check complete$(NC)"
+
+prover-refactor-health: prover-verify-deps prover-check prover-lint prover-fmt-check prover-test ## Full health check for prover refactor
+	@echo ""
+	@echo "$(GREEN)====================================$(NC)"
+	@echo "$(GREEN)✓ Prover Refactor Health Check PASS$(NC)"
+	@echo "$(GREEN)====================================$(NC)"
+	@echo ""
+	@echo "Metrics:"
+	@echo "  main.rs lines: $$(wc -l src/prover-node/src/main.rs | awk '{print $$1}')"
+	@echo "  Total modules: $$(find src/prover-node/src -name '*.rs' | wc -l)"
+	@echo ""
+
+prover-stats: ## Show prover code statistics
+	@echo "$(BLUE)Prover Node Statistics:$(NC)"
+	@echo ""
+	@echo "File sizes:"
+	@wc -l src/prover-node/src/main.rs
+	@wc -l src/prover-node/src/core/*.rs 2>/dev/null || echo "  core/* (not yet created)"
+	@wc -l src/prover-node/src/engines/*.rs 2>/dev/null || echo "  engines/* (not yet created)"
+	@wc -l src/prover-node/src/services/*.rs 2>/dev/null || echo "  services/* (not yet created)"
+	@wc -l src/prover-node/src/cli/*.rs 2>/dev/null || echo "  cli/* (not yet created)"
+	@echo ""
+	@echo "Module structure:"
+	@tree -L 3 src/prover-node/src/ 2>/dev/null || ls -R src/prover-node/src/
+
+prover-clean: ## Clean prover build artifacts
+	@echo "$(BLUE)Cleaning prover-node build artifacts...$(NC)"
+	@cd src/prover-node && cargo clean
+	@echo "$(GREEN)✓ Prover cleaned$(NC)"
+
+# Refactor workflow shortcuts
+refactor-sprint1: prover-verify-deps prover-setup-circuits ## Setup for Sprint 1 (A1, A2, A4, B4)
+	@echo "$(GREEN)✓ Ready to start Sprint 1$(NC)"
+	@echo ""
+	@echo "Next steps:"
+	@echo "  1. Execute TASK A1: Setup directory structure"
+	@echo "  2. Execute TASK A2: Circuit Registry"
+	@echo "  3. Execute TASK A4: CLI extraction"
+	@echo "  4. See EXECUTION_ROADMAP.md for details"
+
+refactor-checkpoint: prover-check prover-test prover-lint ## Quick checkpoint validation
+	@echo "$(GREEN)✓ Checkpoint validation passed$(NC)"
+
+# Aliases
+p-check: prover-check
+p-test: prover-test
+p-lint: prover-lint
+p-fmt: prover-fmt
+p-health: prover-refactor-health
+p-stats: prover-stats
+

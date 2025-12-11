@@ -6,6 +6,7 @@
 mod handlers;
 mod clients;
 mod middleware;
+mod solana;
 
 use actix_cors::Cors;
 use actix_web::{web, App, HttpServer, middleware as actix_middleware};
@@ -13,12 +14,14 @@ use std::env;
 
 use clients::{BlinkClient, X402Client};
 use middleware::rate_limit::{create_rate_limiter, GlobalRateLimiter};
+use solana::SolanaVerifier;
 
 /// Application state shared across handlers
 pub struct AppState {
     pub x402_client: X402Client,
     pub blink_client: BlinkClient,
     pub rate_limiter: GlobalRateLimiter,
+    pub solana_verifier: SolanaVerifier,
 }
 
 #[tokio::main]
@@ -39,6 +42,8 @@ async fn main() -> std::io::Result<()> {
 
     let x402_url = env::var("X402_URL").unwrap_or_else(|_| "http://localhost:8081".to_string());
     let blink_url = env::var("BLINK_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
+    let solana_rpc_url = env::var("SOLANA_RPC_URL")
+        .unwrap_or_else(|_| "https://api.devnet.solana.com".to_string());
 
     let rate_limit_rpm: u32 = env::var("RATE_LIMIT_RPM")
         .unwrap_or_else(|_| "100".to_string())
@@ -49,11 +54,13 @@ async fn main() -> std::io::Result<()> {
     let x402_client = X402Client::new(&x402_url);
     let blink_client = BlinkClient::new(&blink_url);
     let rate_limiter = create_rate_limiter(rate_limit_rpm);
+    let solana_verifier = SolanaVerifier::new(&solana_rpc_url);
 
     let app_state = web::Data::new(AppState {
         x402_client,
         blink_client,
         rate_limiter,
+        solana_verifier,
     });
 
     log::info!("");
