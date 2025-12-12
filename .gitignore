@@ -460,3 +460,4 @@ test-ledger/
 logs/
 
 releases/
+*.arkzkey
