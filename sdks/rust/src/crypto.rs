@@ -1,7 +1,8 @@
 use anyhow::{anyhow, Result};
-use ark_bn254::{Fr, G1Projective};
-use ark_ff::{Field, PrimeField};
+use ark_bn254::Fr;
+use ark_ff::{BigInteger, Field, PrimeField};
 use blake2::{Blake2s256, Digest};
+use std::str::FromStr;
 
 #[derive(Debug, Clone)]
 pub struct MerkleProof {

@@ -2,7 +2,8 @@
 // Privacy-preserving FHE computation on Solana
 
 export { Zyber, BatchBuilder } from './client';
-export { ZkClient, MIN_PROVER_STAKE, type ZkClientOptions, type ProverStakeInfo, type CreateZkJobParams, type SubmitProofParams } from './zk-client';
+export { ZkClient, MIN_PROVER_STAKE, type ZkClientOptions, type ProverStakeInfo, type CreateZkJobParams, type SubmitProofParams, type QuoteResponse } from './zk-client';
+export { ProverClient, type ProverClientOptions, type FheJobSubmitResult } from './prover-client';
 export { X402Client, createX402Client, getEstimatedPrice, type X402Quote, type X402PaymentToken, type X402Config } from './x402';
 export { verifyGroth16, type Groth16Proof, type VerifyGroth16Params } from './proving';
 export {

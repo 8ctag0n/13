@@ -1957,6 +1957,73 @@ async fn get_job_result(data: web::Data<AppState>, job_id: web::Path<i64>) -> im
     }
 }
 
+// =============================================================================
+// Prover Verification Endpoints (for x402-gateway)
+// =============================================================================
+
+#[derive(Debug, Serialize)]
+pub struct ProverStatusResponse {
+    pub registered: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reputation: Option<i32>,
+}
+
+/// GET /internal/prover/{pubkey}/status
+///
+/// Verify if a prover is registered and active.
+/// Used by x402-gateway to authorize requests from provers.
+#[get("/internal/prover/{pubkey}/status")]
+async fn get_prover_status(
+    data: web::Data<AppState>,
+    pubkey: web::Path<String>,
+) -> impl Responder {
+    log::info!("Checking prover status for pubkey: {}", *pubkey);
+
+    // Query provers table
+    let query_result = sqlx::query_as::<_, (bool, i32)>(
+        r#"
+        SELECT is_active, reputation_score
+        FROM provers
+        WHERE pubkey = $1
+        "#,
+    )
+    .bind(&*pubkey)
+    .fetch_optional(&data.db_pool)
+    .await;
+
+    match query_result {
+        Ok(Some((is_active, reputation_score))) => {
+            log::info!(
+                "Prover {} found: active={}, reputation={}",
+                *pubkey,
+                is_active,
+                reputation_score
+            );
+            HttpResponse::Ok().json(ProverStatusResponse {
+                registered: true,
+                active: Some(is_active),
+                reputation: Some(reputation_score),
+            })
+        }
+        Ok(None) => {
+            log::warn!("Prover {} not found in database", *pubkey);
+            HttpResponse::Ok().json(ProverStatusResponse {
+                registered: false,
+                active: None,
+                reputation: None,
+            })
+        }
+        Err(e) => {
+            log::error!("Database error checking prover status: {}", e);
+            HttpResponse::InternalServerError().json(json!({
+                "error": format!("Database error: {}", e)
+            }))
+        }
+    }
+}
+
 // ============================================================================
 // Route Configuration
 // ============================================================================
@@ -1981,5 +2048,7 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         .service(get_fhe_result)
         // Server key pre-upload endpoints
         .service(upload_server_key) // POST /api/server-key/upload
-        .service(check_server_key_exists); // GET /api/server-key/{hash}/exists
+        .service(check_server_key_exists) // GET /api/server-key/{hash}/exists
+        // Prover verification endpoints (for x402-gateway)
+        .service(get_prover_status); // GET /internal/prover/{pubkey}/status
 }

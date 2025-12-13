@@ -1,9 +1,10 @@
 use crate::circuits::VerificationKeyJson;
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use ark_bn254::{Bn254, Fq, Fq2, Fr, G1Affine, G2Affine};
-use ark_ec::bn::Bn;
+use ark_ff::PrimeField;
 use ark_groth16::{prepare_verifying_key, Groth16, PreparedVerifyingKey, Proof, VerifyingKey};
-use std::str::FromStr;
+use ark_snark::SNARK;
+use core::str::FromStr;
 
 pub fn vk_from_json(vk: &VerificationKeyJson) -> Result<VerifyingKey<Bn254>> {
     let alpha_g1 = parse_g1(&vk.vk_alpha_1)?;
@@ -27,24 +28,42 @@ pub fn vk_from_json(vk: &VerificationKeyJson) -> Result<VerifyingKey<Bn254>> {
 }
 
 pub fn proof_from_json(proof: &serde_json::Value) -> Result<Proof<Bn254>> {
-    let pi_a = parse_g1(
-        proof
-            .get("pi_a")
-            .and_then(|v| v.as_array())
-            .ok_or_else(|| anyhow!("missing pi_a"))?,
-    )?;
-    let pi_b = parse_g2(
-        proof
-            .get("pi_b")
-            .and_then(|v| v.as_array())
-            .ok_or_else(|| anyhow!("missing pi_b"))?,
-    )?;
-    let pi_c = parse_g1(
-        proof
-            .get("pi_c")
-            .and_then(|v| v.as_array())
-            .ok_or_else(|| anyhow!("missing pi_c"))?,
-    )?;
+    let pi_a_arr = proof
+        .get("pi_a")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| anyhow!("missing pi_a"))?;
+    let pi_a_strs: Vec<String> = pi_a_arr
+        .iter()
+        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+        .collect();
+    let pi_a = parse_g1(&pi_a_strs)?;
+
+    let pi_b_arr = proof
+        .get("pi_b")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| anyhow!("missing pi_b"))?;
+    let pi_b_vecs: Vec<Vec<String>> = pi_b_arr
+        .iter()
+        .filter_map(|v| {
+            v.as_array().map(|arr| {
+                arr.iter()
+                    .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+        })
+        .collect();
+    let pi_b = parse_g2(&pi_b_vecs)?;
+
+    let pi_c_arr = proof
+        .get("pi_c")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| anyhow!("missing pi_c"))?;
+    let pi_c_strs: Vec<String> = pi_c_arr
+        .iter()
+        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+        .collect();
+    let pi_c = parse_g1(&pi_c_strs)?;
+
     Ok(Proof { a: pi_a, b: pi_b, c: pi_c })
 }
 

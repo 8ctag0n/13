@@ -9,6 +9,8 @@ mod models;
 mod blink_client;
 mod rate_limit;
 mod gateway;
+mod prover_auth;
+mod prover_gateway;
 
 use actix_cors::Cors;
 use actix_web::{web, App, HttpServer};
@@ -87,6 +89,11 @@ async fn main() -> std::io::Result<()> {
     log::info!("  POST   /gateway/fhe/create         (validate + proxy FHE job)");
     log::info!("  GET    /gateway/health             (gateway health check)");
     log::info!("");
+    log::info!("  Prover Gateway (signature-authenticated):");
+    log::info!("  GET    /gateway/prover/witness/{{hash}}      (download witness)");
+    log::info!("  POST   /gateway/prover/zk/{{id}}/submit      (submit ZK proof)");
+    log::info!("  POST   /gateway/prover/fhe/{{id}}/submit     (submit FHE result)");
+    log::info!("");
     log::info!("Circuit Type Pricing:");
     log::info!("  0-9   (FHE):        0.01 SOL");
     log::info!("  10-19 (ZK Core):    0.05 SOL");
@@ -109,6 +116,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(app_state.clone())
             .configure(handlers::configure_routes)
             .configure(gateway::configure_gateway_routes)
+            .configure(prover_gateway::configure_prover_routes)
     })
     .bind((host.as_str(), port))?
     .run()

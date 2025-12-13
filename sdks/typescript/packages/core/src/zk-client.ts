@@ -64,9 +64,19 @@ export interface ProverStakeInfo {
   reputationScore: number;
 }
 
+export interface QuoteResponse {
+  circuit_type: number;
+  price_lamports: number;
+  price_sol: number;
+  expires_at: number;
+  quote_id: string;
+  payment_recipient: string;
+}
+
 export interface CreateZkJobParams {
   circuitType: ZkCircuitType;
   witnessData: Uint8Array;
+  paymentToken?: string;
   options?: ZkJobOptions;
 }
 
@@ -160,6 +170,70 @@ export class ZkClient {
   }
 
   // ===========================================================================
+  // Quote & Pricing
+  // ===========================================================================
+
+  /**
+   * Get a price quote for a ZK circuit
+   *
+   * This should be called before creating a job to get the current price
+   * and payment recipient address for Solana payment.
+   *
+   * @example
+   * ```typescript
+   * const quote = await zk.getQuote(ZkCircuitType.ProofOfInnocence);
+   * console.log('Price:', quote.price_sol, 'SOL');
+   * console.log('Payment recipient:', quote.payment_recipient);
+   * ```
+   */
+  async getQuote(circuitType: ZkCircuitType): Promise<QuoteResponse> {
+    const response = await fetch(`${this.config.backendUrl}/api/quote`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        circuit_type: circuitType,
+        payer: this.signer.address,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to get quote: ${response.statusText}`);
+    }
+
+    return response.json();
+  }
+
+  /**
+   * Confirm payment and get payment token
+   *
+   * After paying on Solana, this method confirms the payment and returns
+   * a token that can be used to create a job.
+   *
+   * @example
+   * ```typescript
+   * const quote = await zk.getQuote(ZkCircuitType.ProofOfInnocence);
+   * const txSig = await payOnSolana(quote.payment_recipient, quote.price_lamports);
+   * const { token_id } = await zk.confirmPayment(quote.quote_id, txSig);
+   * ```
+   */
+  async confirmPayment(quoteId: string, signature: string): Promise<{ token_id: string }> {
+    const response = await fetch(`${this.config.backendUrl}/api/confirm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        quote_id: quoteId,
+        tx_signature: signature,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to confirm payment: ${response.statusText}`);
+    }
+
+    return response.json();
+  }
+
+  // ===========================================================================
   // Job Operations
   // ===========================================================================
 
@@ -168,10 +242,17 @@ export class ZkClient {
    *
    * @example
    * ```typescript
+   * // 1. Get quote
+   * const quote = await zk.getQuote(ZkCircuitType.PrivateVote);
+   *
+   * // 2. Pay on Solana (user handles this)
+   * const txSignature = await sendPayment(quote.payment_recipient, quote.price_lamports);
+   *
+   * // 3. Create job with payment proof
    * const job = await zk.createJob({
    *   circuitType: ZkCircuitType.PrivateVote,
    *   witnessData: witnessBytes,
-   *   options: { priceLamports: 100_000_000n }
+   *   paymentToken: txSignature,
    * });
    * ```
    */
@@ -192,7 +273,8 @@ export class ZkClient {
       witnessHash,
       params.witnessData.length,
       opts.priceLamports!,
-      opts.timeoutSeconds!
+      opts.timeoutSeconds!,
+      params.paymentToken
     );
 
     const transactionMessage = pipe(
@@ -287,7 +369,7 @@ export class ZkClient {
    * Get job details
    */
   async getJob(jobId: number): Promise<ZkJob> {
-    const response = await fetch(`${this.config.backendUrl}/api/zk/jobs/${jobId}`);
+    const response = await fetch(`${this.config.backendUrl}/api/jobs/zk/${jobId}`);
     if (!response.ok) {
       throw new Error(`Failed to get job: ${response.statusText}`);
     }
@@ -456,7 +538,7 @@ export class ZkClient {
     const proverAddress = prover ?? this.signer.address;
     const stakePda = await this.getProverStakePda(proverAddress);
 
-    const response = await fetch(`${this.config.backendUrl}/api/zk/provers/${stakePda}`);
+    const response = await fetch(`${this.config.backendUrl}/api/jobs/zk/provers/${stakePda}`);
     if (response.status === 404) {
       return null;
     }
@@ -649,18 +731,31 @@ export class ZkClient {
     witnessHash: Uint8Array,
     witnessSize: number,
     priceLamports: bigint,
-    timeoutSeconds: number
+    timeoutSeconds: number,
+    paymentToken?: string
   ): Promise<IInstruction[]> {
-    const response = await fetch(`${this.config.backendUrl}/api/zk/build-create-job`, {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+
+    let endpoint: string;
+
+    if (paymentToken) {
+      headers['X-Payment-Token'] = paymentToken;
+      endpoint = `${this.config.backendUrl}/gateway/zk/create`;
+    } else {
+      endpoint = `${this.config.backendUrl}/api/jobs/zk/validate-and-build`;
+    }
+
+    const response = await fetch(endpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({
         creator: this.signer.address,
-        circuitType,
-        witnessHash: Buffer.from(witnessHash).toString('hex'),
-        witnessSize,
-        priceLamports: priceLamports.toString(),
-        timeoutSeconds,
+        circuit_type: circuitType,
+        witness_commitment: Buffer.from(witnessHash).toString('hex'),
+        public_inputs: [], // TODO: Extract from witness data
+        timeout_seconds: timeoutSeconds,
       }),
     });
 
@@ -672,27 +767,16 @@ export class ZkClient {
   }
 
   private async buildClaimJobInstruction(jobAddress: Address): Promise<IInstruction[]> {
-    const response = await fetch(`${this.config.backendUrl}/api/zk/build-claim-job`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        prover: this.signer.address,
-        jobAddress,
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to build claim job instruction: ${response.statusText}`);
-    }
-
-    return (await response.json()).instructions;
+    // TODO: Backend endpoint /internal/zk/build-claim-job doesn't exist yet
+    // This needs to be implemented in the backend or use a different approach
+    throw new Error('buildClaimJobInstruction not implemented - backend endpoint missing');
   }
 
   private async buildSubmitProofInstruction(
     jobAddress: Address,
     proofHash: Uint8Array
   ): Promise<IInstruction[]> {
-    const response = await fetch(`${this.config.backendUrl}/api/zk/build-submit-proof`, {
+    const response = await fetch(`${this.config.backendUrl}/api/jobs/zk/build-submit-proof`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -710,7 +794,7 @@ export class ZkClient {
   }
 
   private async buildCancelJobInstruction(jobAddress: Address): Promise<IInstruction[]> {
-    const response = await fetch(`${this.config.backendUrl}/api/zk/build-cancel-job`, {
+    const response = await fetch(`${this.config.backendUrl}/api/jobs/zk/build-cancel-job`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -731,7 +815,7 @@ export class ZkClient {
     proof: Uint8Array,
     publicInputs: Uint8Array
   ): Promise<IInstruction[]> {
-    const response = await fetch(`${this.config.backendUrl}/api/zk/build-dispute-proof`, {
+    const response = await fetch(`${this.config.backendUrl}/api/jobs/zk/build-dispute-proof`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -750,7 +834,7 @@ export class ZkClient {
   }
 
   private async buildRegisterProverInstruction(stakeAmount: bigint): Promise<IInstruction[]> {
-    const response = await fetch(`${this.config.backendUrl}/api/zk/build-register-prover`, {
+    const response = await fetch(`${this.config.backendUrl}/api/jobs/zk/build-register-prover`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -767,7 +851,7 @@ export class ZkClient {
   }
 
   private async buildDepositStakeInstruction(amount: bigint): Promise<IInstruction[]> {
-    const response = await fetch(`${this.config.backendUrl}/api/zk/build-deposit-stake`, {
+    const response = await fetch(`${this.config.backendUrl}/api/jobs/zk/build-deposit-stake`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -784,7 +868,7 @@ export class ZkClient {
   }
 
   private async buildWithdrawStakeInstruction(amount: bigint): Promise<IInstruction[]> {
-    const response = await fetch(`${this.config.backendUrl}/api/zk/build-withdraw-stake`, {
+    const response = await fetch(`${this.config.backendUrl}/api/jobs/zk/build-withdraw-stake`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -891,7 +975,7 @@ export class ZkClient {
   }
 
   private async uploadWitness(witnessHash: Uint8Array, witnessData: Uint8Array): Promise<void> {
-    const response = await fetch(`${this.config.backendUrl}/api/zk/witness`, {
+    const response = await fetch(`${this.config.backendUrl}/api/jobs/zk/witness`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -927,7 +1011,7 @@ export class ZkClient {
 
   private async getJobIdFromSignature(signature: string): Promise<number> {
     const response = await fetch(
-      `${this.config.backendUrl}/api/zk/job-id-from-signature/${signature}`
+      `${this.config.backendUrl}/api/jobs/zk/job-id-from-signature/${signature}`
     );
     if (!response.ok) {
       throw new Error(`Failed to get job ID: ${response.statusText}`);
@@ -938,7 +1022,7 @@ export class ZkClient {
 
   private async getDisputeResultFromSignature(signature: string): Promise<DisputeResult> {
     const response = await fetch(
-      `${this.config.backendUrl}/api/zk/dispute-result-from-signature/${signature}`
+      `${this.config.backendUrl}/api/jobs/zk/dispute-result-from-signature/${signature}`
     );
     if (!response.ok) {
       throw new Error(`Failed to get dispute result: ${response.statusText}`);
