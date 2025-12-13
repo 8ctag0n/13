@@ -43,9 +43,9 @@ pub struct ProverArgs {
     #[arg(long, default_value = "3")]
     pub max_concurrent_jobs: usize,
 
-    /// Witness storage backend URL
+    /// Gateway URL for witness storage and proof submission
     #[arg(long, default_value = "http://localhost:8080")]
-    pub witness_backend_url: String,
+    pub gateway_url: String,
 
     /// FHE server key file path (required for FHE jobs)
     #[arg(long)]

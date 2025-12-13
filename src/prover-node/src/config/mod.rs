@@ -16,7 +16,7 @@ pub struct ProverConfig {
     pub cost_multiplier: f64,
     pub mock_proving_time: Duration,
     pub max_concurrent_jobs: usize,
-    pub witness_backend_url: String,
+    pub gateway_url: String,
     pub blink_backend_url: String,
     pub zk_circuits_path: String,
     pub fhe_server_key_path: Option<String>,
@@ -34,7 +34,7 @@ impl ProverConfig {
         cost_multiplier: f64,
         mock_proving_time: Duration,
         max_concurrent_jobs: usize,
-        witness_backend_url: String,
+        gateway_url: String,
         blink_backend_url: String,
         zk_circuits_path: String,
         fhe_server_key_path: Option<String>,
@@ -49,7 +49,7 @@ impl ProverConfig {
             cost_multiplier,
             mock_proving_time,
             max_concurrent_jobs,
-            witness_backend_url,
+            gateway_url,
             blink_backend_url,
             zk_circuits_path,
             fhe_server_key_path,
@@ -69,7 +69,7 @@ pub struct ProverConfiguration {
     pub prover_pda: String,
     pub encryption_pubkey: String,
     pub stake_amount: u64,
-    pub witness_backend_url: String,
+    pub gateway_url: String,
     pub created_at: String,
 }
 
@@ -84,7 +84,7 @@ impl ProverConfiguration {
         prover_pda: Pubkey,
         encryption_pubkey: String,
         stake_amount: u64,
-        witness_backend_url: String,
+        gateway_url: String,
     ) -> Self {
         use chrono::Utc;
 
@@ -98,7 +98,7 @@ impl ProverConfiguration {
             prover_pda: prover_pda.to_string(),
             encryption_pubkey,
             stake_amount,
-            witness_backend_url,
+            gateway_url,
             created_at: Utc::now().to_rfc3339(),
         }
     }

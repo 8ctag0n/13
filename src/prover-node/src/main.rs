@@ -32,6 +32,7 @@ mod cli;
 mod config;
 mod core;
 mod engines;
+mod gateway;
 mod halo2_prover;
 mod roi_calculator;
 mod services;
@@ -44,6 +45,7 @@ mod wizard;
 use cli::{ProverArgs, ProverCommand};
 use config::ProverConfig;
 use core::{CircuitRegistry, JobProcessor};
+use gateway::GatewayClient;
 use halo2_prover::Halo2Prover;
 use roi_calculator::ROICalculator;
 use witness_encryption::WitnessEncryption;
@@ -69,7 +71,7 @@ fn config_from_args(args: &ProverArgs) -> Result<ProverConfig> {
         args.cost_multiplier,
         Duration::from_secs(args.mock_proving_time),
         args.max_concurrent_jobs,
-        args.witness_backend_url.clone(),
+        args.gateway_url.clone(),
         args.blink_backend_url.clone(),
         args.zk_circuits_path.clone(),
         args.fhe_server_key_path
@@ -121,10 +123,21 @@ impl ProverNode {
 
         // Initialize witness fetcher
         info!("Initializing witness fetcher...");
-        let witness_fetcher = WitnessFetcher::new(config.witness_backend_url.clone());
+        let witness_fetcher = WitnessFetcher::new(config.gateway_url.clone());
         info!(
             "Witness fetcher ready (backend: {})",
-            config.witness_backend_url
+            config.gateway_url
+        );
+
+        // Initialize GatewayClient
+        info!("Initializing gateway client...");
+        let gateway_client = GatewayClient::new(
+            config.gateway_url.clone(),
+            Arc::new(keypair.insecure_clone()),
+        );
+        info!(
+            "Gateway client ready (gateway: {})",
+            config.gateway_url
         );
 
         // Initialize FHE engine if server key is provided
@@ -155,6 +168,7 @@ impl ProverNode {
         let halo2_prover_arc = Arc::new(halo2_prover);
         let witness_encryption_arc = Arc::new(witness_encryption);
         let witness_fetcher_arc = Arc::new(witness_fetcher);
+        let gateway_client_arc = Arc::new(gateway_client);
 
         // Initialize JobProcessor with all dependencies
         let job_processor = Arc::new(JobProcessor::new(
@@ -163,6 +177,7 @@ impl ProverNode {
             halo2_prover_arc,
             witness_encryption_arc,
             witness_fetcher_arc,
+            gateway_client_arc,
             fhe_engine,
         ));
 

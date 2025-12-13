@@ -10,6 +10,7 @@ use zyberlink_types::{CircuitType, FheOperation, JobStatus};
 
 use crate::circuits::{CensusCircuit, DemographicsCircuit, PassportCircuit, VotingCircuit};
 use crate::core::CircuitRegistry;
+use crate::gateway::GatewayClient;
 use crate::halo2_prover::{Halo2Prover, OrchardWitness};
 use crate::tui;
 use crate::witness_encryption::WitnessEncryption;
@@ -23,6 +24,7 @@ pub struct JobProcessor {
     halo2_prover: Arc<Halo2Prover>,
     witness_encryption: Arc<WitnessEncryption>,
     witness_fetcher: Arc<WitnessFetcher>,
+    gateway_client: Arc<GatewayClient>,
     fhe_engine: Option<Arc<FheEngine>>,
 }
 
@@ -34,6 +36,7 @@ impl JobProcessor {
         halo2_prover: Arc<Halo2Prover>,
         witness_encryption: Arc<WitnessEncryption>,
         witness_fetcher: Arc<WitnessFetcher>,
+        gateway_client: Arc<GatewayClient>,
         fhe_engine: Option<Arc<FheEngine>>,
     ) -> Self {
         Self {
@@ -42,6 +45,7 @@ impl JobProcessor {
             halo2_prover,
             witness_encryption,
             witness_fetcher,
+            gateway_client,
             fhe_engine,
         }
     }
@@ -500,43 +504,18 @@ impl JobProcessor {
         Ok(())
     }
 
-    /// Upload FHE result to witness backend
+    /// Upload FHE result to gateway
     async fn upload_fhe_result(&self, job_id: u64, proof_bytes: &[u8]) -> Result<()> {
         info!(
-            "[Job {}] Uploading encrypted result to witness backend...",
+            "[Job {}] Uploading encrypted result to gateway...",
             job_id
         );
 
-        let witness_backend_url =
-            std::env::var("WITNESS_BACKEND_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
-
-        let upload_url = format!(
-            "{}/fhe-result?job_id={}&prover={}",
-            witness_backend_url,
-            job_id,
-            self.keypair.pubkey()
-        );
-
-        let response = reqwest::blocking::Client::new()
-            .post(&upload_url)
-            .body(proof_bytes.to_vec())
-            .send()
-            .context("Failed to upload FHE result to witness backend")?;
-
-        if !response.status().is_success() {
-            return Err(anyhow::anyhow!(
-                "Failed to upload FHE result: HTTP {}",
-                response.status()
-            ));
-        }
-
-        let upload_response: serde_json::Value = response
-            .json()
-            .context("Failed to parse upload response")?;
-
-        let stored_commitment = upload_response["commitment"]
-            .as_str()
-            .context("Missing commitment in response")?;
+        let stored_commitment = self
+            .gateway_client
+            .submit_fhe_result(job_id, proof_bytes)
+            .await
+            .context("Failed to submit FHE result to gateway")?;
 
         info!(
             "[Job {}] FHE result stored with commitment: {}",
