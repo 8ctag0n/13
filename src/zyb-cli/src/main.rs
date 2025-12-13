@@ -5,6 +5,10 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
+use zyb_cli::commands::compliance::ComplianceCommands;
+use zyb_cli::commands::market::MarketCommands;
+use zyb_cli::commands::vote::VoteCommands;
+
 #[derive(Parser, Debug)]
 #[command(name = "zyb")]
 #[command(about = "ZyberLink unified CLI for FHE and ZK operations")]
@@ -23,6 +27,18 @@ enum Commands {
     /// ZK operations
     #[command(subcommand)]
     Zk(ZkCommands),
+
+    /// Vote operations (private voting)
+    #[command(subcommand)]
+    Vote(VoteCommands),
+
+    /// Market operations (prediction markets)
+    #[command(subcommand)]
+    Market(MarketCommands),
+
+    /// Compliance operations (portfolio verification)
+    #[command(subcommand)]
+    Compliance(ComplianceCommands),
 
     /// Interactive wizard for creating jobs
     Wizard,
@@ -159,6 +175,16 @@ fn main() -> Result<()> {
             ZkCommands::Circuits => zyb_cli::commands::zk::circuits_command(),
             ZkCommands::Verify { proof } => zyb_cli::commands::zk::verify_command(proof),
         },
+
+        Commands::Vote(vote_cmd) => zyb_cli::commands::vote::handle_vote_command(vote_cmd),
+
+        Commands::Market(market_cmd) => {
+            zyb_cli::commands::market::handle_market_command(market_cmd)
+        }
+
+        Commands::Compliance(compliance_cmd) => {
+            zyb_cli::commands::compliance::handle_compliance_command(compliance_cmd)
+        }
 
         Commands::Wizard => zyb_cli::ui::run_wizard(),
     }

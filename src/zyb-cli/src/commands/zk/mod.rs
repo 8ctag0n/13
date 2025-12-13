@@ -101,7 +101,7 @@ pub async fn create_command(
     // Check if payment flow is enabled
     let response = if let Some(keypair_path_buf) = keypair_path {
         // New payment flow with Solana
-        execute_payment_flow(
+        execute_payment_flow_helper(
             &client,
             request,
             &keypair_path_buf,
@@ -367,7 +367,7 @@ fn colorize_status(status: &str) -> String {
 }
 
 /// Execute payment flow with Solana
-async fn execute_payment_flow(
+pub async fn execute_payment_flow_helper(
     client: &ZkClient,
     request: CreateJobRequest,
     keypair_path: &PathBuf,
