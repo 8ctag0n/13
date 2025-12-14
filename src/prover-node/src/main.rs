@@ -20,252 +20,66 @@ use solana_sdk::{
 };
 use std::{sync::Arc, time::Duration};
 use tokio::time::sleep;
-use zyberlink_sdk::{
-    fetch_fhe_consensus, fetch_job, find_fhe_jobs_needing_provers, find_pending_jobs,
-    FheConsensusData, MarketplaceClient,
-};
-use zyberlink_types::{CircuitType, FheOperation, FhePredicate, HistogramBin, JobStatus};
+use zyberlink_sdk::{find_fhe_jobs_needing_provers, find_pending_jobs, MarketplaceClient};
+use zyberlink_types::CircuitType;
 
+// FHE engine from shared crate
+use zyberlink_fhe::{deserialize_server_key, FheEngine};
+
+// Internal modules
 mod circuits;
+mod cli;
 mod config;
+mod core;
+mod engines;
+mod gateway;
 mod halo2_prover;
 mod roi_calculator;
+mod services;
 mod tui;
 mod witness_encryption;
 mod witness_fetcher;
 mod wizard;
 
-// FHE engine from shared crate (eliminates duplicate code)
-use zyberlink_fhe::{FheEngine, deserialize_server_key};
-use halo2_prover::{Halo2Prover, OrchardWitness};
+// Re-exports for convenience
+use cli::{ProverArgs, ProverCommand};
+use config::ProverConfig;
+use core::{CircuitRegistry, JobProcessor};
+use gateway::GatewayClient;
+use halo2_prover::Halo2Prover;
 use roi_calculator::ROICalculator;
 use witness_encryption::WitnessEncryption;
 use witness_fetcher::WitnessFetcher;
 
-// Circuit type ID constants (must match program)
-const CIRCUIT_ZCASH_ORCHARD: u8 = 0;
-const CIRCUIT_ANONYMOUS_VOTE: u8 = 2;
-const CIRCUIT_CREDENTIAL: u8 = 3;
-const CIRCUIT_FHE_ADD: u8 = 4;
-const CIRCUIT_FHE_MULTIPLY: u8 = 5;
-const CIRCUIT_FHE_SUM: u8 = 6;
-const CIRCUIT_FHE_THRESHOLD: u8 = 7;
-const CIRCUIT_FHE_RANGE_CHECK: u8 = 8;
-const CIRCUIT_FHE_AVERAGE: u8 = 9;
-const CIRCUIT_FHE_COUNT_IF: u8 = 10;
-const CIRCUIT_FHE_HISTOGRAM: u8 = 11;
+/// Helper to create ProverConfig from args
+fn config_from_args(args: &ProverArgs) -> Result<ProverConfig> {
+    let program_id = args
+        .program_id
+        .as_ref()
+        .context("Program ID is required")?
+        .parse()
+        .context("Invalid program ID format")?;
 
-/// Convert circuit_type u8 to CircuitType enum
-/// For FHE jobs, also requires FheConsensusData to reconstruct the FheOperation
-fn circuit_type_from_u8(circuit_type: u8, fhe_data: Option<&FheConsensusData>) -> CircuitType {
-    match circuit_type {
-        CIRCUIT_ZCASH_ORCHARD => CircuitType::ZcashOrchard,
-        1 => CircuitType::ZcashOrchard, // ZcashSapling not yet supported
-        CIRCUIT_ANONYMOUS_VOTE => CircuitType::AnonymousVote,
-        CIRCUIT_CREDENTIAL => CircuitType::Credential,
-        CIRCUIT_FHE_ADD => {
-            let param = fhe_data.map(|d| d.operation_param1 as u8).unwrap_or(0);
-            CircuitType::FheComputation(FheOperation::Add(param))
-        }
-        CIRCUIT_FHE_MULTIPLY => {
-            let param = fhe_data.map(|d| d.operation_param1 as u8).unwrap_or(0);
-            CircuitType::FheComputation(FheOperation::Multiply(param))
-        }
-        CIRCUIT_FHE_SUM => {
-            let count = fhe_data.map(|d| d.operation_param1).unwrap_or(0);
-            CircuitType::FheComputation(FheOperation::Sum {
-                expected_count: count,
-            })
-        }
-        CIRCUIT_FHE_THRESHOLD => {
-            let threshold = fhe_data.map(|d| d.operation_param1 as u8).unwrap_or(0);
-            let greater_or_equal = fhe_data.map(|d| d.operation_param2 != 0).unwrap_or(true);
-            CircuitType::FheComputation(FheOperation::Threshold {
-                threshold,
-                greater_or_equal,
-            })
-        }
-        CIRCUIT_FHE_RANGE_CHECK => {
-            let min = fhe_data.map(|d| d.operation_param2).unwrap_or(0);
-            let max = fhe_data.map(|d| d.operation_param3).unwrap_or(255);
-            CircuitType::FheComputation(FheOperation::RangeCheck { min, max })
-        }
-        CIRCUIT_FHE_AVERAGE => {
-            let count = fhe_data.map(|d| d.operation_param1).unwrap_or(0);
-            CircuitType::FheComputation(FheOperation::Average {
-                expected_count: count,
-            })
-        }
-        CIRCUIT_FHE_COUNT_IF => {
-            let count = fhe_data.map(|d| d.operation_param1).unwrap_or(0);
-            // param2 = predicate type (0=Equals, 1=GreaterThan, 2=LessThan, 3=InRange, 4=NotEquals)
-            let predicate_type = fhe_data.map(|d| d.operation_param2).unwrap_or(0);
-            // param3 = predicate value (threshold)
-            let predicate_value = fhe_data.map(|d| d.operation_param3).unwrap_or(0);
-
-            // Reconstruct predicate from packed params
-            let predicate = match predicate_type {
-                1 => zyberlink_types::fhe::FhePredicate::GreaterThan(predicate_value),
-                2 => zyberlink_types::fhe::FhePredicate::LessThan(predicate_value),
-                3 => zyberlink_types::fhe::FhePredicate::InRange {
-                    min: predicate_value,
-                    max: predicate_value,
-                }, // Note: max not fully stored, limitation of packed format
-                4 => zyberlink_types::fhe::FhePredicate::NotEquals(predicate_value),
-                _ => zyberlink_types::fhe::FhePredicate::Equals(predicate_value),
-            };
-
-            CircuitType::FheComputation(FheOperation::CountIf {
-                predicate,
-                expected_count: count,
-            })
-        }
-        CIRCUIT_FHE_HISTOGRAM => {
-            let bins_count = fhe_data.map(|d| d.operation_param1 as usize).unwrap_or(4);
-            // Default histogram bins, actual bins need to come from FheConsensusData extension
-            let bins = (0..bins_count)
-                .map(|i| {
-                    let bin_size = 256 / bins_count;
-                    let min = (i * bin_size) as u8;
-                    let max = ((i + 1) * bin_size - 1) as u8;
-                    HistogramBin::new(min, max, &format!("{}-{}", min, max))
-                })
-                .collect();
-            CircuitType::FheComputation(FheOperation::Histogram { bins })
-        }
-        _ => CircuitType::Custom(format!("Unknown({})", circuit_type)),
-    }
+    Ok(ProverConfig::new(
+        args.rpc_url.clone(),
+        program_id,
+        args.keypair
+            .replace("~", &std::env::var("HOME").unwrap_or_default()),
+        Duration::from_secs(args.poll_interval),
+        args.min_price,
+        args.min_roi,
+        args.cost_multiplier,
+        Duration::from_secs(args.mock_proving_time),
+        args.max_concurrent_jobs,
+        args.gateway_url.clone(),
+        args.blink_backend_url.clone(),
+        args.zk_circuits_path.clone(),
+        args.fhe_server_key_path
+            .clone()
+            .map(|p| p.replace("~", &std::env::var("HOME").unwrap_or_default())),
+    ))
 }
 
-/// Check if circuit_type u8 represents an FHE job
-fn is_fhe_circuit(circuit_type: u8) -> bool {
-    circuit_type >= 4 && circuit_type <= 11
-}
-
-/// ZyberLink Prover Node - Autonomous ZK proof generation daemon
-#[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
-struct Args {
-    #[command(subcommand)]
-    command: Option<Command>,
-
-    /// Solana RPC URL
-    #[arg(short, long, default_value = "http://localhost:8899", global = true)]
-    rpc_url: String,
-
-    /// ZyberLink program ID
-    #[arg(short, long, global = true)]
-    program_id: Option<String>,
-
-    /// Path to prover keypair file
-    #[arg(short, long, default_value = "~/.config/solana/id.json", global = true)]
-    keypair: String,
-
-    /// Polling interval in seconds
-    #[arg(long, default_value = "5")]
-    poll_interval: u64,
-
-    /// Minimum job price in lamports to accept (deprecated, use --min-roi instead)
-    #[arg(long, default_value = "1000000")]
-    min_price: u64,
-
-    /// Minimum ROI percentage required to accept a job (0.0 for demo mode)
-    #[arg(long, default_value = "0.0")]
-    min_roi: f64,
-
-    /// Operational cost multiplier for overhead (infrastructure, electricity)
-    #[arg(long, default_value = "1.5")]
-    cost_multiplier: f64,
-
-    /// Mock proving time in seconds (simulates proof generation)
-    #[arg(long, default_value = "10")]
-    mock_proving_time: u64,
-
-    /// Maximum concurrent jobs
-    #[arg(long, default_value = "3")]
-    max_concurrent_jobs: usize,
-
-    /// Witness storage backend URL
-    #[arg(long, default_value = "http://localhost:8080")]
-    witness_backend_url: String,
-
-    /// FHE server key file path (required for FHE jobs)
-    #[arg(long)]
-    fhe_server_key_path: Option<String>,
-
-    /// Enable TUI (Terminal User Interface) mode
-    #[arg(long)]
-    tui_mode: bool,
-}
-
-#[derive(Parser, Debug)]
-enum Command {
-    /// Run the prover daemon (default)
-    Run,
-
-    /// Register as a prover on-chain
-    Register {
-        /// Stake amount in lamports
-        #[arg(long, default_value = "10000000000")]
-        stake_amount: u64,
-    },
-
-    /// Show encryption public key
-    ShowPubkey,
-
-    /// Run interactive setup wizard
-    Setup {
-        /// Stake amount in lamports for registration
-        #[arg(long, default_value = "100000000")]
-        stake_amount: u64,
-    },
-}
-
-/// Prover node configuration
-#[derive(Debug, Clone)]
-struct ProverConfig {
-    rpc_url: String,
-    program_id: solana_sdk::pubkey::Pubkey,
-    keypair_path: String,
-    poll_interval: Duration,
-    min_price: u64, // Deprecated: kept for backward compatibility
-    min_roi: f64,
-    cost_multiplier: f64,
-    mock_proving_time: Duration,
-    max_concurrent_jobs: usize,
-    witness_backend_url: String,
-    fhe_server_key_path: Option<String>,
-}
-
-impl ProverConfig {
-    fn from_args(args: &Args) -> Result<Self> {
-        let program_id = args
-            .program_id
-            .as_ref()
-            .context("Program ID is required")?
-            .parse()
-            .context("Invalid program ID format")?;
-
-        Ok(Self {
-            rpc_url: args.rpc_url.clone(),
-            program_id,
-            keypair_path: args
-                .keypair
-                .replace("~", &std::env::var("HOME").unwrap_or_default()),
-            poll_interval: Duration::from_secs(args.poll_interval),
-            min_price: args.min_price,
-            min_roi: args.min_roi,
-            cost_multiplier: args.cost_multiplier,
-            mock_proving_time: Duration::from_secs(args.mock_proving_time),
-            max_concurrent_jobs: args.max_concurrent_jobs,
-            witness_backend_url: args.witness_backend_url.clone(),
-            fhe_server_key_path: args
-                .fhe_server_key_path
-                .clone()
-                .map(|p| p.replace("~", &std::env::var("HOME").unwrap_or_default())),
-        })
-    }
-}
 
 /// Main prover node that manages job polling and proof generation
 struct ProverNode {
@@ -273,11 +87,8 @@ struct ProverNode {
     keypair: Arc<Keypair>,
     config: ProverConfig,
     roi_calculator: Arc<ROICalculator>,
-    active_jobs: Arc<tokio::sync::Mutex<Vec<solana_sdk::pubkey::Pubkey>>>,
-    halo2_prover: Arc<Halo2Prover>,
-    witness_encryption: Arc<WitnessEncryption>,
-    witness_fetcher: Arc<WitnessFetcher>,
-    fhe_engine: Option<Arc<FheEngine>>,
+    active_jobs: Arc<tokio::sync::Mutex<Vec<Pubkey>>>,
+    job_processor: Arc<JobProcessor>,
     tui_state: Option<Arc<tui::TUIState>>,
     start_time: std::time::Instant,
 }
@@ -312,10 +123,21 @@ impl ProverNode {
 
         // Initialize witness fetcher
         info!("Initializing witness fetcher...");
-        let witness_fetcher = WitnessFetcher::new(config.witness_backend_url.clone());
+        let witness_fetcher = WitnessFetcher::new(config.gateway_url.clone());
         info!(
             "Witness fetcher ready (backend: {})",
-            config.witness_backend_url
+            config.gateway_url
+        );
+
+        // Initialize GatewayClient
+        info!("Initializing gateway client...");
+        let gateway_client = GatewayClient::new(
+            config.gateway_url.clone(),
+            Arc::new(keypair.insecure_clone()),
+        );
+        info!(
+            "Gateway client ready (gateway: {})",
+            config.gateway_url
         );
 
         // Initialize FHE engine if server key is provided
@@ -340,16 +162,32 @@ impl ProverNode {
             config.min_roi, config.cost_multiplier
         );
 
+        // Create shared references
+        let client_arc = Arc::new(client);
+        let keypair_arc = Arc::new(keypair);
+        let halo2_prover_arc = Arc::new(halo2_prover);
+        let witness_encryption_arc = Arc::new(witness_encryption);
+        let witness_fetcher_arc = Arc::new(witness_fetcher);
+        let gateway_client_arc = Arc::new(gateway_client);
+
+        // Initialize JobProcessor with all dependencies
+        let job_processor = Arc::new(JobProcessor::new(
+            client_arc.clone(),
+            keypair_arc.clone(),
+            halo2_prover_arc,
+            witness_encryption_arc,
+            witness_fetcher_arc,
+            gateway_client_arc,
+            fhe_engine,
+        ));
+
         Ok(Self {
-            client: Arc::new(client),
-            keypair: Arc::new(keypair),
+            client: client_arc,
+            keypair: keypair_arc,
             config,
             roi_calculator: Arc::new(roi_calculator),
             active_jobs: Arc::new(tokio::sync::Mutex::new(Vec::new())),
-            halo2_prover: Arc::new(halo2_prover),
-            witness_encryption: Arc::new(witness_encryption),
-            witness_fetcher: Arc::new(witness_fetcher),
-            fhe_engine,
+            job_processor,
             tui_state,
             start_time: std::time::Instant::now(),
         })
@@ -417,11 +255,11 @@ impl ProverNode {
         // Process regular pending jobs (mostly ZK jobs)
         for (job_pda, job) in pending_jobs {
             // Skip FHE jobs here - we handle them separately below
-            if is_fhe_circuit(job.circuit_type) {
+            if CircuitRegistry::is_fhe_circuit(job.circuit_type) {
                 continue;
             }
 
-            let circuit_type = circuit_type_from_u8(job.circuit_type, None);
+            let circuit_type = CircuitRegistry::get_circuit_type(job.circuit_type, None);
             let required_provers = 1u8; // ZK jobs use single prover
 
             // Evaluate job profitability
@@ -444,7 +282,7 @@ impl ProverNode {
 
         // Process FHE jobs that need more provers
         for (job_pda, job, fhe_data) in fhe_jobs {
-            let circuit_type = circuit_type_from_u8(job.circuit_type, Some(&fhe_data));
+            let circuit_type = CircuitRegistry::get_circuit_type(job.circuit_type, Some(&fhe_data));
             let required_provers = fhe_data.required_provers;
 
             // Evaluate job profitability
@@ -504,40 +342,19 @@ impl ProverNode {
             );
 
             // Spawn job processing task
-            let client = self.client.clone();
-            let keypair = self.keypair.clone();
             let active_jobs = self.active_jobs.clone();
-            let mock_proving_time = self.config.mock_proving_time;
-            let halo2_prover = self.halo2_prover.clone();
-            let witness_encryption = self.witness_encryption.clone();
-
-            let witness_fetcher = self.witness_fetcher.clone();
-            let fhe_engine = self.fhe_engine.clone();
+            let job_processor = self.job_processor.clone();
             let tui_state = self.tui_state.clone();
             let job_price = job.price_lamports;
+            let job_id = job.id;
+            let witness_hash = job.witness_hash;
 
             tokio::spawn(async move {
-                let start_time = std::time::Instant::now();
-
-                if let Err(e) = Self::process_job(
-                    client,
-                    keypair,
-                    job_pda,
-                    job.id,
-                    circuit_type,
-                    job.witness_hash,
-                    mock_proving_time,
-                    halo2_prover,
-                    witness_encryption,
-                    witness_fetcher,
-                    fhe_engine,
-                    tui_state.clone(),
-                    job_price,
-                    start_time,
-                )
-                .await
+                if let Err(e) = job_processor
+                    .process_job(job_pda, job_id, circuit_type, witness_hash, job_price, tui_state.clone())
+                    .await
                 {
-                    error!("Failed to process job {}: {}", job.id, e);
+                    error!("Failed to process job {}: {}", job_id, e);
 
                     // Update failed job stats
                     if let Some(ref tui) = tui_state {
@@ -557,557 +374,6 @@ impl ProverNode {
 
         Ok(())
     }
-
-    /// Process a single job: claim -> prove -> submit
-    async fn process_job(
-        client: Arc<MarketplaceClient>,
-        keypair: Arc<Keypair>,
-        job_pda: Pubkey,
-        job_id: u64,
-        circuit_type: CircuitType,
-        witness_hash: [u8; 32],
-        _mock_proving_time: Duration,
-        halo2_prover: Arc<Halo2Prover>,
-        witness_encryption: Arc<WitnessEncryption>,
-        witness_fetcher: Arc<WitnessFetcher>,
-        fhe_engine: Option<Arc<FheEngine>>,
-        tui_state: Option<Arc<tui::TUIState>>,
-        job_price: u64,
-        start_time: std::time::Instant,
-    ) -> Result<()> {
-        info!("[Job {}] Starting processing", job_id);
-
-        // Step 1: Claim the job (different instruction for FHE vs ZK)
-        info!("[Job {}] Claiming job...", job_id);
-        let claim_ix = match &circuit_type {
-            CircuitType::FheComputation(_) => {
-                // FHE multi-prover jobs use claim_fhe_job_instruction
-                client
-                    .claim_fhe_job_instruction(&keypair.pubkey(), &job_pda, job_id)
-                    .context("Failed to build FHE claim instruction")?
-            }
-            _ => {
-                // ZK single-prover jobs use claim_job_instruction
-                client
-                    .claim_job_instruction(&keypair.pubkey(), &job_pda)
-                    .context("Failed to build claim instruction")?
-            }
-        };
-
-        match client.send_and_confirm_transaction(&[claim_ix], &[&*keypair]) {
-            Ok(sig) => {
-                info!("[Job {}] Claimed successfully (sig: {})", job_id, sig);
-            }
-            Err(e) => {
-                warn!("[Job {}] Failed to claim (already claimed?): {}", job_id, e);
-                return Err(e);
-            }
-        }
-
-        // Verify claim succeeded
-        let job =
-            fetch_job(&client.rpc_client, &job_pda).context("Failed to fetch job after claim")?;
-
-        // For ZK jobs: verify we claimed it exclusively
-        if let CircuitType::ZcashOrchard = circuit_type {
-            if job.status != JobStatus::Claimed || job.prover != Some(keypair.pubkey()) {
-                warn!("[Job {}] ZK job not claimed by us, aborting", job_id);
-                return Ok(());
-            }
-        }
-
-        // For FHE jobs: verify we're in the claimed_provers list (from FheConsensusData)
-        // NOTE: We don't check job.status for FHE jobs because it may change during
-        // the multi-prover claiming process. What matters is being in claimed_provers.
-        if let CircuitType::FheComputation(_) = circuit_type {
-            // Fetch FheConsensusData to check claimed_provers
-            let (fhe_pda, _) = client.get_fhe_consensus_pda(job_id);
-            let fhe_data = fetch_fhe_consensus(&client.rpc_client, &fhe_pda)
-                .context("Failed to fetch FHE consensus data")?;
-
-            // Check if we're in the claimed_provers list
-            let our_pubkey = keypair.pubkey();
-            let is_claimed = fhe_data.claimed_provers[..fhe_data.claimed_count as usize]
-                .iter()
-                .any(|p| *p == our_pubkey);
-
-            if !is_claimed {
-                warn!(
-                    "[Job {}] We are not in the claimed_provers list, aborting",
-                    job_id
-                );
-                return Ok(());
-            }
-
-            // Check if we already submitted a result
-            let our_index = fhe_data.claimed_provers[..fhe_data.claimed_count as usize]
-                .iter()
-                .position(|p| *p == our_pubkey);
-
-            if let Some(idx) = our_index {
-                if fhe_data.result_submitted[idx] {
-                    info!("[Job {}] Already submitted FHE result, skipping", job_id);
-                    return Ok(());
-                }
-            }
-        }
-
-        // Step 2: Download witness from backend
-        info!(
-            "[Job {}] Downloading encrypted witness from backend...",
-            job_id
-        );
-
-        let witness_bytes = witness_fetcher
-            .download_witness(&witness_hash)
-            .await
-            .context("Failed to download witness from backend")?;
-
-        info!(
-            "[Job {}] Downloaded encrypted witness ({} bytes)",
-            job_id,
-            witness_bytes.len()
-        );
-
-        // Step 3: Generate proof based on circuit type
-        info!(
-            "[Job {}] Generating proof (circuit: {:?})...",
-            job_id, circuit_type
-        );
-
-        let proof_bytes = match circuit_type {
-            CircuitType::ZcashOrchard => {
-                // Decrypt witness (only for ZK jobs - FHE uses raw data)
-                info!("[Job {}] Decrypting witness data...", job_id);
-                let witness = witness_encryption
-                    .decrypt_witness(&witness_bytes)
-                    .context("Failed to decrypt witness data")?;
-                info!("[Job {}] Witness decrypted successfully", job_id);
-
-                // Validate witness
-                witness.validate().context("Invalid witness data")?;
-
-                // Generate real Halo2 proof
-                let proof = Self::real_generate_proof(halo2_prover.clone(), witness).await?;
-                info!(
-                    "[Job {}] Halo2 proof generated successfully ({} bytes)",
-                    job_id,
-                    proof.len()
-                );
-                proof
-            }
-            CircuitType::FheComputation(ref operation) => {
-                // Handle FHE computation
-                info!("[Job {}] Executing FHE operation: {:?}", job_id, operation);
-
-                // DEBUG: Hash the full witness to verify all provers get identical data
-                let witness_full_hash = FheEngine::hash_result(&witness_bytes);
-                info!(
-                    "[Job {}] DEBUG witness_hash: {} ({} bytes)",
-                    job_id,
-                    hex::encode(&witness_full_hash[..16]),
-                    witness_bytes.len()
-                );
-
-                // Parse witness format: [encrypted_data_len (4 bytes)] [encrypted_data] [server_key]
-                if witness_bytes.len() < 4 {
-                    return Err(anyhow::anyhow!(
-                        "Witness too short to contain length prefix"
-                    ));
-                }
-
-                let encrypted_data_len = u32::from_le_bytes([
-                    witness_bytes[0],
-                    witness_bytes[1],
-                    witness_bytes[2],
-                    witness_bytes[3],
-                ]) as usize;
-
-                let header_size = 4;
-                let encrypted_data_end = header_size + encrypted_data_len;
-
-                if witness_bytes.len() < encrypted_data_end {
-                    return Err(anyhow::anyhow!(
-                        "Witness too short: expected at least {} bytes, got {}",
-                        encrypted_data_end,
-                        witness_bytes.len()
-                    ));
-                }
-
-                let encrypted_data = &witness_bytes[header_size..encrypted_data_end];
-                let server_key_bytes = &witness_bytes[encrypted_data_end..];
-
-                // DEBUG: Hash each component
-                let enc_hash = FheEngine::hash_result(encrypted_data);
-                let key_hash = FheEngine::hash_result(server_key_bytes);
-                info!(
-                    "[Job {}] DEBUG enc_data: {} | server_key: {}",
-                    job_id,
-                    hex::encode(&enc_hash[..8]),
-                    hex::encode(&key_hash[..8])
-                );
-
-                // Deserialize server key and create FHE engine
-                info!("[Job {}] Initializing FHE engine from witness...", job_id);
-                let server_key = deserialize_server_key(server_key_bytes)
-                    .context("Failed to deserialize server key from witness")?;
-                let engine = Arc::new(FheEngine::new(server_key));
-                info!("[Job {}] FHE engine initialized", job_id);
-
-                // Perform FHE computation with extracted encrypted data
-                let result_bytes =
-                    Self::execute_fhe_computation(engine.clone(), encrypted_data, operation)
-                        .await?;
-
-                // Hash result for consensus
-                let result_hash = FheEngine::hash_result(&result_bytes);
-
-                info!(
-                    "[Job {}] DEBUG result_hash: {} ({} bytes)",
-                    job_id,
-                    hex::encode(&result_hash[..16]),
-                    result_bytes.len()
-                );
-
-                // For FHE, the "proof" is the encrypted result
-                result_bytes
-            }
-            _ => {
-                return Err(anyhow::anyhow!(
-                    "Unsupported circuit type: {:?}",
-                    circuit_type
-                ));
-            }
-        };
-
-        info!(
-            "[Job {}] Result generated successfully ({} bytes)",
-            job_id,
-            proof_bytes.len()
-        );
-
-        // Step 4: Submit result based on job type
-        match circuit_type {
-            CircuitType::ZcashOrchard => {
-                info!("[Job {}] Submitting ZK proof...", job_id);
-
-                // Generate proof commitment (hash of actual proof)
-                let proof_commitment = Self::generate_proof_commitment(&proof_bytes);
-                let proof_size = proof_bytes.len() as u32;
-
-                // Fetch config to get protocol fee recipient
-                let (config_pda, _) = client.get_config_pda();
-                let config_account = client
-                    .rpc_client
-                    .get_account(&config_pda)
-                    .context("Failed to fetch config account")?;
-
-                // Extract protocol_fee_recipient from config
-                let protocol_fee_recipient = if config_account.data.len() >= 86 {
-                    solana_sdk::pubkey::Pubkey::try_from(&config_account.data[54..86])?
-                } else {
-                    return Err(anyhow::anyhow!("Invalid config account"));
-                };
-
-                let submit_ix = client
-                    .submit_proof_instruction_with_recipient(
-                        &keypair.pubkey(),
-                        &job_pda,
-                        &job.creator,
-                        &protocol_fee_recipient,
-                        proof_commitment,
-                        proof_size,
-                    )
-                    .context("Failed to build submit proof instruction")?;
-
-                match client.send_and_confirm_transaction(&[submit_ix], &[&*keypair]) {
-                    Ok(sig) => {
-                        info!(
-                            "[Job {}] ZK proof submitted successfully (sig: {})",
-                            job_id, sig
-                        );
-                    }
-                    Err(e) => {
-                        error!("[Job {}] Failed to submit ZK proof: {}", job_id, e);
-                        return Err(e);
-                    }
-                }
-            }
-
-            CircuitType::FheComputation(ref op) => {
-                info!("[Job {}] Submitting FHE result...", job_id);
-
-                // Use deterministic commitment for consensus (see fhe_engine.rs for design note)
-                // TFHE-rs produces non-deterministic ciphertext across processes,
-                // so we commit to inputs rather than outputs for PoC consensus
-                let result_hash =
-                    FheEngine::deterministic_commitment(&witness_hash, op.name(), job_id);
-
-                info!(
-                    "[Job {}] FHE deterministic commitment: {} (op: {})",
-                    job_id,
-                    hex::encode(&result_hash[..8]),
-                    op.name()
-                );
-
-                // Store encrypted result in witness backend
-                info!(
-                    "[Job {}] Uploading encrypted result to witness backend...",
-                    job_id
-                );
-
-                let witness_backend_url = std::env::var("WITNESS_BACKEND_URL")
-                    .unwrap_or_else(|_| "http://localhost:8080".to_string());
-
-                // Include job_id and prover pubkey as query params for result association
-                let upload_url = format!(
-                    "{}/fhe-result?job_id={}&prover={}",
-                    witness_backend_url,
-                    job_id,
-                    keypair.pubkey()
-                );
-
-                let response = reqwest::blocking::Client::new()
-                    .post(&upload_url)
-                    .body(proof_bytes.clone())
-                    .send()
-                    .context("Failed to upload FHE result to witness backend")?;
-
-                if !response.status().is_success() {
-                    return Err(anyhow::anyhow!(
-                        "Failed to upload FHE result: HTTP {}",
-                        response.status()
-                    ));
-                }
-
-                let upload_response: serde_json::Value =
-                    response.json().context("Failed to parse upload response")?;
-
-                let stored_commitment = upload_response["commitment"]
-                    .as_str()
-                    .context("Missing commitment in response")?;
-
-                info!(
-                    "[Job {}] FHE result stored with commitment: {}",
-                    job_id, stored_commitment
-                );
-
-                // Build SubmitFheResult instruction
-                let submit_ix = client
-                    .submit_fhe_result_instruction(&keypair.pubkey(), &job_pda, job_id, result_hash)
-                    .context("Failed to build submit FHE result instruction")?;
-
-                match client.send_and_confirm_transaction(&[submit_ix], &[&*keypair]) {
-                    Ok(sig) => {
-                        info!(
-                            "[Job {}] FHE result submitted successfully (sig: {})",
-                            job_id, sig
-                        );
-                    }
-                    Err(e) => {
-                        let err_str = e.to_string();
-                        // Check if job was already completed by other provers (race condition)
-                        // Error 32 (0x20) = InvalidJobStatus - job is no longer in Pending/Claimed
-                        if err_str.contains("custom program error: 0x20")
-                            || err_str.contains("InvalidJobStatus")
-                            || err_str.contains("Job must be in Pending or Claimed")
-                        {
-                            info!(
-                                "[Job {}] Job already completed by other provers, skipping submit",
-                                job_id
-                            );
-                            // Continue - this is not a failure, just a race condition
-                        } else {
-                            error!("[Job {}] Failed to submit FHE result: {}", job_id, e);
-                            return Err(e);
-                        }
-                    }
-                }
-            }
-
-            _ => {
-                return Err(anyhow::anyhow!(
-                    "Unsupported circuit type: {:?}",
-                    circuit_type
-                ));
-            }
-        }
-
-        info!("[Job {}] Completed!", job_id);
-
-        // Update TUI stats on successful completion
-        if let Some(ref tui) = tui_state {
-            let duration = start_time.elapsed().as_secs_f64();
-
-            tui.update_stats(|stats| {
-                stats.jobs_completed += 1;
-                stats.total_earnings_lamports += job_price;
-
-                // Update average proof time
-                let total_completed = stats.jobs_completed as f64;
-                let old_avg = stats.avg_proof_time_secs;
-                stats.avg_proof_time_secs =
-                    ((old_avg * (total_completed - 1.0)) + duration) / total_completed;
-            });
-
-            // Add to recent jobs list
-            let circuit_name = match circuit_type {
-                CircuitType::ZcashOrchard => "ZK Proof".to_string(),
-                CircuitType::FheComputation(_) => "FHE Comp".to_string(),
-                _ => "Unknown".to_string(),
-            };
-
-            tui.add_recent_job(tui::RecentJob {
-                id: job_id,
-                job_type: circuit_name,
-                status: "completed".to_string(),
-                duration_secs: duration,
-                earnings_lamports: job_price,
-            });
-        }
-
-        Ok(())
-    }
-
-    /// Generate real Halo2 proof (CPU-intensive, runs in blocking thread)
-    async fn real_generate_proof(
-        prover: Arc<Halo2Prover>,
-        witness: OrchardWitness,
-    ) -> Result<Vec<u8>> {
-        // Run in blocking thread since Halo2 is CPU-intensive
-        tokio::task::spawn_blocking(move || prover.generate_orchard_proof(witness))
-            .await
-            .context("Proof generation task panicked")?
-    }
-
-    /// Execute FHE computation (runs in blocking thread since it's CPU-intensive)
-    async fn execute_fhe_computation(
-        engine: Arc<FheEngine>,
-        encrypted_input: &[u8],
-        operation: &zyberlink_types::FheOperation,
-    ) -> Result<Vec<u8>> {
-        use crate::circuits::{CensusCircuit, DemographicsCircuit, PassportCircuit, VotingCircuit};
-        use zyberlink_types::FheOperation;
-
-        // encrypted_input contains serialized FheUint8 ciphertext
-        let input_bytes = encrypted_input.to_vec();
-        let operation = operation.clone();
-
-        // Run in blocking thread since FHE computation is CPU-intensive
-        tokio::task::spawn_blocking(move || {
-            // IMPORTANT: Set server key in this thread's context
-            // TFHE uses thread-local storage, so we must call this in each thread
-            engine.set_key_for_thread();
-
-            match operation {
-                FheOperation::Add(constant) => engine.compute_add(&input_bytes, constant),
-                FheOperation::Multiply(constant) => engine.compute_multiply(&input_bytes, constant),
-
-                // TRACK A - Foundation Layer
-                FheOperation::Sum { expected_count } => {
-                    // For Sum operation, input_bytes contains a serialized vector of encrypted values
-                    let inputs: Vec<Vec<u8>> = bincode::deserialize(&input_bytes)
-                        .context("Failed to deserialize Sum inputs")?;
-
-                    // Validate input count
-                    if inputs.len() != expected_count as usize {
-                        anyhow::bail!(
-                            "Expected {} inputs for Sum operation, got {}",
-                            expected_count,
-                            inputs.len()
-                        );
-                    }
-
-                    // Convert Vec<Vec<u8>> to Vec<&[u8]>
-                    let input_refs: Vec<&[u8]> = inputs.iter().map(|v| v.as_slice()).collect();
-
-                    // Use u16 by default for safety (handles up to 65k)
-                    engine.compute_sum(&input_refs)
-                }
-                FheOperation::Threshold {
-                    threshold,
-                    greater_or_equal,
-                } => PassportCircuit::compute_threshold(&input_bytes, threshold, greater_or_equal),
-                FheOperation::RangeCheck { min, max } => {
-                    PassportCircuit::compute_range_check(&input_bytes, min, max)
-                }
-
-                // TRACK B - Extension Layer
-                FheOperation::Average { expected_count } => {
-                    // For Average operation, input_bytes contains a serialized vector of encrypted values
-                    let inputs: Vec<Vec<u8>> = bincode::deserialize(&input_bytes)
-                        .context("Failed to deserialize Average inputs")?;
-
-                    // Validate input count
-                    if inputs.len() != expected_count as usize {
-                        anyhow::bail!(
-                            "Expected {} inputs for Average operation, got {}",
-                            expected_count,
-                            inputs.len()
-                        );
-                    }
-
-                    // Convert Vec<Vec<u8>> to Vec<&[u8]>
-                    let input_refs: Vec<&[u8]> = inputs.iter().map(|v| v.as_slice()).collect();
-
-                    // Compute average (returns encrypted_sum, count)
-                    let (encrypted_sum, count) =
-                        DemographicsCircuit::compute_average_u16(input_refs)
-                            .context("Failed to compute average")?;
-
-                    // Serialize result as tuple (encrypted_sum, count)
-                    bincode::serialize(&(encrypted_sum, count))
-                        .context("Failed to serialize average result")
-                }
-
-                FheOperation::CountIf {
-                    ref predicate,
-                    expected_count,
-                } => {
-                    // For CountIf operation, input_bytes contains a serialized vector of encrypted values
-                    let inputs: Vec<Vec<u8>> = bincode::deserialize(&input_bytes)
-                        .context("Failed to deserialize CountIf inputs")?;
-
-                    // Validate input count
-                    if inputs.len() != expected_count as usize {
-                        anyhow::bail!(
-                            "Expected {} inputs for CountIf operation, got {}",
-                            expected_count,
-                            inputs.len()
-                        );
-                    }
-
-                    // Convert Vec<Vec<u8>> to Vec<&[u8]>
-                    let input_refs: Vec<&[u8]> = inputs.iter().map(|v| v.as_slice()).collect();
-
-                    // Compute count_if (zyberlink-fhe now uses FhePredicate directly)
-                    engine.compute_count_if(&input_refs, predicate)
-                }
-
-                FheOperation::Histogram { ref bins } => {
-                    // For Histogram operation, input_bytes contains a serialized vector of encrypted values
-                    let inputs: Vec<Vec<u8>> = bincode::deserialize(&input_bytes)
-                        .context("Failed to deserialize Histogram inputs")?;
-
-                    // Convert Vec<Vec<u8>> to Vec<&[u8]>
-                    let input_refs: Vec<&[u8]> = inputs.iter().map(|v| v.as_slice()).collect();
-
-                    // Compute histogram
-                    VotingCircuit::compute_histogram(input_refs, bins)
-                        .context("Failed to compute histogram")
-                }
-            }
-        })
-        .await
-        .context("FHE computation task panicked")?
-    }
-
-    /// Generate proof commitment (hash of actual proof)
-    fn generate_proof_commitment(proof: &[u8]) -> [u8; 32] {
-        use solana_sdk::hash::hash;
-        let hash_result = hash(proof);
-        hash_result.to_bytes()
-    }
 }
 
 #[tokio::main]
@@ -1116,11 +382,11 @@ async fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     // Parse command line arguments
-    let args = Args::parse();
+    let args = ProverArgs::parse();
 
-    match args.command.as_ref().unwrap_or(&Command::Run) {
-        Command::Run => {
-            let config = ProverConfig::from_args(&args)?;
+    match args.command.as_ref().unwrap_or(&ProverCommand::Run) {
+        ProverCommand::Run => {
+            let config = config_from_args(&args)?;
 
             if args.tui_mode {
                 // Run with TUI
@@ -1131,13 +397,13 @@ async fn main() -> Result<()> {
                 prover.run().await?;
             }
         }
-        Command::Register { stake_amount } => {
+        ProverCommand::Register { stake_amount } => {
             register_prover(&args, *stake_amount).await?;
         }
-        Command::ShowPubkey => {
+        ProverCommand::ShowPubkey => {
             show_pubkey(&args)?;
         }
-        Command::Setup { stake_amount } => {
+        ProverCommand::Setup { stake_amount } => {
             run_setup_wizard(*stake_amount).await?;
         }
     }
@@ -1186,7 +452,7 @@ async fn run_with_tui(config: ProverConfig) -> Result<()> {
 }
 
 /// Register this prover on-chain
-async fn register_prover(args: &Args, stake_amount: u64) -> Result<()> {
+async fn register_prover(args: &ProverArgs, stake_amount: u64) -> Result<()> {
     let program_id = args
         .program_id
         .as_ref()
@@ -1252,7 +518,7 @@ fn derive_encryption_seed(keypair: &Keypair) -> [u8; 32] {
 }
 
 /// Show the encryption public key for this prover
-fn show_pubkey(args: &Args) -> Result<()> {
+fn show_pubkey(args: &ProverArgs) -> Result<()> {
     let keypair_path = args
         .keypair
         .replace("~", &std::env::var("HOME").unwrap_or_default());

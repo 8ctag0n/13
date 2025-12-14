@@ -24,6 +24,9 @@ pub mod config;
 pub mod prepared;
 pub mod fluent;
 pub mod batch;
+pub mod circuits;
+pub mod crypto;
+pub mod groth16;
 
 // Low-level modules
 pub mod client;
@@ -40,6 +43,9 @@ pub use config::NetworkConfig;
 pub use prepared::{PreparedOperation, CostEstimate, SimulationResult, OperationPdas};
 pub use fluent::{FluentOperation, RetryPolicy, ErrorAction, OperationError, IntoFluent};
 pub use batch::{BatchBuilder, BatchOp, BatchResult, BatchSummary};
+pub use circuits::{CircuitId, CircuitMetadata, list_circuits, get_circuit, load_vkey_json, vkey_path, VerificationKeyJson};
+pub use crypto::{MerkleTree, MerkleProof, poseidon_hash, generate_commitment, generate_nullifier};
+pub use groth16::{vk_from_json, proof_from_json, prepare_vk, verify};
 
 // Re-export low-level API
 pub use client::*;

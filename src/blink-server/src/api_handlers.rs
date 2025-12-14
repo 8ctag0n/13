@@ -330,7 +330,7 @@ pub struct MetricsResponse {
 /// 2. Store in database with status="pending_tx"
 /// 3. Build unsigned Solana transaction
 /// 4. Return transaction to client for signing
-#[post("/api/jobs/fhe/validate-and-build")]
+#[post("/internal/fhe/validate-and-build")]
 async fn validate_and_build_job(
     data: web::Data<AppState>,
     req: web::Json<ValidateJobRequest>,
@@ -448,7 +448,7 @@ async fn validate_and_build_job(
 ///
 /// Returns compute data for provers.
 /// Only returns data if job status is "active" (on-chain confirmed).
-#[get("/api/jobs/fhe/{job_id}/compute-data")]
+#[get("/internal/fhe/{job_id}/compute-data")]
 async fn get_compute_data(data: web::Data<AppState>, job_id: web::Path<i64>) -> impl Responder {
     log::info!("Fetching compute data for job_id: {}", *job_id);
 
@@ -497,7 +497,7 @@ async fn get_compute_data(data: web::Data<AppState>, job_id: web::Path<i64>) -> 
 ///
 /// Note: In production, this should verify the transaction signature on-chain
 /// before updating status. For PoC, we trust the client.
-#[post("/api/jobs/fhe/{job_id}/confirm")]
+#[post("/internal/fhe/{job_id}/confirm")]
 async fn confirm_job_transaction(
     data: web::Data<AppState>,
     job_id: web::Path<i64>,
@@ -547,7 +547,7 @@ async fn confirm_job_transaction(
 /// GET /api/jobs/{job_id}/status
 ///
 /// Get current status of a job
-#[get("/api/jobs/fhe/{job_id}/status")]
+#[get("/internal/fhe/{job_id}/status")]
 async fn get_job_status(data: web::Data<AppState>, job_id: web::Path<i64>) -> impl Responder {
     log::info!("Fetching status for job_id: {}", *job_id);
 
@@ -570,7 +570,7 @@ async fn get_job_status(data: web::Data<AppState>, job_id: web::Path<i64>) -> im
 ///
 /// Get full details of a specific FHE job (without encrypted data).
 /// Combines data from temp_job_data and blockchain_jobs tables.
-#[get("/api/jobs/fhe/{job_id}")]
+#[get("/internal/fhe/{job_id}")]
 async fn get_job_details(data: web::Data<AppState>, job_id: web::Path<i64>) -> impl Responder {
     log::info!("Fetching full details for job_id: {}", *job_id);
 
@@ -689,7 +689,7 @@ async fn get_job_details(data: web::Data<AppState>, job_id: web::Path<i64>) -> i
 ///
 /// Delete FHE job data (cleanup).
 /// Only allowed if job is in terminal state (completed/failed).
-#[delete("/api/jobs/fhe/{job_id}")]
+#[delete("/internal/fhe/{job_id}")]
 async fn delete_job_data(data: web::Data<AppState>, job_id: web::Path<i64>) -> impl Responder {
     log::info!("Deleting job_id: {}", *job_id);
 
@@ -748,7 +748,7 @@ async fn delete_job_data(data: web::Data<AppState>, job_id: web::Path<i64>) -> i
 ///   - GET /api/jobs/fhe?status=pending   → List only pending FHE jobs
 ///   - GET /api/jobs/fhe?creator=WALLET   → List FHE jobs from specific wallet
 ///   - GET /api/jobs/fhe?page=2&limit=10  → Paginated results
-#[get("/api/jobs/fhe")]
+#[get("/internal/fhe")]
 async fn list_jobs(data: web::Data<AppState>, query: web::Query<ListJobsQuery>) -> impl Responder {
     log::info!("Listing jobs with filter: {:?}", query.status);
 
@@ -853,11 +853,11 @@ async fn list_jobs(data: web::Data<AppState>, query: web::Query<ListJobsQuery>) 
     })
 }
 
-/// GET /api/stats/network
+/// GET /internal/stats/network
 ///
 /// Get network statistics including active provers, jobs processed, etc.
 /// Used by the frontend to display real-time network metrics.
-#[get("/api/stats/network")]
+#[get("/internal/stats/network")]
 async fn get_network_stats(data: web::Data<AppState>) -> impl Responder {
     log::info!("Fetching network statistics");
 
@@ -945,11 +945,11 @@ async fn get_network_stats(data: web::Data<AppState>) -> impl Responder {
     })
 }
 
-/// GET /api/metrics
+/// GET /internal/metrics
 ///
 /// Get comprehensive network metrics for the dashboard.
 /// Includes historical data, 24h stats, operation breakdowns, and timeline.
-#[get("/api/metrics")]
+#[get("/internal/metrics")]
 async fn get_metrics(data: web::Data<AppState>) -> impl Responder {
     log::info!("Fetching comprehensive metrics");
 
@@ -1133,11 +1133,11 @@ async fn get_metrics(data: web::Data<AppState>) -> impl Responder {
     })
 }
 
-/// POST /api/estimate-cost
+/// POST /internal/estimate-cost
 ///
 /// Estimate the cost and timeout for a given FHE operation.
 /// Helps users understand pricing before creating a job.
-#[post("/api/estimate-cost")]
+#[post("/internal/estimate-cost")]
 async fn estimate_operation_cost(req: web::Json<EstimateCostRequest>) -> impl Responder {
     use zyberlink_types::fhe::{FheOperation, HistogramBin};
 
@@ -1226,11 +1226,11 @@ async fn estimate_operation_cost(req: web::Json<EstimateCostRequest>) -> impl Re
     })
 }
 
-/// POST /api/price-recommendation
+/// POST /internal/price-recommendation
 ///
 /// Get price recommendation for FHE operations with slider parameters.
 /// Returns min/recommended/max prices based on prover economics.
-#[post("/api/price-recommendation")]
+#[post("/internal/price-recommendation")]
 async fn get_price_recommendation(req: web::Json<PriceRecommendationRequest>) -> impl Responder {
     use zyberlink_types::fhe::{FheOperation, HistogramBin};
 
@@ -1494,7 +1494,7 @@ fn build_create_job_transaction(
 ///
 /// Upload encrypted witness data.
 /// Returns the Blake2b commitment hash of the uploaded data.
-#[post("/witness")]
+#[post("/internal/witness")]
 async fn upload_witness(data: web::Data<AppState>, body: web::Bytes) -> impl Responder {
     log::info!("Received witness upload, size: {} bytes", body.len());
 
@@ -1532,7 +1532,7 @@ async fn upload_witness(data: web::Data<AppState>, body: web::Bytes) -> impl Res
 /// Download encrypted witness data by commitment hash.
 /// First checks the witnesses table, then attempts to reconstruct from
 /// blockchain_jobs + temp_job_data if not found.
-#[get("/witness/{commitment}")]
+#[get("/internal/witness/{commitment}")]
 async fn get_witness(data: web::Data<AppState>, commitment: web::Path<String>) -> impl Responder {
     log::info!("Fetching witness for commitment: {}", *commitment);
 
@@ -1621,7 +1621,7 @@ pub struct FheResultUploadQuery {
 ///   - job_id (optional): Associate result with a job
 ///   - prover (optional): Prover pubkey that computed this result
 /// Returns the Blake2s256 commitment hash of the uploaded data.
-#[post("/fhe-result")]
+#[post("/internal/fhe-result")]
 async fn upload_fhe_result(
     data: web::Data<AppState>,
     query: web::Query<FheResultUploadQuery>,
@@ -1680,7 +1680,7 @@ async fn upload_fhe_result(
 /// GET /fhe-result/{commitment}
 ///
 /// Download FHE computation result by commitment hash.
-#[get("/fhe-result/{commitment}")]
+#[get("/internal/fhe-result/{commitment}")]
 async fn get_fhe_result(
     data: web::Data<AppState>,
     commitment: web::Path<String>,
@@ -1724,7 +1724,7 @@ async fn get_fhe_result(
 /// Usage:
 /// 1. Upload server_key via POST /api/server-key/upload (raw bytes)
 /// 2. Use returned server_key_hash in validate-and-build request
-#[post("/api/server-key/upload")]
+#[post("/internal/server-key/upload")]
 async fn upload_server_key(data: web::Data<AppState>, body: web::Bytes) -> impl Responder {
     let size_bytes = body.len();
     log::info!("Received server key upload, size: {} bytes ({:.2} MB)",
@@ -1795,7 +1795,7 @@ async fn upload_server_key(data: web::Data<AppState>, body: web::Bytes) -> impl 
 ///
 /// Check if a server key exists by its hash.
 /// Useful for frontend to check if re-upload is needed.
-#[get("/api/server-key/{hash}/exists")]
+#[get("/internal/server-key/{hash}/exists")]
 async fn check_server_key_exists(
     data: web::Data<AppState>,
     hash: web::Path<String>,
@@ -1822,7 +1822,7 @@ async fn check_server_key_exists(
 ///
 /// Get FHE job status directly from blockchain_jobs (synced from chain).
 /// Useful for getting witness_hash and current on-chain status.
-#[get("/api/jobs/fhe/{job_id}/chain-status")]
+#[get("/internal/fhe/{job_id}/chain-status")]
 async fn get_job_chain_status(data: web::Data<AppState>, job_id: web::Path<i64>) -> impl Responder {
     log::info!("Fetching chain status for job_id: {}", *job_id);
 
@@ -1868,7 +1868,7 @@ struct ProverResultRow {
 ///
 /// Get list of provers who have submitted results for this FHE job.
 /// Returns prover pubkeys, submission times, and consensus status.
-#[get("/api/jobs/fhe/{job_id}/provers")]
+#[get("/internal/fhe/{job_id}/provers")]
 async fn get_job_provers(data: web::Data<AppState>, job_id: web::Path<i64>) -> impl Responder {
     log::info!("Fetching provers for job_id: {}", *job_id);
 
@@ -1923,7 +1923,7 @@ async fn get_job_provers(data: web::Data<AppState>, job_id: web::Path<i64>) -> i
 ///
 /// Get FHE computation result for a completed job.
 /// Searches fhe_results table by job_id directly.
-#[get("/api/jobs/fhe/{job_id}/result")]
+#[get("/internal/fhe/{job_id}/result")]
 async fn get_job_result(data: web::Data<AppState>, job_id: web::Path<i64>) -> impl Responder {
     log::info!("Fetching FHE result for job_id: {}", *job_id);
 
@@ -1957,6 +1957,73 @@ async fn get_job_result(data: web::Data<AppState>, job_id: web::Path<i64>) -> im
     }
 }
 
+// =============================================================================
+// Prover Verification Endpoints (for x402-gateway)
+// =============================================================================
+
+#[derive(Debug, Serialize)]
+pub struct ProverStatusResponse {
+    pub registered: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reputation: Option<i32>,
+}
+
+/// GET /internal/prover/{pubkey}/status
+///
+/// Verify if a prover is registered and active.
+/// Used by x402-gateway to authorize requests from provers.
+#[get("/internal/prover/{pubkey}/status")]
+async fn get_prover_status(
+    data: web::Data<AppState>,
+    pubkey: web::Path<String>,
+) -> impl Responder {
+    log::info!("Checking prover status for pubkey: {}", *pubkey);
+
+    // Query provers table
+    let query_result = sqlx::query_as::<_, (bool, i32)>(
+        r#"
+        SELECT is_active, reputation_score
+        FROM provers
+        WHERE pubkey = $1
+        "#,
+    )
+    .bind(&*pubkey)
+    .fetch_optional(&data.db_pool)
+    .await;
+
+    match query_result {
+        Ok(Some((is_active, reputation_score))) => {
+            log::info!(
+                "Prover {} found: active={}, reputation={}",
+                *pubkey,
+                is_active,
+                reputation_score
+            );
+            HttpResponse::Ok().json(ProverStatusResponse {
+                registered: true,
+                active: Some(is_active),
+                reputation: Some(reputation_score),
+            })
+        }
+        Ok(None) => {
+            log::warn!("Prover {} not found in database", *pubkey);
+            HttpResponse::Ok().json(ProverStatusResponse {
+                registered: false,
+                active: None,
+                reputation: None,
+            })
+        }
+        Err(e) => {
+            log::error!("Database error checking prover status: {}", e);
+            HttpResponse::InternalServerError().json(json!({
+                "error": format!("Database error: {}", e)
+            }))
+        }
+    }
+}
+
 // ============================================================================
 // Route Configuration
 // ============================================================================
@@ -1981,5 +2048,7 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         .service(get_fhe_result)
         // Server key pre-upload endpoints
         .service(upload_server_key) // POST /api/server-key/upload
-        .service(check_server_key_exists); // GET /api/server-key/{hash}/exists
+        .service(check_server_key_exists) // GET /api/server-key/{hash}/exists
+        // Prover verification endpoints (for x402-gateway)
+        .service(get_prover_status); // GET /internal/prover/{pubkey}/status
 }

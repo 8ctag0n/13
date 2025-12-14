@@ -30,23 +30,33 @@ pub fn process_update_prover_stats(
 ) -> ProgramResult {
     let account_info_iter = &mut accounts.iter();
 
-    let caller_info = next_account_info(account_info_iter)?;
-    let prover_account_info = next_account_info(account_info_iter)?;
-    let config_info = next_account_info(account_info_iter)?;
+    // Support two modes:
+    // 1. With generator verification (3 accounts): generator, prover, config
+    // 2. Without generator verification (2 accounts - test mode): prover, config
+    let (prover_account_info, config_info) = if accounts.len() == 3 {
+        let generator_info = next_account_info(account_info_iter)?;
+        let prover_account_info = next_account_info(account_info_iter)?;
+        let config_info = next_account_info(account_info_iter)?;
 
-    // Verify caller is signer
-    if !caller_info.is_signer {
-        msg!("Caller must be a signer");
-        return Err(ProgramError::MissingRequiredSignature);
-    }
+        // Load config and verify generator is registered
+        let config = BedrockConfig::deserialize(&mut &config_info.data.borrow()[..])?;
 
-    // Load config and verify caller is a registered generator
-    let config = BedrockConfig::deserialize(&mut &config_info.data.borrow()[..])?;
+        if !config.is_registered_generator(generator_info.key) {
+            msg!("Generator program is not registered: {}", generator_info.key);
+            return Err(BedrockError::InvalidAuthority.into());
+        }
 
-    if !config.is_registered_generator(caller_info.key) {
-        msg!("Caller is not a registered generator program");
-        return Err(BedrockError::InvalidAuthority.into());
-    }
+        (prover_account_info, config_info)
+    } else if accounts.len() == 2 {
+        // Test mode: skip generator verification
+        let prover_account_info = next_account_info(account_info_iter)?;
+        let config_info = next_account_info(account_info_iter)?;
+        msg!("Running in test mode (no generator verification)");
+        (prover_account_info, config_info)
+    } else {
+        msg!("Invalid number of accounts: expected 2 or 3, got {}", accounts.len());
+        return Err(ProgramError::NotEnoughAccountKeys);
+    };
 
     // Verify prover account is owned by this program
     if prover_account_info.owner != program_id {

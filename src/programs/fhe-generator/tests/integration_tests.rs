@@ -62,6 +62,7 @@ fn create_job_ix(
     job_pda: &Pubkey,
     consensus_pda: &Pubkey,
     escrow_pda: &Pubkey,
+    job_id: u64,
     circuit_type: u8,
     witness_hash: [u8; 32],
     witness_size: u32,
@@ -71,6 +72,7 @@ fn create_job_ix(
     consensus_threshold: u8,
 ) -> Instruction {
     let data = borsh::to_vec(&FheGeneratorInstruction::CreateJob {
+        job_id,
         circuit_type,
         witness_hash,
         witness_size,
@@ -205,9 +207,8 @@ async fn test_create_fhe_job() {
     let required_provers = 2u8;
     let consensus_threshold = 2u8;
 
-    // Get current time to predict job_id
-    let clock = banks_client.get_sysvar::<solana_sdk::sysvar::clock::Clock>().await.unwrap();
-    let job_id = (clock.unix_timestamp as u64) ^ (payer.pubkey().to_bytes()[0] as u64);
+    // Generate job_id locally (now client-controlled)
+    let job_id = 1001u64;
 
     // Derive PDAs
     let (job_pda, _) = derive_job_pda(&payer.pubkey(), job_id, &program_id);
@@ -220,6 +221,7 @@ async fn test_create_fhe_job() {
         &job_pda,
         &consensus_pda,
         &escrow_pda,
+        job_id,
         circuit_type,
         witness_hash,
         witness_size,
@@ -268,8 +270,8 @@ async fn test_create_fhe_job_invalid_circuit() {
     // Invalid circuit type (3 is not FHE, should be 4-11)
     let circuit_type = 3u8;
 
-    let clock = banks_client.get_sysvar::<solana_sdk::sysvar::clock::Clock>().await.unwrap();
-    let job_id = (clock.unix_timestamp as u64) ^ (payer.pubkey().to_bytes()[0] as u64);
+    // Generate job_id locally
+    let job_id = 1002u64;
 
     let (job_pda, _) = derive_job_pda(&payer.pubkey(), job_id, &program_id);
     let (consensus_pda, _) = derive_consensus_pda(job_id, &program_id);
@@ -280,6 +282,7 @@ async fn test_create_fhe_job_invalid_circuit() {
         &job_pda,
         &consensus_pda,
         &escrow_pda,
+        job_id,
         circuit_type,
         [1u8; 32],
         2048,
@@ -311,9 +314,8 @@ async fn test_claim_fhe_job_multi_prover() {
 
     let required_provers = 2u8;
 
-    // Create job
-    let clock = banks_client.get_sysvar::<solana_sdk::sysvar::clock::Clock>().await.unwrap();
-    let job_id = (clock.unix_timestamp as u64) ^ (payer.pubkey().to_bytes()[0] as u64);
+    // Generate job_id locally
+    let job_id = 2001u64;
 
     let (job_pda, _) = derive_job_pda(&payer.pubkey(), job_id, &program_id);
     let (consensus_pda, _) = derive_consensus_pda(job_id, &program_id);
@@ -324,6 +326,7 @@ async fn test_claim_fhe_job_multi_prover() {
         &job_pda,
         &consensus_pda,
         &escrow_pda,
+        job_id,
         CIRCUIT_FHE_ADD,
         [1u8; 32],
         2048,
@@ -381,9 +384,8 @@ async fn test_claim_fhe_job_prover_already_claimed() {
     let program_id = fhe_generator_program_id();
     let prover = Keypair::new();
 
-    // Create job
-    let clock = banks_client.get_sysvar::<solana_sdk::sysvar::clock::Clock>().await.unwrap();
-    let job_id = (clock.unix_timestamp as u64) ^ (payer.pubkey().to_bytes()[0] as u64);
+    // Generate job_id locally
+    let job_id = 2002u64;
 
     let (job_pda, _) = derive_job_pda(&payer.pubkey(), job_id, &program_id);
     let (consensus_pda, _) = derive_consensus_pda(job_id, &program_id);
@@ -394,6 +396,7 @@ async fn test_claim_fhe_job_prover_already_claimed() {
         &job_pda,
         &consensus_pda,
         &escrow_pda,
+        job_id,
         CIRCUIT_FHE_ADD,
         [1u8; 32],
         2048,
@@ -437,9 +440,8 @@ async fn test_submit_result() {
     let prover1 = Keypair::new();
     let prover2 = Keypair::new();
 
-    // Create job with 2 provers
-    let clock = banks_client.get_sysvar::<solana_sdk::sysvar::clock::Clock>().await.unwrap();
-    let job_id = (clock.unix_timestamp as u64) ^ (payer.pubkey().to_bytes()[0] as u64);
+    // Generate job_id locally
+    let job_id = 3001u64;
 
     let (job_pda, _) = derive_job_pda(&payer.pubkey(), job_id, &program_id);
     let (consensus_pda, _) = derive_consensus_pda(job_id, &program_id);
@@ -450,6 +452,7 @@ async fn test_submit_result() {
         &job_pda,
         &consensus_pda,
         &escrow_pda,
+        job_id,
         CIRCUIT_FHE_ADD,
         [1u8; 32],
         2048,
@@ -510,9 +513,8 @@ async fn test_finalize_job_with_consensus() {
 
     let price_lamports = 10_000_000u64;
 
-    // Create job
-    let clock = banks_client.get_sysvar::<solana_sdk::sysvar::clock::Clock>().await.unwrap();
-    let job_id = (clock.unix_timestamp as u64) ^ (payer.pubkey().to_bytes()[0] as u64);
+    // Generate job_id locally
+    let job_id = 4001u64;
 
     let (job_pda, _) = derive_job_pda(&payer.pubkey(), job_id, &program_id);
     let (consensus_pda, _) = derive_consensus_pda(job_id, &program_id);
@@ -523,6 +525,7 @@ async fn test_finalize_job_with_consensus() {
         &job_pda,
         &consensus_pda,
         &escrow_pda,
+        job_id,
         CIRCUIT_FHE_ADD,
         [1u8; 32],
         2048,
@@ -630,9 +633,8 @@ async fn test_finalize_job_no_consensus() {
 
     let price_lamports = 10_000_000u64;
 
-    // Create job
-    let clock = banks_client.get_sysvar::<solana_sdk::sysvar::clock::Clock>().await.unwrap();
-    let job_id = (clock.unix_timestamp as u64) ^ (payer.pubkey().to_bytes()[0] as u64);
+    // Generate job_id locally
+    let job_id = 4002u64;
 
     let (job_pda, _) = derive_job_pda(&payer.pubkey(), job_id, &program_id);
     let (consensus_pda, _) = derive_consensus_pda(job_id, &program_id);
@@ -643,6 +645,7 @@ async fn test_finalize_job_no_consensus() {
         &job_pda,
         &consensus_pda,
         &escrow_pda,
+        job_id,
         CIRCUIT_FHE_ADD,
         [1u8; 32],
         2048,
@@ -770,9 +773,8 @@ async fn test_cancel_fhe_job() {
 
     let program_id = fhe_generator_program_id();
 
-    // Create job
-    let clock = banks_client.get_sysvar::<solana_sdk::sysvar::clock::Clock>().await.unwrap();
-    let job_id = (clock.unix_timestamp as u64) ^ (payer.pubkey().to_bytes()[0] as u64);
+    // Generate job_id locally
+    let job_id = 5001u64;
 
     let (job_pda, _) = derive_job_pda(&payer.pubkey(), job_id, &program_id);
     let (consensus_pda, _) = derive_consensus_pda(job_id, &program_id);
@@ -785,6 +787,7 @@ async fn test_cancel_fhe_job() {
         &job_pda,
         &consensus_pda,
         &escrow_pda,
+        job_id,
         CIRCUIT_FHE_ADD,
         [1u8; 32],
         2048,
@@ -820,9 +823,8 @@ async fn test_cancel_fhe_job_after_results_submitted() {
     let program_id = fhe_generator_program_id();
     let prover = Keypair::new();
 
-    // Create job
-    let clock = banks_client.get_sysvar::<solana_sdk::sysvar::clock::Clock>().await.unwrap();
-    let job_id = (clock.unix_timestamp as u64) ^ (payer.pubkey().to_bytes()[0] as u64);
+    // Generate job_id locally
+    let job_id = 5002u64;
 
     let (job_pda, _) = derive_job_pda(&payer.pubkey(), job_id, &program_id);
     let (consensus_pda, _) = derive_consensus_pda(job_id, &program_id);
@@ -833,6 +835,7 @@ async fn test_cancel_fhe_job_after_results_submitted() {
         &job_pda,
         &consensus_pda,
         &escrow_pda,
+        job_id,
         CIRCUIT_FHE_ADD,
         [1u8; 32],
         2048,
@@ -887,9 +890,8 @@ async fn test_full_fhe_flow_with_consensus() {
 
     let price_lamports = 30_000_000u64; // 0.03 SOL
 
-    // === Step 1: Create Job ===
-    let clock = banks_client.get_sysvar::<solana_sdk::sysvar::clock::Clock>().await.unwrap();
-    let job_id = (clock.unix_timestamp as u64) ^ (payer.pubkey().to_bytes()[0] as u64);
+    // Generate job_id locally
+    let job_id = 6001u64;
 
     let (job_pda, _) = derive_job_pda(&payer.pubkey(), job_id, &program_id);
     let (consensus_pda, _) = derive_consensus_pda(job_id, &program_id);
@@ -900,6 +902,7 @@ async fn test_full_fhe_flow_with_consensus() {
         &job_pda,
         &consensus_pda,
         &escrow_pda,
+        job_id,
         CIRCUIT_FHE_ADD,
         [0xAB; 32],
         4096,

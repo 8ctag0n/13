@@ -5,11 +5,13 @@ members = [
     "src/witness-storage",
     "src/blink-server",
     "src/x402-server",
+    "src/public-api",
     "src/shared/types",
     "src/shared/crypto",
     "src/shared/fhe",
     "src/shared/jobs",
     "src/fhe-cli",
+    "src/zyb-cli",
     "src/test-utils",
 ]
 exclude = [

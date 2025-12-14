@@ -1,4 +1,4 @@
-.PHONY: help demo-up demo-down demo-restart start stop status logs clean build build-all deploy init-marketplace check-provers start-provers stop-provers tunnel-help dev-up dev-down dev-logs dev-rebuild dev-status dev-shell-backend dev-shell-db serve c0 c1 c2 c3 c4 c-status c-scale c-restart
+.PHONY: help demo-up demo-down demo-restart start stop status logs clean build build-all deploy init-marketplace check-provers start-provers stop-provers tunnel-help dev-up dev-down dev-logs dev-rebuild dev-status dev-shell-backend dev-shell-db serve c0 c1 c2 c3 c4 c-status c-scale c-restart build-public-api build-x402 start-x402 start-public-api start-api-stack stop-x402 stop-public-api stop-api-stack logs-x402 logs-public-api logs-api-stack
 
 # Colors
 GREEN  := \033[0;32m
@@ -96,23 +96,53 @@ stop-validator: ## Stop Solana validator
 	@pkill -f solana-test-validator || true
 	@echo "$(GREEN) Validator stopped$(NC)"
 
-start-backend: ## Start backend server only
-	@echo "$(BLUE) Starting backend server...$(NC)"
+start-backend: ## Start blink-server (internal backend on :8080)
+	@echo "$(BLUE) Starting blink-server (internal backend)...$(NC)"
 	@if [ -f "src/blink-server/.env" ]; then \
 		export $$(grep -v '^#' src/blink-server/.env | xargs); \
 	fi; \
-	RUST_LOG=info ./target/release/blink-server > /tmp/blink-server.log 2>&1 &
+	RUST_LOG=info HOST=127.0.0.1 PORT=8080 ./target/release/blink-server > /tmp/blink-server.log 2>&1 &
 	@sleep 2
-	@echo "$(GREEN) Backend started$(NC)"
+	@echo "$(GREEN) blink-server started on :8080$(NC)"
 
-stop-backend: ## Stop backend server
+start-x402: ## Start x402-server (anti-spam gateway on :8081)
+	@echo "$(BLUE) Starting x402-server (anti-spam gateway)...$(NC)"
+	@RUST_LOG=info HOST=127.0.0.1 PORT=8081 BLINK_URL=http://localhost:8080 \
+		./target/release/x402-server > /tmp/x402-server.log 2>&1 &
+	@sleep 1
+	@echo "$(GREEN) x402-server started on :8081$(NC)"
+
+start-public-api: ## Start public-api (public gateway on :3000)
+	@echo "$(BLUE) Starting public-api (public gateway)...$(NC)"
+	@RUST_LOG=info HOST=0.0.0.0 PORT=3000 \
+		X402_URL=http://localhost:8081 BLINK_URL=http://localhost:8080 \
+		./target/release/public-api > /tmp/public-api.log 2>&1 &
+	@sleep 1
+	@echo "$(GREEN) public-api started on :3000$(NC)"
+
+start-api-stack: start-backend start-x402 start-public-api ## Start full 3-layer API stack
+	@echo "$(GREEN) Full API stack started!$(NC)"
+	@echo "  blink:8080 (internal) <- x402:8081 (anti-spam) <- public-api:3000 (public)"
+
+stop-backend: ## Stop blink-server
 	@pkill -f blink-server || true
-	@echo "$(GREEN) Backend stopped$(NC)"
+	@echo "$(GREEN) blink-server stopped$(NC)"
+
+stop-x402: ## Stop x402-server
+	@pkill -f x402-server || true
+	@echo "$(GREEN) x402-server stopped$(NC)"
+
+stop-public-api: ## Stop public-api
+	@pkill -f public-api || true
+	@echo "$(GREEN) public-api stopped$(NC)"
+
+stop-api-stack: stop-public-api stop-x402 stop-backend ## Stop full API stack
+	@echo "$(GREEN) API stack stopped$(NC)"
 
 start-frontend: ## Start frontend dev server
 	@echo "$(BLUE) Starting frontend...$(NC)"
 	@mkdir -p ~/zyberlink-logs
-	@cd src/webapp && VITE_API_URL=http://localhost:8080 npm run dev > ~/zyberlink-logs/frontend.log 2>&1 &
+	@cd src/webapp && VITE_API_URL=http://localhost:3000 npm run dev > ~/zyberlink-logs/frontend.log 2>&1 &
 	@echo "$(GREEN) Frontend started at http://localhost:5173$(NC)"
 
 stop-frontend: ## Stop frontend server
@@ -126,8 +156,17 @@ stop-frontend: ## Stop frontend server
 logs-validator: ## Tail validator logs
 	@tail -f /tmp/solana-validator.log
 
-logs-backend: ## Tail backend logs
+logs-backend: ## Tail blink-server logs
 	@tail -f /tmp/blink-server.log
+
+logs-x402: ## Tail x402-server logs
+	@tail -f /tmp/x402-server.log
+
+logs-public-api: ## Tail public-api logs
+	@tail -f /tmp/public-api.log
+
+logs-api-stack: ## Tail all API stack logs (blink + x402 + public-api)
+	@tail -f /tmp/blink-server.log /tmp/x402-server.log /tmp/public-api.log
 
 logs-provers: ## Tail all prover logs
 	@tail -f /tmp/prover-*.log
@@ -137,7 +176,7 @@ logs-frontend: ## Tail frontend logs
 
 logs: ## Tail all logs
 	@echo "$(BLUE) Tailing all logs (Ctrl+C to stop)...$(NC)"
-	@tail -f /tmp/solana-validator.log /tmp/blink-server.log /tmp/prover-*.log ~/zyberlink-logs/frontend.log 2>/dev/null
+	@tail -f /tmp/solana-validator.log /tmp/blink-server.log /tmp/x402-server.log /tmp/public-api.log /tmp/prover-*.log ~/zyberlink-logs/frontend.log 2>/dev/null
 
 # ============================================================================
 # Build Commands
@@ -148,10 +187,20 @@ build-program: ## Build Solana program
 	@cd src/programs && cargo build-sbf
 	@echo "$(GREEN) Program built$(NC)"
 
-build-backend: ## Build backend server
-	@echo "$(BLUE) Building backend server...$(NC)"
+build-backend: ## Build backend server (blink-server)
+	@echo "$(BLUE) Building blink-server...$(NC)"
 	@cargo build --release --bin blink-server
-	@echo "$(GREEN) Backend built$(NC)"
+	@echo "$(GREEN) blink-server built$(NC)"
+
+build-public-api: ## Build public-api gateway
+	@echo "$(BLUE) Building public-api...$(NC)"
+	@cargo build --release --bin public-api
+	@echo "$(GREEN) public-api built$(NC)"
+
+build-x402: ## Build x402 anti-spam server
+	@echo "$(BLUE) Building x402-server...$(NC)"
+	@cargo build --release --bin x402-server
+	@echo "$(GREEN) x402-server built$(NC)"
 
 build-prover: ## Build prover node
 	@echo "$(BLUE) Building prover node...$(NC)"
@@ -163,7 +212,7 @@ build-frontend: ## Build frontend
 	@cd src/webapp && npm install && npm run build
 	@echo "$(GREEN) Frontend built$(NC)"
 
-build-all: build-program build-backend build-prover ## Build all components
+build-all: build-program build-backend build-public-api build-x402 build-prover ## Build all components
 	@echo "$(GREEN) All components built successfully!$(NC)"
 
 # ============================================================================
@@ -249,13 +298,13 @@ start-job-creator: ## Start job creator (creates jobs every 10 seconds)
 	@echo "$(BLUE) Starting job creator...$(NC)"
 	@scripts/start-job-creator.sh
 
-list-jobs: ## List all jobs from backend API
-	@echo "$(BLUE) Fetching jobs from backend...$(NC)"
-	@curl -s http://localhost:8080/api/jobs | jq '.jobs[] | {job_id, status, operation, price: (.price_lamports / 1000000000), created_at}'
+list-jobs: ## List all jobs from API
+	@echo "$(BLUE) Fetching jobs from public-api...$(NC)"
+	@curl -s http://localhost:3000/api/jobs/zk | jq '.jobs[] | {job_id, status, circuit_type, price: (.price_lamports / 1000000000), created_at}'
 
 list-jobs-active: ## List only active jobs
 	@echo "$(BLUE) Fetching active jobs...$(NC)"
-	@curl -s "http://localhost:8080/api/jobs?status=active" | jq '.jobs[] | {job_id, status, operation, price: (.price_lamports / 1000000000)}'
+	@curl -s "http://localhost:3000/api/jobs/zk?status=active" | jq '.jobs[] | {job_id, status, circuit_type, price: (.price_lamports / 1000000000)}'
 
 inspect-accounts: ## Inspect all on-chain accounts (jobs, provers)
 	@echo "$(BLUE) Inspecting on-chain accounts...$(NC)"
@@ -272,7 +321,7 @@ watch-jobs: ## Watch jobs in real-time (refresh every 5s)
 		clear; \
 		echo "=== ZyberLink Jobs (refreshing every 5s) ==="; \
 		echo ""; \
-		curl -s http://localhost:8080/api/jobs 2>/dev/null | jq -r '.jobs[] | "\(.job_id) | \(.status) | \(.operation) | \(.price_lamports / 1000000000) SOL"' | column -t -s'|' || echo "Backend not responding"; \
+		curl -s http://localhost:3000/api/jobs/zk 2>/dev/null | jq -r '.jobs[] | "\(.job_id) | \(.status) | \(.circuit_type) | \(.price_lamports / 1000000000) SOL"' | column -t -s'|' || echo "API not responding"; \
 		sleep 5; \
 	done
 
@@ -312,7 +361,7 @@ tunnel-help: ## Show SSH tunnel setup instructions
 	@echo ""
 	@echo "Puertos necesarios:"
 	@echo "  - 5173: Frontend (Vite dev server)"
-	@echo "  - 8080: Backend API"
+	@echo "  - 3000: Public API (gateway)"
 	@echo "  - 8899: Solana RPC HTTP"
 	@echo "  - 8900: Solana RPC WebSocket"
 	@echo "  - 9900: Solana Faucet"
@@ -321,7 +370,7 @@ tunnel-help: ## Show SSH tunnel setup instructions
 	@echo "$(YELLOW)Ejecutá esto en tu máquina LOCAL:$(NC)"
 	@echo ""
 	@echo "ssh -L 5173:localhost:5173 \\"
-	@echo "    -L 8080:localhost:8080 \\"
+	@echo "    -L 3000:localhost:3000 \\"
 	@echo "    -L 8899:localhost:8899 \\"
 	@echo "    -L 8900:localhost:8900 \\"
 	@echo "    -L 9900:localhost:9900 \\"
@@ -330,21 +379,30 @@ tunnel-help: ## Show SSH tunnel setup instructions
 	@echo ""
 	@echo "$(BLUE)Luego accedé a:$(NC)"
 	@echo "  - Frontend:  http://localhost:5173"
-	@echo "  - Backend:   http://localhost:8080/health"
+	@echo "  - API:       http://localhost:3000/health"
 	@echo "  - Validator: http://localhost:8899 (RPC)"
 	@echo ""
 
-health: ## Check health of all services
+health: ## Check health of all services (3-layer architecture)
 	@echo "$(BLUE) Checking service health...$(NC)"
 	@echo ""
-	@echo -n "Validator: "
-	@curl -s http://localhost:8899 -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"getHealth"}' 2>/dev/null | grep -q "ok" && echo "$(GREEN) OK$(NC)" || echo "$(RED) Down$(NC)"
-	@echo -n "Backend:   "
-	@curl -s http://localhost:8080/health > /dev/null 2>&1 && echo "$(GREEN) OK$(NC)" || echo "$(RED) Down$(NC)"
-	@echo -n "Database:  "
-	@podman exec zyberlink-postgres psql -U zyberlink -d zyberlink -c "SELECT 1" > /dev/null 2>&1 && echo "$(GREEN) OK$(NC)" || echo "$(RED) Down$(NC)"
-	@echo -n "Frontend:  "
-	@curl -s http://localhost:5173 > /dev/null 2>&1 && echo "$(GREEN) OK$(NC)" || echo "$(RED) Down$(NC)"
+	@echo "=== Infrastructure ==="
+	@echo -n "Validator:   "
+	@curl -s http://localhost:8899 -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"getHealth"}' 2>/dev/null | grep -q "ok" && echo "$(GREEN)OK$(NC)" || echo "$(RED)Down$(NC)"
+	@echo -n "Database:    "
+	@podman exec zyberlink-postgres psql -U zyberlink -d zyberlink -c "SELECT 1" > /dev/null 2>&1 && echo "$(GREEN)OK$(NC)" || echo "$(RED)Down$(NC)"
+	@echo ""
+	@echo "=== API Stack (3 capas) ==="
+	@echo -n "blink:8080   "
+	@curl -s http://localhost:8080/health > /dev/null 2>&1 && echo "$(GREEN)OK$(NC) (internal backend)" || echo "$(RED)Down$(NC)"
+	@echo -n "x402:8081    "
+	@curl -s http://localhost:8081/health > /dev/null 2>&1 && echo "$(GREEN)OK$(NC) (anti-spam)" || echo "$(RED)Down$(NC)"
+	@echo -n "public:3000  "
+	@curl -s http://localhost:3000/health > /dev/null 2>&1 && echo "$(GREEN)OK$(NC) (public gateway)" || echo "$(RED)Down$(NC)"
+	@echo ""
+	@echo "=== Frontend ==="
+	@echo -n "Frontend:    "
+	@curl -s http://localhost:5173 > /dev/null 2>&1 && echo "$(GREEN)OK$(NC)" || echo "$(RED)Down$(NC)"
 	@echo ""
 
 airdrop: ## Airdrop SOL to prover wallets
@@ -489,10 +547,10 @@ localnet-jobs: ## [STEP 3] Start job creator (auto-creates jobs every 10s)
 	@# Build job-creator
 	@echo "  Building job-creator..."
 	@cargo build --release --manifest-path src/job-creator/Cargo.toml 2>&1 | tail -3
-	@# Start job-creator in background (pointing to local backend on 8080)
+	@# Start job-creator in background (pointing to public-api on 3000)
 	@export $$(grep -v '^#' src/blink-server/.env | xargs) && \
 	RUST_LOG=info \
-	BACKEND_URL=http://localhost:8080 \
+	BACKEND_URL=http://localhost:3000 \
 	SOLANA_RPC_URL=$$SOLANA_RPC_URL \
 	PROGRAM_ID=$$PROGRAM_ID \
 	USER_KEYPAIR=/tmp/job-creator-keypair.json \
@@ -717,7 +775,7 @@ e2e-poi: ## [E2E] Run PoI verification test: CountIf([15,20,25,17], >= 18) -> ex
 		BACKEND="http://localhost:9000"; \
 	elif [ -f "src/blink-server/.env" ]; then \
 		ENV_FILE="src/blink-server/.env"; \
-		BACKEND="http://localhost:8080"; \
+		BACKEND="http://localhost:3000"; \
 	else \
 		echo "$(RED)ERROR: No env file found. Run 'make c1' or 'make l1' first$(NC)"; \
 		exit 1; \
@@ -745,7 +803,7 @@ e2e-sum: ## [E2E] Run Sum verification test: Sum([10,20,30]) -> expect 60
 		BACKEND="http://localhost:9000"; \
 	elif [ -f "src/blink-server/.env" ]; then \
 		ENV_FILE="src/blink-server/.env"; \
-		BACKEND="http://localhost:8080"; \
+		BACKEND="http://localhost:3000"; \
 	else \
 		echo "$(RED)ERROR: No env file found. Run 'make c1' or 'make l1' first$(NC)"; \
 		exit 1; \
@@ -983,7 +1041,7 @@ x402-quote: ## [x402] Test quote endpoint
 	@if [ -f ".env.containers" ]; then \
 		BACKEND="http://localhost:9000"; \
 	else \
-		BACKEND="http://localhost:8080"; \
+		BACKEND="http://localhost:3000"; \
 	fi; \
 	echo "Backend: $$BACKEND"; \
 	echo ""; \
@@ -1002,7 +1060,7 @@ x402-estimate: ## [x402] Test price estimation (no quote created)
 	@if [ -f ".env.containers" ]; then \
 		BACKEND="http://localhost:9000"; \
 	else \
-		BACKEND="http://localhost:8080"; \
+		BACKEND="http://localhost:3000"; \
 	fi; \
 	echo "Backend: $$BACKEND"; \
 	echo ""; \
@@ -1018,7 +1076,7 @@ x402-flow: ## [x402] Test full payment flow (quote -> pay -> token)
 	@if [ -f ".env.containers" ]; then \
 		BACKEND="http://localhost:9000"; \
 	elif [ -f "src/blink-server/.env" ]; then \
-		BACKEND="http://localhost:8080"; \
+		BACKEND="http://localhost:3000"; \
 	else \
 		echo "$(RED)ERROR: No env file found. Run 'make c1' or 'make l1' first$(NC)"; \
 		exit 1; \
@@ -1060,7 +1118,7 @@ x402-witness: ## [x402] Test witness upload with token
 	@if [ -f ".env.containers" ]; then \
 		BACKEND="http://localhost:9000"; \
 	else \
-		BACKEND="http://localhost:8080"; \
+		BACKEND="http://localhost:3000"; \
 	fi; \
 	echo "Backend: $$BACKEND"; \
 	echo ""; \
@@ -1102,3 +1160,153 @@ x402-all: x402-estimate x402-quote x402-flow x402-witness ## [x402] Run all x402
 
 # Aliases for quick testing
 t-x402: x402-all ## Alias: run all x402 tests
+
+# ============================================================================
+# Prover Refactor Commands
+# ============================================================================
+
+.PHONY: prover-check prover-test prover-bench prover-refactor-health prover-setup-circuits prover-verify-deps
+
+prover-check: ## Check prover-node compilation
+	@echo "$(BLUE)Checking prover-node compilation...$(NC)"
+	@cd src/prover-node && cargo check --all-targets
+	@echo "$(GREEN)✓ Prover check passed$(NC)"
+
+prover-test: ## Run prover-node tests (unit + integration)
+	@echo "$(BLUE)Running prover-node tests...$(NC)"
+	@cd src/prover-node && cargo test --lib
+	@echo "$(GREEN)✓ Prover tests passed$(NC)"
+
+prover-test-all: ## Run all prover tests including ignored ones
+	@echo "$(BLUE)Running all prover tests (including E2E)...$(NC)"
+	@cd src/prover-node && cargo test --lib
+	@cd src/prover-node && cargo test --test '*' -- --ignored
+	@echo "$(GREEN)✓ All prover tests passed$(NC)"
+
+prover-bench: ## Run prover benchmarks
+	@echo "$(BLUE)Running prover benchmarks...$(NC)"
+	@cd src/prover-node && cargo bench --no-run
+	@echo "$(GREEN)✓ Benchmarks compiled$(NC)"
+
+prover-lint: ## Run clippy on prover-node
+	@echo "$(BLUE)Running clippy on prover-node...$(NC)"
+	@cd src/prover-node && cargo clippy --all-targets -- -D warnings
+	@echo "$(GREEN)✓ No clippy warnings$(NC)"
+
+prover-fmt-check: ## Check prover-node formatting
+	@echo "$(BLUE)Checking prover-node formatting...$(NC)"
+	@cd src/prover-node && cargo fmt -- --check
+	@echo "$(GREEN)✓ Formatting OK$(NC)"
+
+prover-fmt: ## Format prover-node code
+	@echo "$(BLUE)Formatting prover-node...$(NC)"
+	@cd src/prover-node && cargo fmt
+	@echo "$(GREEN)✓ Code formatted$(NC)"
+
+prover-setup-circuits: ## Setup circuits directory for prover
+	@echo "$(BLUE)Setting up prover circuits...$(NC)"
+	@bash scripts/setup_prover_circuits.sh
+	@echo "$(GREEN)✓ Circuits setup complete$(NC)"
+
+prover-verify-deps: ## Verify prover dependencies (snarkjs, etc.)
+	@echo "$(BLUE)Verifying prover dependencies...$(NC)"
+	@echo -n "  rustc: "
+	@rustc --version || echo "$(RED)NOT FOUND$(NC)"
+	@echo -n "  cargo: "
+	@cargo --version || echo "$(RED)NOT FOUND$(NC)"
+	@echo -n "  snarkjs: "
+	@snarkjs --version 2>/dev/null || echo "$(YELLOW)NOT FOUND (required for ZK proofs)$(NC)"
+	@echo -n "  bun: "
+	@bun --version 2>/dev/null || (echo -n "node: " && node --version 2>/dev/null || echo "$(YELLOW)Neither bun nor node found$(NC)")
+	@echo -n "  docker: "
+	@docker --version || echo "$(YELLOW)NOT FOUND (required for E2E tests)$(NC)"
+	@echo "$(GREEN)✓ Dependency check complete$(NC)"
+
+prover-refactor-health: prover-verify-deps prover-check prover-lint prover-fmt-check prover-test ## Full health check for prover refactor
+	@echo ""
+	@echo "$(GREEN)====================================$(NC)"
+	@echo "$(GREEN)✓ Prover Refactor Health Check PASS$(NC)"
+	@echo "$(GREEN)====================================$(NC)"
+	@echo ""
+	@echo "Metrics:"
+	@echo "  main.rs lines: $$(wc -l src/prover-node/src/main.rs | awk '{print $$1}')"
+	@echo "  Total modules: $$(find src/prover-node/src -name '*.rs' | wc -l)"
+	@echo ""
+
+prover-stats: ## Show prover code statistics
+	@echo "$(BLUE)Prover Node Statistics:$(NC)"
+	@echo ""
+	@echo "File sizes:"
+	@wc -l src/prover-node/src/main.rs
+	@wc -l src/prover-node/src/core/*.rs 2>/dev/null || echo "  core/* (not yet created)"
+	@wc -l src/prover-node/src/engines/*.rs 2>/dev/null || echo "  engines/* (not yet created)"
+	@wc -l src/prover-node/src/services/*.rs 2>/dev/null || echo "  services/* (not yet created)"
+	@wc -l src/prover-node/src/cli/*.rs 2>/dev/null || echo "  cli/* (not yet created)"
+	@echo ""
+	@echo "Module structure:"
+	@tree -L 3 src/prover-node/src/ 2>/dev/null || ls -R src/prover-node/src/
+
+prover-clean: ## Clean prover build artifacts
+	@echo "$(BLUE)Cleaning prover-node build artifacts...$(NC)"
+	@cd src/prover-node && cargo clean
+	@echo "$(GREEN)✓ Prover cleaned$(NC)"
+
+# Refactor workflow shortcuts
+refactor-sprint1: prover-verify-deps prover-setup-circuits ## Setup for Sprint 1 (A1, A2, A4, B4)
+	@echo "$(GREEN)✓ Ready to start Sprint 1$(NC)"
+	@echo ""
+	@echo "Next steps:"
+	@echo "  1. Execute TASK A1: Setup directory structure"
+	@echo "  2. Execute TASK A2: Circuit Registry"
+	@echo "  3. Execute TASK A4: CLI extraction"
+	@echo "  4. See EXECUTION_ROADMAP.md for details"
+
+refactor-checkpoint: prover-check prover-test prover-lint ## Quick checkpoint validation
+	@echo "$(GREEN)✓ Checkpoint validation passed$(NC)"
+
+# Aliases
+p-check: prover-check
+p-test: prover-test
+p-lint: prover-lint
+p-fmt: prover-fmt
+p-health: prover-refactor-health
+p-stats: prover-stats
+
+# ============================================================================
+# E2E Real Stack Tests (programs e2e)
+# ============================================================================
+
+.PHONY: e2e-real e2e-real-zk e2e-real-check e2e-real-all
+
+e2e-real-check: ## Check E2E tests compilation
+	@echo "$(BLUE)Checking E2E tests compilation...$(NC)"
+	@cd src/programs/e2e && cargo check
+	@echo "$(GREEN)✓ E2E tests compile$(NC)"
+
+e2e-real: ## Run E2E tests against localhost stack (requires l1 running)
+	@echo "$(BLUE)Running E2E tests against localhost...$(NC)"
+	@echo ""
+	@echo "Prerequisites:"
+	@echo "  1. make l1 (stack running)"
+	@echo "  2. Programs deployed"
+	@echo ""
+	@cd src/programs/e2e && cargo test real_stack -- --ignored --nocapture
+
+e2e-real-zk: ## Run only ZK flow E2E test
+	@echo "$(BLUE)Running ZK full flow E2E test...$(NC)"
+	@cd src/programs/e2e && cargo test test_zk_full_flow_with_cpi -- --ignored --nocapture
+
+e2e-real-prover: ## Run prover verification E2E test
+	@echo "$(BLUE)Running prover verification E2E test...$(NC)"
+	@cd src/programs/e2e && cargo test test_prover_verification -- --ignored --nocapture
+
+e2e-real-connection: ## Test connection to localhost stack
+	@echo "$(BLUE)Testing localhost stack connection...$(NC)"
+	@cd src/programs/e2e && cargo test test_real_stack_connection -- --ignored --nocapture
+
+e2e-real-all: e2e-real-check e2e-real ## Run all E2E real stack tests
+
+# Aliases for e2e
+e2e-r: e2e-real
+e2e-rz: e2e-real-zk
+

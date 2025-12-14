@@ -37,6 +37,7 @@ const ESCROW_SEED: &[u8] = b"fhe_escrow";
 pub fn process_create_job(
     program_id: &Pubkey,
     accounts: &[AccountInfo],
+    job_id: u64,
     circuit_type: u8,
     witness_hash: [u8; 32],
     witness_size: u32,
@@ -91,8 +92,6 @@ pub fn process_create_job(
     let clock = Clock::get()?;
     let current_time = clock.unix_timestamp;
 
-    // Generate job ID
-    let job_id = (current_time as u64) ^ (creator_info.key.to_bytes()[0] as u64);
     let job_id_bytes = job_id.to_le_bytes();
 
     // Derive and verify job PDA

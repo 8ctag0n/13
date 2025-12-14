@@ -2,7 +2,62 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use solana_sdk::pubkey::Pubkey;
 use std::path::PathBuf;
+use std::time::Duration;
 
+/// Runtime configuration for the prover node
+#[derive(Debug, Clone)]
+pub struct ProverConfig {
+    pub rpc_url: String,
+    pub program_id: Pubkey,
+    pub keypair_path: String,
+    pub poll_interval: Duration,
+    pub min_price: u64, // Deprecated: kept for backward compatibility
+    pub min_roi: f64,
+    pub cost_multiplier: f64,
+    pub mock_proving_time: Duration,
+    pub max_concurrent_jobs: usize,
+    pub gateway_url: String,
+    pub blink_backend_url: String,
+    pub zk_circuits_path: String,
+    pub fhe_server_key_path: Option<String>,
+}
+
+impl ProverConfig {
+    /// Create a new ProverConfig directly
+    pub fn new(
+        rpc_url: String,
+        program_id: Pubkey,
+        keypair_path: String,
+        poll_interval: Duration,
+        min_price: u64,
+        min_roi: f64,
+        cost_multiplier: f64,
+        mock_proving_time: Duration,
+        max_concurrent_jobs: usize,
+        gateway_url: String,
+        blink_backend_url: String,
+        zk_circuits_path: String,
+        fhe_server_key_path: Option<String>,
+    ) -> Self {
+        Self {
+            rpc_url,
+            program_id,
+            keypair_path,
+            poll_interval,
+            min_price,
+            min_roi,
+            cost_multiplier,
+            mock_proving_time,
+            max_concurrent_jobs,
+            gateway_url,
+            blink_backend_url,
+            zk_circuits_path,
+            fhe_server_key_path,
+        }
+    }
+}
+
+/// Persisted configuration for the prover node (saved to disk)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProverConfiguration {
     pub version: String,
@@ -14,7 +69,7 @@ pub struct ProverConfiguration {
     pub prover_pda: String,
     pub encryption_pubkey: String,
     pub stake_amount: u64,
-    pub witness_backend_url: String,
+    pub gateway_url: String,
     pub created_at: String,
 }
 
@@ -29,7 +84,7 @@ impl ProverConfiguration {
         prover_pda: Pubkey,
         encryption_pubkey: String,
         stake_amount: u64,
-        witness_backend_url: String,
+        gateway_url: String,
     ) -> Self {
         use chrono::Utc;
 
@@ -43,7 +98,7 @@ impl ProverConfiguration {
             prover_pda: prover_pda.to_string(),
             encryption_pubkey,
             stake_amount,
-            witness_backend_url,
+            gateway_url,
             created_at: Utc::now().to_rfc3339(),
         }
     }

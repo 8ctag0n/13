@@ -17,12 +17,15 @@ use halo2_proofs::{
 use pasta_curves::{pallas, vesta};
 use rand::rngs::OsRng;
 
+use serde_big_array::BigArray;
+
 /// Witness data for Zcash Orchard action
 /// This is what the mobile client sends (encrypted)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[allow(dead_code)]
 pub struct OrchardWitness {
     /// Spending authorization signature
+    #[serde(with = "BigArray")]
     pub spend_auth_sig: [u8; 64],
 
     /// Note being spent
@@ -35,6 +38,7 @@ pub struct OrchardWitness {
     pub merkle_position: u32,
 
     /// Output note details
+    #[serde(with = "BigArray")]
     pub recipient_address: [u8; 43],
     pub output_value: u64,
 

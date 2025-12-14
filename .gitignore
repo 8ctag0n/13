@@ -460,5 +460,9 @@ test-ledger/
 logs/
 
 releases/
-# Private docs not tracked
+
+# ZK circuit arkworks keys (large binary files)
+*.arkzkey
+
+# Private planning docs (not tracked)
 private/

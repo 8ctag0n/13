@@ -35,6 +35,9 @@ const BPS_DENOMINATOR: u64 = 10_000;
 /// 1. `[writable]` ZkJob account
 /// 2. `[writable]` Escrow PDA (holds payment)
 /// 3. `[writable]` Protocol fee recipient
+/// 4. `[]` Bedrock program
+/// 5. `[writable]` Prover PDA in bedrock
+/// 6. `[]` Bedrock config PDA
 pub fn process_submit_proof(
     program_id: &Pubkey,
     accounts: &[AccountInfo],
@@ -135,6 +138,25 @@ pub fn process_submit_proof(
         .lamports()
         .checked_add(prover_payout)
         .ok_or(ZkGeneratorError::Overflow)?;
+
+    // Update prover stats in bedrock via CPI
+    let bedrock_program_info = next_account_info(account_info_iter)?;
+    let prover_pda_info = next_account_info(account_info_iter)?;
+    let bedrock_config_info = next_account_info(account_info_iter)?;
+
+    // Note: bedrock's update_prover_stats expects the generator program ID
+    // to verify it's a registered generator. We pass the program_id directly
+    // through the CPI helper which will create the instruction with the correct pubkey.
+    bedrock::cpi::cpi_update_prover_stats_with_program_id(
+        program_id,
+        bedrock_program_info.key,
+        bedrock_program_info,
+        prover_pda_info,
+        bedrock_config_info,
+        true,  // job_completed
+        false, // job_failed
+    )?;
+    msg!("Updated prover stats in Bedrock");
 
     // Complete the job (starts dispute window)
     zk_job.common.complete(proof_hash);

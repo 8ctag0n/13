@@ -39,7 +39,10 @@ const BPS_DENOMINATOR: u64 = 10_000;
 /// 3. `[writable]` Escrow PDA
 /// 4. `[writable]` Creator (for refunds)
 /// 5. `[writable]` Protocol fee recipient
-/// 6-N. `[writable]` Prover wallet accounts (in order of claimed_provers)
+/// 6. `[]` Bedrock program
+/// 7. `[]` Bedrock config
+/// 8-(8+N-1). `[writable]` Prover wallet accounts (in order of claimed_provers)
+/// (8+N)-(8+2N-1). `[writable]` Prover PDA accounts (in order of claimed_provers)
 pub fn process_finalize_job(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResult {
     let account_info_iter = &mut accounts.iter();
 
@@ -51,8 +54,12 @@ pub fn process_finalize_job(program_id: &Pubkey, accounts: &[AccountInfo]) -> Pr
     let creator_info = next_account_info(account_info_iter)?;
     let fee_recipient_info = next_account_info(account_info_iter)?;
 
-    // Remaining accounts are prover wallet accounts
-    let prover_accounts: Vec<AccountInfo> = account_info_iter.cloned().collect();
+    // Bedrock CPI accounts
+    let bedrock_program_info = next_account_info(account_info_iter)?;
+    let bedrock_config_info = next_account_info(account_info_iter)?;
+
+    // Collect remaining accounts
+    let remaining_accounts: Vec<AccountInfo> = account_info_iter.cloned().collect();
 
     // Verify job account is owned by this program
     if job_info.owner != program_id {
@@ -127,15 +134,51 @@ pub fn process_finalize_job(program_id: &Pubkey, accounts: &[AccountInfo]) -> Pr
         return Err(FheGeneratorError::InvalidEscrow.into());
     }
 
-    // Verify we have accounts for all provers
+    // Split remaining accounts into prover wallets and prover PDAs
     let num_provers = consensus_data.results_count as usize;
-    if prover_accounts.len() != num_provers {
+    let expected_accounts = num_provers * 2; // N wallets + N PDAs
+
+    if remaining_accounts.len() != expected_accounts {
         msg!(
-            "Invalid number of prover accounts: expected {}, got {}",
+            "Invalid number of accounts: expected {} ({}*2), got {}",
+            expected_accounts,
             num_provers,
-            prover_accounts.len()
+            remaining_accounts.len()
         );
         return Err(FheGeneratorError::InvalidInstruction.into());
+    }
+
+    let (prover_wallets, prover_pdas) = remaining_accounts.split_at(num_provers);
+
+    // Verify prover PDAs match expected addresses
+    for (idx, (wallet, pda)) in prover_wallets.iter().zip(prover_pdas.iter()).enumerate() {
+        let prover_key = &consensus_data.claimed_provers[idx];
+
+        // Verify wallet matches
+        if wallet.key != prover_key {
+            msg!(
+                "Prover wallet mismatch at {}: expected {}, got {}",
+                idx,
+                prover_key,
+                wallet.key
+            );
+            return Err(FheGeneratorError::InvalidInstruction.into());
+        }
+
+        // Verify PDA matches
+        let (expected_pda, _) = bedrock::cpi::derive_prover_pda(
+            bedrock_program_info.key,
+            prover_key,
+        );
+        if pda.key != &expected_pda {
+            msg!(
+                "Prover PDA mismatch at {}: expected {}, got {}",
+                idx,
+                expected_pda,
+                pda.key
+            );
+            return Err(FheGeneratorError::InvalidInstruction.into());
+        }
     }
 
     // Get current time
@@ -200,20 +243,10 @@ pub fn process_finalize_job(program_id: &Pubkey, accounts: &[AccountInfo]) -> Pr
                     .ok_or(FheGeneratorError::Overflow)?;
             }
 
-            // Pay matching provers
-            for (result_idx, prover_info) in prover_accounts.iter().enumerate() {
-                let prover_key = &consensus_data.claimed_provers[result_idx];
-
-                // Verify prover account matches
-                if prover_info.key != prover_key {
-                    msg!(
-                        "Prover mismatch at {}: expected {}, got {}",
-                        result_idx,
-                        prover_key,
-                        prover_info.key
-                    );
-                    return Err(FheGeneratorError::InvalidInstruction.into());
-                }
+            // Pay matching provers and update stats
+            for result_idx in 0..num_provers {
+                let prover_wallet = &prover_wallets[result_idx];
+                let prover_pda = &prover_pdas[result_idx];
 
                 if matching_indices[result_idx] {
                     // Pay matching prover
@@ -221,14 +254,41 @@ pub fn process_finalize_job(program_id: &Pubkey, accounts: &[AccountInfo]) -> Pr
                         .lamports()
                         .checked_sub(payout_per_prover)
                         .ok_or(FheGeneratorError::InsufficientFunds)?;
-                    **prover_info.try_borrow_mut_lamports()? = prover_info
+                    **prover_wallet.try_borrow_mut_lamports()? = prover_wallet
                         .lamports()
                         .checked_add(payout_per_prover)
                         .ok_or(FheGeneratorError::Overflow)?;
 
-                    msg!("Paid prover {}: {} lamports", prover_key, payout_per_prover);
+                    msg!("Paid prover {}: {} lamports", prover_wallet.key, payout_per_prover);
+
+                    // Update stats via CPI - job completed successfully
+                    // Note: bedrock's update_prover_stats expects the generator program ID
+                    // to verify it's a registered generator. We pass the program_id directly
+                    // through the CPI helper which will create the instruction with the correct pubkey.
+                    bedrock::cpi::cpi_update_prover_stats_with_program_id(
+                        program_id,
+                        bedrock_program_info.key,
+                        bedrock_program_info,
+                        prover_pda,
+                        bedrock_config_info,
+                        true,  // job_completed
+                        false, // job_failed
+                    )?;
+                    msg!("Updated stats for prover {}: job completed", prover_wallet.key);
                 } else {
-                    msg!("Mismatching prover {} receives nothing", prover_key);
+                    msg!("Mismatching prover {} receives nothing", prover_wallet.key);
+
+                    // Update stats via CPI - job failed (mismatching result)
+                    bedrock::cpi::cpi_update_prover_stats_with_program_id(
+                        program_id,
+                        bedrock_program_info.key,
+                        bedrock_program_info,
+                        prover_pda,
+                        bedrock_config_info,
+                        false, // job_completed
+                        true,  // job_failed
+                    )?;
+                    msg!("Updated stats for prover {}: job failed (mismatched)", prover_wallet.key);
                 }
             }
 
@@ -253,18 +313,22 @@ pub fn process_finalize_job(program_id: &Pubkey, accounts: &[AccountInfo]) -> Pr
 
             msg!("Refunded {} lamports to creator", refund_amount);
 
-            // Verify prover accounts match (for consistency)
-            for (result_idx, prover_info) in prover_accounts.iter().enumerate() {
-                let prover_key = &consensus_data.claimed_provers[result_idx];
-                if prover_info.key != prover_key {
-                    msg!(
-                        "Prover mismatch at {}: expected {}, got {}",
-                        result_idx,
-                        prover_key,
-                        prover_info.key
-                    );
-                    return Err(FheGeneratorError::InvalidInstruction.into());
-                }
+            // Mark all provers as failed in no-consensus scenario
+            for result_idx in 0..num_provers {
+                let prover_wallet = &prover_wallets[result_idx];
+                let prover_pda = &prover_pdas[result_idx];
+
+                // All provers failed in no-consensus scenario
+                bedrock::cpi::cpi_update_prover_stats_with_program_id(
+                    program_id,
+                    bedrock_program_info.key,
+                    bedrock_program_info,
+                    prover_pda,
+                    bedrock_config_info,
+                    false, // job_completed
+                    true,  // job_failed
+                )?;
+                msg!("Updated stats for prover {}: job failed (no consensus)", prover_wallet.key);
             }
 
             msg!(

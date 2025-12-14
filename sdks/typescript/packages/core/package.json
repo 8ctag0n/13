@@ -1,0 +1,40 @@
+{
+  "name": "@zyber/core",
+  "version": "0.1.0",
+  "description": "TypeScript core SDK for ZyberLink - privacy-preserving ZK/FHE primitives",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts --sourcemap --target node18 --out-dir dist --splitting",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --sourcemap --watch --target node18 --out-dir dist --splitting",
+    "lint": "eslint src --ext .ts",
+    "test": "vitest",
+    "prepublishOnly": "bun run build"
+  },
+  "keywords": [
+    "zyber",
+    "zk",
+    "fhe",
+    "solana",
+    "privacy",
+    "web3"
+  ],
+  "author": "ZyberLink Team",
+  "license": "MIT",
+  "dependencies": {
+    "@solana-program/compute-budget": "^0.7.0",
+    "@solana-program/system": "^0.7.0",
+    "@solana/kit": "^2.1.0",
+    "circomlibjs": "^0.1.7"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "snarkjs": "^0.7.5"
+  }
+}
