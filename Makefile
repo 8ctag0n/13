@@ -1272,3 +1272,41 @@ p-fmt: prover-fmt
 p-health: prover-refactor-health
 p-stats: prover-stats
 
+# ============================================================================
+# E2E Real Stack Tests (programs e2e)
+# ============================================================================
+
+.PHONY: e2e-real e2e-real-zk e2e-real-check e2e-real-all
+
+e2e-real-check: ## Check E2E tests compilation
+	@echo "$(BLUE)Checking E2E tests compilation...$(NC)"
+	@cd src/programs/e2e && cargo check
+	@echo "$(GREEN)✓ E2E tests compile$(NC)"
+
+e2e-real: ## Run E2E tests against localhost stack (requires l1 running)
+	@echo "$(BLUE)Running E2E tests against localhost...$(NC)"
+	@echo ""
+	@echo "Prerequisites:"
+	@echo "  1. make l1 (stack running)"
+	@echo "  2. Programs deployed"
+	@echo ""
+	@cd src/programs/e2e && cargo test real_stack -- --ignored --nocapture
+
+e2e-real-zk: ## Run only ZK flow E2E test
+	@echo "$(BLUE)Running ZK full flow E2E test...$(NC)"
+	@cd src/programs/e2e && cargo test test_zk_full_flow_with_cpi -- --ignored --nocapture
+
+e2e-real-prover: ## Run prover verification E2E test
+	@echo "$(BLUE)Running prover verification E2E test...$(NC)"
+	@cd src/programs/e2e && cargo test test_prover_verification -- --ignored --nocapture
+
+e2e-real-connection: ## Test connection to localhost stack
+	@echo "$(BLUE)Testing localhost stack connection...$(NC)"
+	@cd src/programs/e2e && cargo test test_real_stack_connection -- --ignored --nocapture
+
+e2e-real-all: e2e-real-check e2e-real ## Run all E2E real stack tests
+
+# Aliases for e2e
+e2e-r: e2e-real
+e2e-rz: e2e-real-zk
+

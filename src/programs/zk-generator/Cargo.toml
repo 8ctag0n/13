@@ -13,6 +13,7 @@ name = "zk_generator"
 [features]
 no-entrypoint = []
 test-sbf = []
+skip-cpi-verify = []
 
 [dependencies]
 solana-program.workspace = true

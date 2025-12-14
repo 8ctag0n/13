@@ -108,7 +108,7 @@ if ! solana cluster-version --url http://localhost:8899 >/dev/null 2>&1; then
 fi
 
 # ============================================================================
-# STEP 2: Program Deployment
+# STEP 2: Program Deployment (Multi-Program Architecture)
 # ============================================================================
 log_step "STEP 2: Program Deployment"
 
@@ -133,48 +133,91 @@ sleep 2
 BALANCE=$(solana balance --url http://localhost:8899)
 log_info "Deployer balance: $BALANCE"
 
-# 2.4 Deploy program
-log_info "Deploying Solana program..."
-PROGRAM_PATH=src/programs/target/deploy/zyberlink.so
+# 2.4 Generate keypairs for all programs
+log_info "Generating program keypairs..."
+PROGRAMS=("bedrock" "zk-generator" "fhe-generator" "threshold" "zyberlink")
 
-if [ ! -f "$PROGRAM_PATH" ]; then
-    log_error "Program binary not found at $PROGRAM_PATH"
-    log_error "Run: cd src/programs && cargo build-sbf"
+for prog in "${PROGRAMS[@]}"; do
+    KEYPAIR="src/programs/target/deploy/${prog}-keypair.json"
+    if [ ! -f "$KEYPAIR" ]; then
+        log_info "  Creating keypair for $prog..."
+        solana-keygen new --no-bip39-passphrase --force --outfile "$KEYPAIR" >/dev/null 2>&1
+    else
+        log_info "  Keypair exists for $prog"
+    fi
+done
+
+# 2.5 Deploy programs in order
+declare -A PROGRAM_IDS
+
+# Core programs (deployed first)
+CORE_PROGRAMS=("bedrock" "zk-generator" "fhe-generator")
+
+for prog in "${CORE_PROGRAMS[@]}"; do
+    PROGRAM_PATH="src/programs/target/deploy/${prog}.so"
+    PROGRAM_KEYPAIR="src/programs/target/deploy/${prog}-keypair.json"
+
+    if [ ! -f "$PROGRAM_PATH" ]; then
+        log_warn "Program binary not found: $PROGRAM_PATH (skipping)"
+        continue
+    fi
+
+    log_info "Deploying $prog (this may take 30-60 seconds)..."
+    if solana program deploy $PROGRAM_PATH \
+        --url http://localhost:8899 \
+        --keypair ~/.config/solana/id.json \
+        --program-id $PROGRAM_KEYPAIR \
+        > /tmp/program-deploy-${prog}.log 2>&1; then
+
+        PROG_ID=$(solana address --keypair $PROGRAM_KEYPAIR)
+        PROGRAM_IDS[$prog]=$PROG_ID
+        log_info "✓ $prog deployed: $PROG_ID"
+
+        # Verify deployment
+        if solana program show $PROG_ID --url http://localhost:8899 >/dev/null 2>&1; then
+            log_info "  ✓ Verified on-chain"
+        else
+            log_error "  Program verification failed"
+            exit 1
+        fi
+    else
+        log_error "Deployment failed for $prog"
+        tail -20 /tmp/program-deploy-${prog}.log
+        exit 1
+    fi
+
+    sleep 1
+done
+
+# Legacy program (for compatibility)
+if [ -f "src/programs/target/deploy/zyberlink.so" ]; then
+    log_info "Deploying legacy zyberlink program..."
+    PROGRAM_KEYPAIR="src/programs/target/deploy/zyberlink-keypair.json"
+
+    if solana program deploy src/programs/target/deploy/zyberlink.so \
+        --url http://localhost:8899 \
+        --keypair ~/.config/solana/id.json \
+        --program-id $PROGRAM_KEYPAIR \
+        > /tmp/program-deploy-zyberlink.log 2>&1; then
+
+        LEGACY_ID=$(solana address --keypair $PROGRAM_KEYPAIR)
+        PROGRAM_IDS[zyberlink]=$LEGACY_ID
+        log_info "✓ Legacy zyberlink deployed: $LEGACY_ID"
+    fi
+fi
+
+# Use bedrock as main PROGRAM_ID
+PROGRAM_ID=${PROGRAM_IDS[bedrock]:-${PROGRAM_IDS[zyberlink]}}
+
+if [ -z "$PROGRAM_ID" ]; then
+    log_error "No programs were deployed successfully"
     exit 1
 fi
 
-# Deploy with program keypair
-PROGRAM_KEYPAIR=src/programs/target/deploy/zyberlink-keypair.json
-
-if [ ! -f "$PROGRAM_KEYPAIR" ]; then
-    log_error "Program keypair not found at $PROGRAM_KEYPAIR"
-    exit 1
-fi
-
-log_info "Deploying program (this may take 30-60 seconds)..."
-if solana program deploy $PROGRAM_PATH \
-    --url http://localhost:8899 \
-    --keypair ~/.config/solana/id.json \
-    --program-id $PROGRAM_KEYPAIR \
-    > /tmp/program-deploy.log 2>&1; then
-
-    PROGRAM_ID=$(solana address --keypair $PROGRAM_KEYPAIR)
-    log_info "✓ Program deployed successfully"
-    log_info "Program ID: $PROGRAM_ID"
-else
-    log_error "Program deployment failed"
-    tail -20 /tmp/program-deploy.log
-    exit 1
-fi
-
-# Verify deployment
-log_info "Verifying deployment..."
-if solana program show $PROGRAM_ID --url http://localhost:8899 >/dev/null 2>&1; then
-    log_info "✓ Program verified on-chain"
-else
-    log_error "Program verification failed"
-    exit 1
-fi
+log_info "\nDeployed Program IDs:"
+for prog in "${!PROGRAM_IDS[@]}"; do
+    log_info "  $prog: ${PROGRAM_IDS[$prog]}"
+done
 
 # ============================================================================
 # STEP 3: Create Prover Wallets
@@ -217,11 +260,21 @@ done
 # ============================================================================
 log_step "STEP 4: Generate Environment Files"
 
-# Backend .env
+# blink-server .env (main backend)
 cat > src/blink-server/.env <<EOF
 DATABASE_URL=postgresql://zyberlink:dev_password@localhost:5432/zyberlink
 SOLANA_RPC_URL=http://localhost:8899
+
+# Bedrock Architecture Program IDs
+BEDROCK_PROGRAM_ID=${PROGRAM_IDS[bedrock]:-}
+ZK_GENERATOR_PROGRAM_ID=${PROGRAM_IDS[zk-generator]:-}
+FHE_GENERATOR_PROGRAM_ID=${PROGRAM_IDS[fhe-generator]:-}
+THRESHOLD_PROGRAM_ID=${PROGRAM_IDS[threshold]:-}
+
+# Legacy compatibility
 PROGRAM_ID=$PROGRAM_ID
+
+# Server config
 PORT=8080
 HOST=127.0.0.1
 RUST_LOG=info
@@ -229,10 +282,31 @@ EOF
 
 log_info "✓ Created src/blink-server/.env"
 
+# x402-server .env (gateway)
+cat > src/x402-server/.env <<EOF
+DATABASE_URL=postgresql://zyberlink:dev_password@localhost:5432/zyberlink
+SOLANA_RPC_URL=http://localhost:8899
+
+# Bedrock Architecture Program IDs
+BEDROCK_PROGRAM_ID=${PROGRAM_IDS[bedrock]:-}
+ZK_GENERATOR_PROGRAM_ID=${PROGRAM_IDS[zk-generator]:-}
+FHE_GENERATOR_PROGRAM_ID=${PROGRAM_IDS[fhe-generator]:-}
+
+# Gateway config
+BLINK_SERVER_URL=http://localhost:8080
+PORT=8081
+HOST=127.0.0.1
+RUST_LOG=info
+EOF
+
+log_info "✓ Created src/x402-server/.env"
+
 # Frontend .env
 cat > src/webapp/.env.local <<EOF
 VITE_SOLANA_RPC_URL=http://localhost:8899
 VITE_BACKEND_URL=http://127.0.0.1:8080
+VITE_GATEWAY_URL=http://127.0.0.1:8081
+VITE_BEDROCK_PROGRAM_ID=${PROGRAM_IDS[bedrock]:-$PROGRAM_ID}
 VITE_PROGRAM_ID=$PROGRAM_ID
 EOF
 
@@ -246,7 +320,11 @@ log_step "Setup Complete!"
 echo " Infrastructure Ready:"
 echo "  • Validator:    http://localhost:8899"
 echo "  • Database:     postgresql://localhost:5432/zyberlink"
-echo "  • Program ID:   $PROGRAM_ID"
+echo ""
+echo " Bedrock Architecture Programs:"
+for prog in "${!PROGRAM_IDS[@]}"; do
+    echo "  • $prog: ${PROGRAM_IDS[$prog]}"
+done
 echo ""
 echo " Provers:"
 for i in 1 2 3; do
@@ -254,18 +332,26 @@ for i in 1 2 3; do
 done
 echo ""
 echo " Configuration:"
-echo "  • Backend env:  src/blink-server/.env"
-echo "  • Frontend env: src/webapp/.env.local"
+echo "  • blink-server:   src/blink-server/.env"
+echo "  • x402-server:    src/x402-server/.env"
+echo "  • Frontend:       src/webapp/.env.local"
 echo ""
 echo " Logs:"
-echo "  • Validator:    tail -f /tmp/solana-validator.log"
+echo "  • Validator:      tail -f /tmp/solana-validator.log"
+echo "  • Program Deploy: tail -f /tmp/program-deploy-*.log"
 echo ""
 echo " Next Steps:"
-echo "  1. Start backend:  ./target/release/blink-server"
+echo "  1. Start servers:  ./scripts/start-servers.sh"
 echo "  2. Start frontend: cd src/webapp && npm run dev"
-echo "  3. Start provers:  Run scripts/localnet-start-provers.sh"
-echo "  4. Run tests:      Run scripts/localnet-test-api.sh"
+echo "  3. Start provers:  ./scripts/localnet-start-provers.sh"
+echo "  4. Run tests:      ./scripts/test-e2e.sh"
 echo ""
-echo " To save this session:"
+echo " Quick Commands:"
+echo "  • Start servers:   ./scripts/start-servers.sh"
+echo "  • Stop servers:    ./scripts/stop-servers.sh"
+echo "  • Check status:    ./scripts/localnet-status.sh"
+echo ""
+echo " Environment Variables:"
+echo "  export BEDROCK_PROGRAM_ID=${PROGRAM_IDS[bedrock]:-$PROGRAM_ID}"
 echo "  export ZYBERLINK_PROGRAM_ID=$PROGRAM_ID"
 echo ""

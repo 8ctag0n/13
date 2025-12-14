@@ -157,8 +157,10 @@ fn verify_circuit_proof(
 /// 0. `[signer]` Disputor wallet
 /// 1. `[writable]` ZkJob account
 /// 2. `[writable]` Prover wallet (for slashing if dispute succeeds)
-/// 3. `[writable]` Dispute bond account (disputor's bond)
-/// 4. `[writable]` Protocol treasury (receives portion of slash)
+/// 3. `[writable]` Protocol treasury (receives portion of slash)
+/// 4. `[]` Bedrock program
+/// 5. `[writable]` Prover PDA in bedrock
+/// 6. `[]` Bedrock config PDA
 pub fn process_dispute_proof(
     program_id: &Pubkey,
     accounts: &[AccountInfo],
@@ -272,8 +274,22 @@ pub fn process_dispute_proof(
         msg!("  Disputor reward: {} lamports", disputor_reward);
         msg!("  Treasury portion: {} lamports", treasury_portion);
 
-        // In production: prover would be slashed from their stake escrow
-        // For now, just update job status
+        // Slash prover via CPI to bedrock
+        let bedrock_program_info = next_account_info(account_info_iter)?;
+        let prover_pda_info = next_account_info(account_info_iter)?;
+        let bedrock_config_info = next_account_info(account_info_iter)?;
+
+        bedrock::cpi::cpi_slash_prover(
+            bedrock_program_info.key,
+            bedrock_program_info,
+            job_info, // ZK generator program account for CPI signing
+            prover_pda_info,
+            bedrock_config_info,
+            treasury_info, // recipient of slashed funds
+            slash_amount,
+            bedrock::instruction::SlashReason::InvalidResult,
+        )?;
+        msg!("Slashed prover {} via CPI", prover_info.key);
 
         // Update job status to Failed (disputed)
         zk_job.common.status = JobStatus::Failed;

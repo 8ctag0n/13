@@ -19,6 +19,10 @@ use crate::{error::ZkGeneratorError, state::ZkJob};
 /// Accounts:
 /// 0. `[signer]` Prover wallet
 /// 1. `[writable]` ZkJob account
+///
+/// With CPI verification (production):
+/// 2. `[]` Prover PDA in bedrock (derived with seeds [b"prover", prover_wallet])
+/// 3. `[]` Bedrock program
 pub fn process_claim_job(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResult {
     let account_info_iter = &mut accounts.iter();
 
@@ -29,6 +33,31 @@ pub fn process_claim_job(program_id: &Pubkey, accounts: &[AccountInfo]) -> Progr
     if !prover_info.is_signer {
         msg!("Prover must be a signer");
         return Err(ProgramError::MissingRequiredSignature);
+    }
+
+    // CPI verification: check prover is registered in bedrock
+    #[cfg(not(feature = "skip-cpi-verify"))]
+    {
+        let prover_pda_info = next_account_info(account_info_iter)?;
+        let bedrock_program_info = next_account_info(account_info_iter)?;
+
+        let (expected_prover_pda, _) = bedrock::cpi::derive_prover_pda(
+            bedrock_program_info.key,
+            prover_info.key,
+        );
+        if prover_pda_info.key != &expected_prover_pda {
+            msg!("Invalid prover PDA");
+            return Err(ZkGeneratorError::Unauthorized.into());
+        }
+
+        let is_registered = bedrock::cpi::verify_prover(
+            bedrock_program_info.key,
+            prover_pda_info,
+        )?;
+        if !is_registered {
+            msg!("Prover not registered or not active in Bedrock");
+            return Err(ZkGeneratorError::Unauthorized.into());
+        }
     }
 
     // Verify job account is owned by this program

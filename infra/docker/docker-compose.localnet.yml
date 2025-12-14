@@ -1,0 +1,200 @@
+version: '3.8'
+
+# ZyberLink Localnet E2E Stack
+# ============================
+# Stack completo para testing E2E con arquitectura de 3 capas:
+#   nginx:80 -> public-api:3000 -> x402:8081 -> blink:8080
+#
+# Prerequisito:
+#   - Solana validator corriendo en host (./scripts/setup-localnet.sh)
+#   - Programs deployados (bedrock, zk-generator, fhe-generator)
+#
+# Uso:
+#   podman-compose -f docker-compose.localnet.yml up -d --build
+#   podman-compose -f docker-compose.localnet.yml logs -f
+#   podman-compose -f docker-compose.localnet.yml down
+
+services:
+  # ─────────────────────────────────────────────────────────────────────────
+  # PostgreSQL Database
+  # ─────────────────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    container_name: zyberlink-postgres
+    environment:
+      POSTGRES_DB: zyberlink
+      POSTGRES_USER: zyberlink
+      POSTGRES_PASSWORD: dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zyberlink -d zyberlink"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - zyberlink-localnet
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Layer 1: Backend Core (blink-server:8080)
+  # ─────────────────────────────────────────────────────────────────────────
+  blink-server:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.backend
+      args:
+        BIN_NAME: blink-server
+    container_name: zyberlink-blink
+    environment:
+      RUST_LOG: ${RUST_LOG:-info}
+      DATABASE_URL: postgresql://zyberlink:dev_password@postgres:5432/zyberlink
+      SOLANA_RPC_URL: http://host.docker.internal:8899
+
+      # Bedrock Architecture Program IDs (from .env)
+      BEDROCK_PROGRAM_ID: ${BEDROCK_PROGRAM_ID:-}
+      ZK_GENERATOR_PROGRAM_ID: ${ZK_GENERATOR_PROGRAM_ID:-}
+      FHE_GENERATOR_PROGRAM_ID: ${FHE_GENERATOR_PROGRAM_ID:-}
+      THRESHOLD_PROGRAM_ID: ${THRESHOLD_PROGRAM_ID:-}
+
+      # Legacy compatibility
+      PROGRAM_ID: ${PROGRAM_ID:-}
+
+      PORT: 8080
+      HOST: 0.0.0.0
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - zyberlink-localnet
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Layer 2: Gateway (x402-server:8081)
+  # ─────────────────────────────────────────────────────────────────────────
+  x402-server:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.backend
+      args:
+        BIN_NAME: x402-server
+    container_name: zyberlink-x402
+    environment:
+      RUST_LOG: ${RUST_LOG:-info}
+      DATABASE_URL: postgresql://zyberlink:dev_password@postgres:5432/zyberlink
+      SOLANA_RPC_URL: http://host.docker.internal:8899
+
+      # Bedrock Program IDs
+      BEDROCK_PROGRAM_ID: ${BEDROCK_PROGRAM_ID:-}
+      ZK_GENERATOR_PROGRAM_ID: ${ZK_GENERATOR_PROGRAM_ID:-}
+      FHE_GENERATOR_PROGRAM_ID: ${FHE_GENERATOR_PROGRAM_ID:-}
+
+      # Gateway config
+      BLINK_SERVER_URL: http://blink-server:8080
+      PORT: 8081
+      HOST: 0.0.0.0
+    ports:
+      - "8081:8081"
+    depends_on:
+      blink-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - zyberlink-localnet
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Layer 3: Auth API (public-api:3000)
+  # ─────────────────────────────────────────────────────────────────────────
+  public-api:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.backend
+      args:
+        BIN_NAME: public-api
+    container_name: zyberlink-public-api
+    environment:
+      RUST_LOG: ${RUST_LOG:-info}
+      X402_SERVER_URL: http://x402-server:8081
+      PORT: 3000
+      HOST: 0.0.0.0
+    ports:
+      - "3000:3000"
+    depends_on:
+      x402-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - zyberlink-localnet
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Nginx Reverse Proxy (port 80)
+  # ─────────────────────────────────────────────────────────────────────────
+  nginx:
+    image: nginx:alpine
+    container_name: zyberlink-nginx
+    ports:
+      - "80:80"
+    volumes:
+      # Mount nginx config from project root
+      - ../../nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      public-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - zyberlink-localnet
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Frontend (webapp:80 - served by internal nginx)
+  # ─────────────────────────────────────────────────────────────────────────
+  webapp:
+    build:
+      context: ../../src/webapp
+      dockerfile: Dockerfile.prod
+      args:
+        VITE_SOLANA_RPC_URL: http://localhost:8899
+        VITE_BACKEND_URL: http://localhost:80/api
+        VITE_BEDROCK_PROGRAM_ID: ${BEDROCK_PROGRAM_ID:-}
+    container_name: zyberlink-webapp
+    networks:
+      - zyberlink-localnet
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+networks:
+  zyberlink-localnet:
+    driver: bridge
+    name: zyberlink-localnet
+
+volumes:
+  postgres_data:
+    name: zyberlink-postgres-localnet

@@ -29,6 +29,7 @@ pub fn process_instruction(
 
     match instruction {
         ZkGeneratorInstruction::CreateJob {
+            job_id,
             circuit_type,
             witness_hash,
             witness_size,
@@ -37,6 +38,7 @@ pub fn process_instruction(
         } => process_create_job(
             program_id,
             accounts,
+            job_id,
             circuit_type,
             witness_hash,
             witness_size,

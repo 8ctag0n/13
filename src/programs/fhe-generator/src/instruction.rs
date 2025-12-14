@@ -6,6 +6,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 pub enum FheGeneratorInstruction {
     /// Create a new FHE computation job
     CreateJob {
+        job_id: u64,
         circuit_type: u8,
         witness_hash: [u8; 32],
         witness_size: u32,
