@@ -460,3 +460,5 @@ test-ledger/
 logs/
 
 releases/
+# Private docs not tracked
+private/
