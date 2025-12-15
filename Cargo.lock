@@ -11387,6 +11387,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "bincode",
  "borsh 1.6.0",
  "log",
  "serde",
