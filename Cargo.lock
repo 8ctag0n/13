@@ -11382,6 +11382,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "zyberlink-chain-client"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "borsh 1.6.0",
+ "log",
+ "serde",
+ "serde_json",
+ "solana-client",
+ "solana-sdk",
+ "thiserror 1.0.69",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "zyberlink-crypto"
 version = "0.1.0"
 dependencies = [
