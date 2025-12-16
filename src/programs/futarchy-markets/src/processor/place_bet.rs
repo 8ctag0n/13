@@ -189,14 +189,22 @@ pub fn process_place_bet(
         return Err(ProgramError::InvalidSeeds);
     }
 
-    // Create position account
+    // Create position account (PDA requires invoke_signed)
     let rent = Rent::get()?;
     let position_space = Position::SPACE;
     let position_lamports = rent.minimum_balance(position_space);
 
     msg!("Creating position account");
 
-    invoke(
+    let position_signer_seeds: &[&[u8]] = &[
+        crate::state::POSITION_SEED,
+        user_info.key.as_ref(),
+        &market_id.to_le_bytes(),
+        &bet_commitment,
+        &[position_bump],
+    ];
+
+    solana_program::program::invoke_signed(
         &system_instruction::create_account(
             user_info.key,
             position_info.key,
@@ -209,6 +217,7 @@ pub fn process_place_bet(
             position_info.clone(),
             system_program_info.clone(),
         ],
+        &[position_signer_seeds],
     )?;
 
     // Initialize position state
