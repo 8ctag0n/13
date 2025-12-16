@@ -192,11 +192,11 @@ async fn main() -> std::io::Result<()> {
         SolanaClient::new(&rpc_url)
             .expect("Failed to create SolanaClient")
     );
-    chain_sync::start_chain_sync(chain_client, program_id, pool.clone());
+    chain_sync::start_chain_sync(chain_client.clone(), program_id, pool.clone());
     log::info!("Blockchain sync task started");
 
     log::info!("Starting prover sync task...");
-    prover_sync::start_prover_sync(rpc_url.clone(), program_id, pool.clone());
+    prover_sync::start_prover_sync(chain_client.clone(), program_id, pool.clone());
     log::info!("Prover sync task started");
 
     // Job finalizer (requires server keypair to sign finalize transactions)
@@ -208,7 +208,7 @@ async fn main() -> std::io::Result<()> {
             log::info!("Starting job finalizer task...");
             log::info!("  Finalizer pubkey: {}", keypair.pubkey());
             job_finalizer::start_job_finalizer(
-                rpc_url.clone(),
+                chain_client.clone(),
                 program_id,
                 pool.clone(),
                 Arc::new(keypair),
