@@ -11377,8 +11377,27 @@ dependencies = [
  "tfhe",
  "tokio",
  "uuid",
+ "zyberlink-chain-client",
  "zyberlink-sdk",
  "zyberlink-types",
+]
+
+[[package]]
+name = "zyberlink-chain-client"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bincode",
+ "borsh 1.6.0",
+ "log",
+ "serde",
+ "serde_json",
+ "solana-client",
+ "solana-sdk",
+ "thiserror 1.0.69",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]
