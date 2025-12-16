@@ -15,6 +15,8 @@ pub mod update_pool;
 pub mod register_user;
 pub mod execute_governance_action;
 pub mod cancel_governance_action;
+pub mod deposit_to_market;
+pub mod withdraw_from_escrow;
 
 use crate::instruction::FutarchyInstruction;
 
@@ -28,6 +30,8 @@ pub use update_pool::process_update_pool;
 pub use register_user::process_register_user;
 pub use execute_governance_action::process_execute_governance_action;
 pub use cancel_governance_action::process_cancel_governance_action;
+pub use deposit_to_market::process_deposit_to_market;
+pub use withdraw_from_escrow::process_withdraw_from_escrow;
 
 /// Main processor entry point
 pub fn process(
@@ -152,6 +156,14 @@ pub fn process(
         FutarchyInstruction::CancelGovernanceAction { market_id } => {
             msg!("Instruction: CancelGovernanceAction");
             process_cancel_governance_action(program_id, accounts, market_id)
+        }
+        FutarchyInstruction::DepositToMarket { market_id, amount } => {
+            msg!("Instruction: DepositToMarket");
+            process_deposit_to_market(program_id, accounts, market_id, amount)
+        }
+        FutarchyInstruction::WithdrawFromEscrow { market_id, amount } => {
+            msg!("Instruction: WithdrawFromEscrow");
+            process_withdraw_from_escrow(program_id, accounts, market_id, amount)
         }
     }
 }

@@ -17,7 +17,7 @@ use solana_program::{
 use crate::{
     cpi::verify_market_bet_proof,
     error::FutarchyError,
-    state::{Market, Position, UserEligibility, USER_ELIGIBILITY_SEED},
+    state::{Market, Position, UserEligibility, UserEscrow, USER_ELIGIBILITY_SEED, USER_ESCROW_SEED},
 };
 
 /// Process PlaceBet instruction
@@ -28,19 +28,20 @@ use crate::{
 /// 0. `[writable, signer]` User placing bet
 /// 1. `[writable]` Market account (PDA)
 /// 2. `[writable]` Position account (PDA)
-/// 3. `[writable]` Escrow account (PDA)
-/// 4. `[]` ZK-generator program
-/// 5. `[]` System program
-/// 6. `[]` Clock sysvar
+/// 3. `[writable]` UserEscrow account (PDA) - NEW: User's deposit balance
+/// 4. `[writable]` Market Escrow account (PDA) - Market's pool
+/// 5. `[]` ZK-generator program
+/// 6. `[]` System program
+/// 7. `[]` Clock sysvar
 ///
 /// Additional accounts (if circuit_type == 31, MarketBetWithPoI):
-/// 7. `[]` UserEligibility account (PDA)
+/// 8. `[]` UserEligibility account (PDA)
 ///
 /// Additional accounts (if encrypted_bet_amount is Some):
-/// 7/8. `[writable]` FHE job account (PDA)
-/// 8/9. `[writable]` FHE consensus account (PDA)
-/// 9/10. `[writable]` FHE escrow account (PDA)
-/// 10/11. `[]` FHE-generator program
+/// 8/9. `[writable]` FHE job account (PDA)
+/// 9/10. `[writable]` FHE consensus account (PDA)
+/// 10/11. `[writable]` FHE escrow account (PDA)
+/// 11/12. `[]` FHE-generator program
 #[allow(clippy::too_many_arguments)]
 pub fn process_place_bet(
     program_id: &Pubkey,
@@ -59,7 +60,8 @@ pub fn process_place_bet(
     let user_info = next_account_info(account_info_iter)?;
     let market_info = next_account_info(account_info_iter)?;
     let position_info = next_account_info(account_info_iter)?;
-    let escrow_info = next_account_info(account_info_iter)?;
+    let user_escrow_info = next_account_info(account_info_iter)?;
+    let market_escrow_info = next_account_info(account_info_iter)?;
     let zk_program_info = next_account_info(account_info_iter)?;
     let system_program_info = next_account_info(account_info_iter)?;
     let clock_info = next_account_info(account_info_iter)?;
@@ -107,6 +109,34 @@ pub fn process_place_bet(
     verify_market_bet_proof(zk_program_info, &proof, &public_inputs, circuit_type)?;
 
     msg!("ZK proof verified successfully");
+
+    // Verify and load user escrow
+    let (user_escrow_pda, _) = Pubkey::find_program_address(
+        &[USER_ESCROW_SEED, user_info.key.as_ref(), market_info.key.as_ref()],
+        program_id,
+    );
+
+    if user_escrow_pda != *user_escrow_info.key {
+        msg!("Invalid user escrow PDA");
+        return Err(ProgramError::InvalidSeeds);
+    }
+
+    let mut user_escrow_data = user_escrow_info.try_borrow_mut_data()?;
+    let mut user_escrow = UserEscrow::deserialize(&mut &user_escrow_data[..])?;
+
+    // Verify user has sufficient available balance in escrow
+    if amount > user_escrow.available {
+        msg!("Insufficient escrow balance");
+        msg!("  Required: {} lamports", amount);
+        msg!("  Available: {} lamports", user_escrow.available);
+        msg!("  Reserved: {} lamports", user_escrow.reserved);
+        return Err(ProgramError::InsufficientFunds);
+    }
+
+    msg!("User escrow verified");
+    msg!("  Deposited: {} lamports", user_escrow.deposited);
+    msg!("  Available: {} lamports", user_escrow.available);
+    msg!("  Reserving: {} lamports", amount);
 
     // If using Circuit 31 (MarketBetWithPoI), verify user eligibility
     if circuit_type == 31 {
@@ -195,17 +225,23 @@ pub fn process_place_bet(
     let mut position_data = position_info.try_borrow_mut_data()?;
     position.serialize(&mut &mut position_data[..])?;
 
-    // Transfer bet amount to escrow
-    msg!("Transferring {} lamports to escrow", amount);
+    // Reserve funds in user escrow
+    user_escrow.reserve(amount)?;
 
-    invoke(
-        &system_instruction::transfer(user_info.key, escrow_info.key, amount),
-        &[
-            user_info.clone(),
-            escrow_info.clone(),
-            system_program_info.clone(),
-        ],
-    )?;
+    // Transfer bet amount from user escrow to market escrow
+    msg!("Transferring {} lamports from user escrow to market escrow", amount);
+
+    **user_escrow_info.try_borrow_mut_lamports()? -= amount;
+    **market_escrow_info.try_borrow_mut_lamports()? += amount;
+
+    // Write updated user escrow
+    drop(user_escrow_data);
+    let mut user_escrow_data = user_escrow_info.try_borrow_mut_data()?;
+    user_escrow.serialize(&mut &mut user_escrow_data[..])?;
+
+    msg!("Funds reserved and transferred");
+    msg!("  New user escrow available: {} lamports", user_escrow.available);
+    msg!("  New user escrow reserved: {} lamports", user_escrow.reserved);
 
     // Handle FHE pool update if encrypted bet provided
     let fhe_enabled = encrypted_bet_amount.is_some();

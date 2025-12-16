@@ -191,6 +191,35 @@ pub enum FutarchyInstruction {
         /// Market ID
         market_id: u64,
     },
+
+    /// Deposit funds to user escrow for a market
+    ///
+    /// Accounts expected:
+    /// 0. `[writable, signer]` User depositing
+    /// 1. `[writable]` UserEscrow account (PDA)
+    /// 2. `[]` Market account (PDA) - to validate escrow is for correct market
+    /// 3. `[]` System program
+    DepositToMarket {
+        /// Market ID
+        market_id: u64,
+        /// Amount to deposit (in lamports)
+        amount: u64,
+    },
+
+    /// Withdraw funds from user escrow
+    ///
+    /// Accounts expected:
+    /// 0. `[writable, signer]` User withdrawing
+    /// 1. `[writable]` UserEscrow account (PDA)
+    /// 2. `[]` Market account (PDA) - to validate market is active
+    /// 3. `[]` System program
+    WithdrawFromEscrow {
+        /// Market ID
+        market_id: u64,
+        /// Amount to withdraw (in lamports)
+        /// Must be <= user_escrow.available
+        amount: u64,
+    },
 }
 
 impl FutarchyInstruction {
