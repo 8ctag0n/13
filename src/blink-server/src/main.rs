@@ -4,6 +4,8 @@ mod chain_sync;
 mod cleanup;
 mod db;
 mod job_finalizer;
+mod pbtcfi_handlers;
+mod pbtcfi_sync;
 mod prover_sync;
 mod services;
 mod tx_builder;
@@ -199,6 +201,25 @@ async fn main() -> std::io::Result<()> {
     prover_sync::start_prover_sync(chain_client.clone(), program_id, pool.clone());
     log::info!("Prover sync task started");
 
+    // pBTCFi event sync (optional - only if env vars are set)
+    if let Ok(pbtcfi_contract) = env::var("PBTCFI_CONTRACT_ADDRESS") {
+        log::info!("Starting pBTCFi event sync task...");
+        let starknet_rpc = env::var("STARKNET_RPC_URL")
+            .unwrap_or_else(|_| "http://localhost:5050".to_string());
+
+        log::info!("  Starknet RPC: {}", starknet_rpc);
+        log::info!("  pBTCFi Contract: {}", pbtcfi_contract);
+
+        pbtcfi_sync::start_pbtcfi_sync(
+            starknet_rpc,
+            pbtcfi_contract,
+            pool.clone(),
+        );
+        log::info!("pBTCFi event sync task started");
+    } else {
+        log::info!("pBTCFi sync disabled (set PBTCFI_CONTRACT_ADDRESS to enable)");
+    }
+
     // Job finalizer (requires server keypair to sign finalize transactions)
     let server_keypair_path =
         env::var("SERVER_KEYPAIR_PATH").unwrap_or_else(|_| "~/.config/solana/id.json".to_string());
@@ -280,7 +301,9 @@ async fn main() -> std::io::Result<()> {
             // FHE Jobs API
             .configure(api_handlers::configure_routes)
             // ZK Jobs API
-            .configure(zk_handlers::configure_routes);
+            .configure(zk_handlers::configure_routes)
+            // pBTCFi API
+            .configure(pbtcfi_handlers::configure_routes);
 
         // Add AttestationService if available
         if let Some(service) = attestation_service.clone() {
