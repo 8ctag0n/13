@@ -1,35 +1,61 @@
 //! Aptos blockchain client implementation
 //!
 //! This module provides a concrete implementation of the ChainClient trait
-//! for Aptos blockchain using the official Aptos SDK.
+//! for Aptos blockchain using the REST API directly.
 
 use crate::{ChainClient, ChainClientError, Result, TransactionStatus};
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "aptos")]
-use {
-    aptos_sdk::{
-        rest_client::{Client as AptosRestClient, FaucetClient},
-        types::{
-            account_address::AccountAddress,
-            transaction::{SignedTransaction, TransactionPayload},
-            LocalAccount,
-        },
-    },
-    std::str::FromStr,
-};
+use reqwest::Client;
 
 /// Aptos chain client
 ///
-/// Provides integration with Aptos blockchain via the official REST API.
+/// Provides integration with Aptos blockchain via the REST API.
 pub struct AptosClient {
     rpc_url: String,
     faucet_url: Option<String>,
     network: String,
     #[cfg(feature = "aptos")]
-    rest_client: AptosRestClient,
-    #[cfg(feature = "aptos")]
-    faucet_client: Option<FaucetClient>,
+    client: Client,
+}
+
+#[derive(Debug, Deserialize)]
+struct LedgerInfo {
+    chain_id: u64,
+    ledger_version: String,
+    ledger_timestamp: String,
+    node_role: String,
+    block_height: String,
+    #[serde(default)]
+    git_hash: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct AccountData {
+    #[serde(default)]
+    sequence_number: String,
+    #[serde(default)]
+    authentication_key: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct AccountResource {
+    #[serde(rename = "type")]
+    resource_type: String,
+    data: serde_json::Value,
+}
+
+#[derive(Debug, Deserialize)]
+struct TransactionInfo {
+    #[serde(rename = "type")]
+    txn_type: String,
+    hash: String,
+    #[serde(default)]
+    success: bool,
+    #[serde(default)]
+    vm_status: String,
 }
 
 impl AptosClient {
@@ -51,20 +77,16 @@ impl AptosClient {
         }
         .to_string();
 
-        let rest_client = AptosRestClient::new(url::Url::parse(&rpc_url).map_err(|e| {
-            ChainClientError::ConnectionError(format!("Invalid RPC URL: {}", e))
-        })?);
-
-        let faucet_client = faucet_url.as_ref().and_then(|url| {
-            url::Url::parse(url).ok().map(FaucetClient::new)
-        });
+        let client = Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .map_err(|e| ChainClientError::Network(e.to_string()))?;
 
         Ok(Self {
             rpc_url,
             faucet_url,
             network,
-            rest_client,
-            faucet_client,
+            client,
         })
     }
 
@@ -110,9 +132,53 @@ impl AptosClient {
     }
 
     #[cfg(feature = "aptos")]
-    fn parse_address(&self, address: &str) -> Result<AccountAddress> {
-        AccountAddress::from_str(address)
-            .map_err(|e| ChainClientError::InvalidParameter(format!("Invalid address: {}", e)))
+    fn validate_address(&self, address: &str) -> Result<String> {
+        // Aptos addresses are 64-char hex strings (32 bytes)
+        // Allow 0x prefix or not
+        let addr = address.strip_prefix("0x").unwrap_or(address);
+
+        if addr.len() != 64 || !addr.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Err(ChainClientError::InvalidAddress(
+                "Invalid Aptos address format (expected 64 hex chars)".to_string(),
+            ));
+        }
+
+        Ok(format!("0x{}", addr))
+    }
+
+    #[cfg(feature = "aptos")]
+    async fn get_account_resource(
+        &self,
+        address: &str,
+        resource_type: &str,
+    ) -> Result<serde_json::Value> {
+        let addr = self.validate_address(address)?;
+        let url = format!(
+            "{}/accounts/{}/resource/{}",
+            self.rpc_url, addr, resource_type
+        );
+
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| ChainClientError::Network(format!("Request failed: {}", e)))?;
+
+        if !response.status().is_success() {
+            return Err(ChainClientError::Network(format!(
+                "HTTP {}: {}",
+                response.status(),
+                response.text().await.unwrap_or_default()
+            )));
+        }
+
+        let resource: AccountResource = response
+            .json()
+            .await
+            .map_err(|e| ChainClientError::Deserialization(e.to_string()))?;
+
+        Ok(resource.data)
     }
 }
 
@@ -128,10 +194,13 @@ impl ChainClient for AptosClient {
 
     #[cfg(feature = "aptos")]
     async fn health_check(&self) -> Result<bool> {
-        match self.rest_client.get_index().await {
-            Ok(_) => Ok(true),
+        let url = format!("{}/v1", self.rpc_url.trim_end_matches("/v1"));
+
+        match self.client.get(&url).send().await {
+            Ok(response) if response.status().is_success() => Ok(true),
+            Ok(_) => Ok(false),
             Err(e) => {
-                log::error!("Aptos health check failed: {:?}", e);
+                log::warn!("Aptos health check failed: {}", e);
                 Ok(false)
             }
         }
@@ -146,20 +215,31 @@ impl ChainClient for AptosClient {
 
     #[cfg(feature = "aptos")]
     async fn get_balance(&self, address: &str) -> Result<u64> {
-        let addr = self.parse_address(address)?;
-        let account = self
-            .rest_client
-            .get_account(addr)
+        // Get APT balance from 0x1::coin::CoinStore<0x1::aptos_coin::AptosCoin>
+        match self
+            .get_account_resource(address, "0x1::coin::CoinStore<0x1::aptos_coin::AptosCoin>")
             .await
-            .map_err(|e| ChainClientError::RpcError(format!("Failed to get account: {:?}", e)))?
-            .into_inner();
+        {
+            Ok(data) => {
+                let coin_value = data
+                    .get("coin")
+                    .and_then(|c| c.get("value"))
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| {
+                        ChainClientError::Deserialization(
+                            "Failed to parse balance".to_string(),
+                        )
+                    })?;
 
-        // APT balance is stored in coin field
-        Ok(account
-            .authentication_key
-            .as_ref()
-            .map(|_| 0u64)
-            .unwrap_or(0))
+                coin_value
+                    .parse::<u64>()
+                    .map_err(|e| ChainClientError::Deserialization(e.to_string()))
+            }
+            Err(_) => {
+                // Account doesn't exist or no APT balance
+                Ok(0)
+            }
+        }
     }
 
     #[cfg(not(feature = "aptos"))]
@@ -171,15 +251,30 @@ impl ChainClient for AptosClient {
 
     #[cfg(feature = "aptos")]
     async fn get_account_data(&self, address: &str) -> Result<Vec<u8>> {
-        let addr = self.parse_address(address)?;
-        let account = self
-            .rest_client
-            .get_account(addr)
-            .await
-            .map_err(|e| ChainClientError::RpcError(format!("Failed to get account: {:?}", e)))?;
+        let addr = self.validate_address(address)?;
+        let url = format!("{}/accounts/{}", self.rpc_url, addr);
 
-        serde_json::to_vec(&account.into_inner())
-            .map_err(|e| ChainClientError::DeserializationError(e.to_string()))
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| ChainClientError::Network(format!("Request failed: {}", e)))?;
+
+        if !response.status().is_success() {
+            return Err(ChainClientError::Network(format!(
+                "HTTP {}: Account not found",
+                response.status()
+            )));
+        }
+
+        let account_data: AccountData = response
+            .json()
+            .await
+            .map_err(|e| ChainClientError::Deserialization(e.to_string()))?;
+
+        serde_json::to_vec(&account_data)
+            .map_err(|e| ChainClientError::Serialization(e.to_string()))
     }
 
     #[cfg(not(feature = "aptos"))]
@@ -191,9 +286,11 @@ impl ChainClient for AptosClient {
 
     #[cfg(feature = "aptos")]
     async fn account_exists(&self, address: &str) -> Result<bool> {
-        let addr = self.parse_address(address)?;
-        match self.rest_client.get_account(addr).await {
-            Ok(_) => Ok(true),
+        let addr = self.validate_address(address)?;
+        let url = format!("{}/accounts/{}", self.rpc_url, addr);
+
+        match self.client.get(&url).send().await {
+            Ok(response) => Ok(response.status().is_success()),
             Err(_) => Ok(false),
         }
     }
@@ -207,17 +304,31 @@ impl ChainClient for AptosClient {
 
     #[cfg(feature = "aptos")]
     async fn send_transaction(&self, transaction: &[u8]) -> Result<String> {
-        let signed_txn: SignedTransaction = bcs::from_bytes(transaction)
-            .map_err(|e| ChainClientError::SerializationError(e.to_string()))?;
+        let url = format!("{}/transactions", self.rpc_url);
 
-        let pending_txn = self
-            .rest_client
-            .submit(&signed_txn)
+        let response = self
+            .client
+            .post(&url)
+            .header("Content-Type", "application/x.aptos.signed_transaction+bcs")
+            .body(transaction.to_vec())
+            .send()
             .await
-            .map_err(|e| ChainClientError::TransactionError(format!("Submit failed: {:?}", e)))?
-            .into_inner();
+            .map_err(|e| ChainClientError::TransactionFailed(format!("Submit failed: {}", e)))?;
 
-        Ok(pending_txn.hash.to_string())
+        if !response.status().is_success() {
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(ChainClientError::TransactionFailed(format!(
+                "Transaction submission failed: {}",
+                error_text
+            )));
+        }
+
+        let txn_info: TransactionInfo = response
+            .json()
+            .await
+            .map_err(|e| ChainClientError::Deserialization(e.to_string()))?;
+
+        Ok(txn_info.hash)
     }
 
     #[cfg(not(feature = "aptos"))]
@@ -238,7 +349,7 @@ impl ChainClient for AptosClient {
             match self.get_transaction_status(hash).await? {
                 TransactionStatus::Confirmed => return Ok(true),
                 TransactionStatus::Failed => return Ok(false),
-                TransactionStatus::Pending => {
+                TransactionStatus::Pending | TransactionStatus::Unknown => {
                     tokio::time::sleep(Duration::from_secs(1)).await;
                 }
             }
@@ -256,28 +367,33 @@ impl ChainClient for AptosClient {
 
     #[cfg(feature = "aptos")]
     async fn get_transaction_status(&self, hash: &str) -> Result<TransactionStatus> {
-        use aptos_sdk::types::transaction::Transaction;
+        let url = format!("{}/transactions/by_hash/{}", self.rpc_url, hash);
 
-        let txn_hash = aptos_sdk::types::transaction::TransactionId::Hash(
-            aptos_sdk::crypto::HashValue::from_str(hash)
-                .map_err(|e| ChainClientError::InvalidParameter(e.to_string()))?,
-        );
+        match self.client.get(&url).send().await {
+            Ok(response) if response.status().is_success() => {
+                let txn_info: TransactionInfo = response
+                    .json()
+                    .await
+                    .map_err(|e| ChainClientError::Deserialization(e.to_string()))?;
 
-        match self.rest_client.get_transaction_by_hash(txn_hash).await {
-            Ok(response) => {
-                let txn = response.into_inner();
-                match txn {
-                    Transaction::UserTransaction(user_txn) => {
-                        if user_txn.info.success {
-                            Ok(TransactionStatus::Confirmed)
-                        } else {
-                            Ok(TransactionStatus::Failed)
-                        }
-                    }
-                    _ => Ok(TransactionStatus::Pending),
+                if txn_info.success {
+                    Ok(TransactionStatus::Confirmed)
+                } else {
+                    Ok(TransactionStatus::Failed)
                 }
             }
-            Err(_) => Ok(TransactionStatus::Pending),
+            Ok(response) if response.status().as_u16() == 404 => {
+                // Transaction not found yet
+                Ok(TransactionStatus::Pending)
+            }
+            Ok(response) => Err(ChainClientError::Network(format!(
+                "Unexpected status: {}",
+                response.status()
+            ))),
+            Err(e) => Err(ChainClientError::Network(format!(
+                "Request failed: {}",
+                e
+            ))),
         }
     }
 
@@ -290,19 +406,63 @@ impl ChainClient for AptosClient {
 
     async fn transfer(&self, _from: &str, _to: &str, _amount: u64) -> Result<String> {
         Err(ChainClientError::NotImplemented(
-            "Direct transfers not yet implemented for Aptos - use SDK transaction building"
-                .to_string(),
+            "Direct transfers require transaction signing - use aptos-sdk or build transaction manually".to_string(),
         ))
     }
 
+    #[cfg(feature = "aptos")]
     async fn call_contract(
         &self,
-        _program_address: &str,
-        _method: &str,
+        _module_address: &str,
+        function_name: &str,
+        args: &[u8],
+    ) -> Result<Vec<u8>> {
+        // View function call
+        let url = format!("{}/view", self.rpc_url);
+
+        let args_json: Vec<serde_json::Value> = serde_json::from_slice(args)
+            .unwrap_or_else(|_| vec![]);
+
+        let payload = serde_json::json!({
+            "function": function_name,
+            "type_arguments": [],
+            "arguments": args_json
+        });
+
+        let response = self
+            .client
+            .post(&url)
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| ChainClientError::Network(format!("View call failed: {}", e)))?;
+
+        if !response.status().is_success() {
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(ChainClientError::Network(format!(
+                "View call error: {}",
+                error_text
+            )));
+        }
+
+        let result: Vec<serde_json::Value> = response
+            .json()
+            .await
+            .map_err(|e| ChainClientError::Deserialization(e.to_string()))?;
+
+        serde_json::to_vec(&result)
+            .map_err(|e| ChainClientError::Serialization(e.to_string()))
+    }
+
+    #[cfg(not(feature = "aptos"))]
+    async fn call_contract(
+        &self,
+        _module_address: &str,
+        _function_name: &str,
         _args: &[u8],
     ) -> Result<Vec<u8>> {
         Err(ChainClientError::NotImplemented(
-            "View functions not yet implemented - use REST API directly".to_string(),
+            "Aptos client requires 'aptos' feature flag".to_string(),
         ))
     }
 
@@ -314,7 +474,7 @@ impl ChainClient for AptosClient {
         _signer: &str,
     ) -> Result<String> {
         Err(ChainClientError::NotImplemented(
-            "Entry functions not yet implemented - use SDK transaction building".to_string(),
+            "Entry functions require transaction signing - use aptos-sdk or build transaction manually".to_string(),
         ))
     }
 
@@ -332,14 +492,24 @@ impl ChainClient for AptosClient {
 
     #[cfg(feature = "aptos")]
     async fn get_block_height(&self) -> Result<u64> {
-        let ledger_info = self
-            .rest_client
-            .get_ledger_information()
-            .await
-            .map_err(|e| ChainClientError::RpcError(format!("Failed to get ledger info: {:?}", e)))?
-            .into_inner();
+        let url = format!("{}/v1", self.rpc_url.trim_end_matches("/v1"));
 
-        Ok(ledger_info.block_height)
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| ChainClientError::Network(format!("Request failed: {}", e)))?;
+
+        let ledger_info: LedgerInfo = response
+            .json()
+            .await
+            .map_err(|e| ChainClientError::Deserialization(e.to_string()))?;
+
+        ledger_info
+            .block_height
+            .parse::<u64>()
+            .map_err(|e| ChainClientError::Deserialization(e.to_string()))
     }
 
     #[cfg(not(feature = "aptos"))]
@@ -351,14 +521,22 @@ impl ChainClient for AptosClient {
 
     #[cfg(feature = "aptos")]
     async fn get_recent_blockhash(&self) -> Result<String> {
-        let ledger_info = self
-            .rest_client
-            .get_ledger_information()
-            .await
-            .map_err(|e| ChainClientError::RpcError(format!("Failed to get ledger info: {:?}", e)))?
-            .into_inner();
+        let url = format!("{}/v1", self.rpc_url.trim_end_matches("/v1"));
 
-        Ok(ledger_info.ledger_version.to_string())
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| ChainClientError::Network(format!("Request failed: {}", e)))?;
+
+        let ledger_info: LedgerInfo = response
+            .json()
+            .await
+            .map_err(|e| ChainClientError::Deserialization(e.to_string()))?;
+
+        // Return ledger version as "blockhash" equivalent
+        Ok(ledger_info.ledger_version)
     }
 
     #[cfg(not(feature = "aptos"))]
@@ -369,9 +547,9 @@ impl ChainClient for AptosClient {
     }
 
     async fn estimate_fee(&self, _transaction: &[u8]) -> Result<u64> {
-        // Aptos uses gas units, not a simple fee
-        // For now, return a conservative estimate
-        Ok(2000) // ~0.002 APT typical transaction cost
+        // Aptos uses gas units, typical transaction costs ~2000 gas units
+        // At 100 gas units per APT octa, this is ~0.002 APT
+        Ok(2000)
     }
 }
 
@@ -390,9 +568,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_address_validation() {
+        let client = AptosClient::local().unwrap();
+
+        // Valid address with 0x prefix
+        let valid = client.validate_address("0x0000000000000000000000000000000000000000000000000000000000000001");
+        assert!(valid.is_ok());
+
+        // Valid address without 0x prefix
+        let valid = client.validate_address("0000000000000000000000000000000000000000000000000000000000000001");
+        assert!(valid.is_ok());
+
+        // Invalid - too short
+        let invalid = client.validate_address("0x01");
+        assert!(invalid.is_err());
+    }
+
+    #[tokio::test]
     async fn test_health_check() {
         let client = AptosClient::local().unwrap();
         // This will fail if local node is not running, which is expected in CI
         let _ = client.health_check().await;
+    }
+
+    #[tokio::test]
+    async fn test_get_block_height() {
+        let client = AptosClient::local().unwrap();
+        // This will fail if local node is not running
+        let _ = client.get_block_height().await;
     }
 }
