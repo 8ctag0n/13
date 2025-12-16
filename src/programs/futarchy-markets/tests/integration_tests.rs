@@ -21,7 +21,7 @@ use solana_sdk::{
 use futarchy_markets::{
     entrypoint::process_instruction,
     instruction::FutarchyInstruction,
-    state::{ExecutableAction, Market, MarketStatus, Position, UserEligibility, MARKET_SEED},
+    state::{ExecutableAction, Market, MarketStatus, Position, UserEligibility, UserEscrow, MARKET_SEED},
 };
 
 /// Test helpers module
@@ -73,6 +73,11 @@ mod helpers {
     /// Derive user eligibility PDA
     pub fn derive_user_eligibility_pda(program_id: &Pubkey, user: &Pubkey) -> (Pubkey, u8) {
         Pubkey::find_program_address(&[b"user_eligibility", user.as_ref()], program_id)
+    }
+
+    /// Derive user escrow PDA
+    pub fn derive_user_escrow_pda(program_id: &Pubkey, user: &Pubkey, market: &Pubkey) -> (Pubkey, u8) {
+        Pubkey::find_program_address(&[b"user_escrow", user.as_ref(), market.as_ref()], program_id)
     }
 
     /// Build CreateMarket instruction
@@ -177,6 +182,80 @@ mod helpers {
         }
     }
 
+    /// Build CancelMarket instruction
+    pub fn cancel_market_instruction(
+        program_id: &Pubkey,
+        authority: &Pubkey,
+        market_id: u64,
+    ) -> Instruction {
+        let (market_pda, _) = derive_market_pda(program_id, market_id);
+
+        let instruction = FutarchyInstruction::CancelMarket { market_id };
+
+        let data = instruction.pack().unwrap();
+
+        Instruction {
+            program_id: *program_id,
+            accounts: vec![
+                AccountMeta::new(*authority, true),
+                AccountMeta::new(market_pda, false),
+            ],
+            data,
+        }
+    }
+
+    /// Build DepositToMarket instruction
+    pub fn deposit_to_market_instruction(
+        program_id: &Pubkey,
+        user: &Pubkey,
+        market_id: u64,
+        amount: u64,
+    ) -> Instruction {
+        let (market_pda, _) = derive_market_pda(program_id, market_id);
+        let (user_escrow_pda, _) = derive_user_escrow_pda(program_id, user, &market_pda);
+
+        let instruction = FutarchyInstruction::DepositToMarket { market_id, amount };
+
+        let data = instruction.pack().unwrap();
+
+        Instruction {
+            program_id: *program_id,
+            accounts: vec![
+                AccountMeta::new(*user, true),
+                AccountMeta::new(user_escrow_pda, false),
+                AccountMeta::new_readonly(market_pda, false),
+                AccountMeta::new_readonly(system_program::id(), false),
+            ],
+            data,
+        }
+    }
+
+    /// Build WithdrawFromEscrow instruction
+    pub fn withdraw_from_escrow_instruction(
+        program_id: &Pubkey,
+        user: &Pubkey,
+        market_id: u64,
+        amount: u64,
+    ) -> Instruction {
+        let (market_pda, _) = derive_market_pda(program_id, market_id);
+        let (user_escrow_pda, _) = derive_user_escrow_pda(program_id, user, &market_pda);
+
+        let instruction = FutarchyInstruction::WithdrawFromEscrow { market_id, amount };
+
+        let data = instruction.pack().unwrap();
+
+        Instruction {
+            program_id: *program_id,
+            accounts: vec![
+                AccountMeta::new(*user, true),
+                AccountMeta::new(user_escrow_pda, false),
+                AccountMeta::new_readonly(market_pda, false),
+                AccountMeta::new_readonly(system_program::id(), false),
+            ],
+            data,
+        }
+    }
+
     /// Get account and deserialize as Market
     pub async fn get_market_account(
         context: &mut ProgramTestContext,
@@ -223,6 +302,22 @@ mod helpers {
 
         UserEligibility::try_from_slice(&account.data)
             .expect("Failed to deserialize UserEligibility")
+    }
+
+    /// Get account and deserialize as UserEscrow
+    pub async fn get_user_escrow_account(
+        context: &mut ProgramTestContext,
+        user_escrow_pda: &Pubkey,
+    ) -> UserEscrow {
+        let account = context
+            .banks_client
+            .get_account(*user_escrow_pda)
+            .await
+            .unwrap()
+            .expect("UserEscrow account not found");
+
+        UserEscrow::try_from_slice(&account.data)
+            .expect("Failed to deserialize UserEscrow")
     }
 
     /// Check if account exists
@@ -1099,5 +1194,1149 @@ mod settle_market_tests {
         assert!(market.timelock_expires_at.is_some());
         assert!(!market.action_executed);
         assert!(market.threshold_met());
+    }
+}
+
+/// Tests for CancelMarket instruction
+#[cfg(test)]
+mod cancel_market_tests {
+    use super::*;
+    use helpers::*;
+
+    #[tokio::test]
+    async fn test_cancel_market_success() {
+        let program_id = futarchy_markets::id();
+        let mut program_test = setup_program_test();
+
+        let authority = Keypair::new();
+        let oracle = Keypair::new();
+
+        program_test.add_account(
+            authority.pubkey(),
+            Account {
+                lamports: 10_000_000_000,
+                ..Default::default()
+            },
+        );
+
+        let mut context = program_test.start_with_context().await;
+
+        // Create market
+        let market_id = 1u64;
+        let question_hash = [1u8; 32];
+        let current_time = context
+            .banks_client
+            .get_sysvar::<solana_program::clock::Clock>()
+            .await
+            .unwrap()
+            .unix_timestamp;
+        let end_time = current_time + 86400;
+        let max_bet = 1_000_000_000;
+
+        let (market_pda, _) = derive_market_pda(&program_id, market_id);
+
+        let create_ix = create_market_instruction(
+            &program_id,
+            &authority.pubkey(),
+            &oracle.pubkey(),
+            market_id,
+            question_hash,
+            end_time,
+            max_bet,
+        );
+
+        let tx = Transaction::new_signed_with_payer(
+            &[create_ix],
+            Some(&authority.pubkey()),
+            &[&authority],
+            context.last_blockhash,
+        );
+
+        context.banks_client.process_transaction(tx).await.unwrap();
+
+        // Cancel market
+        let cancel_ix = cancel_market_instruction(&program_id, &authority.pubkey(), market_id);
+
+        let tx = Transaction::new_signed_with_payer(
+            &[cancel_ix],
+            Some(&authority.pubkey()),
+            &[&authority],
+            context.last_blockhash,
+        );
+
+        context.banks_client.process_transaction(tx).await.unwrap();
+
+        // Verify market is cancelled
+        let market = get_market_account(&mut context, &market_pda).await;
+        assert_eq!(market.status, MarketStatus::Cancelled);
+    }
+
+    #[tokio::test]
+    async fn test_cancel_market_unauthorized() {
+        let program_id = futarchy_markets::id();
+        let mut program_test = setup_program_test();
+
+        let authority = Keypair::new();
+        let oracle = Keypair::new();
+        let fake_authority = Keypair::new();
+
+        program_test.add_account(
+            authority.pubkey(),
+            Account {
+                lamports: 10_000_000_000,
+                ..Default::default()
+            },
+        );
+
+        program_test.add_account(
+            fake_authority.pubkey(),
+            Account {
+                lamports: 10_000_000_000,
+                ..Default::default()
+            },
+        );
+
+        let mut context = program_test.start_with_context().await;
+
+        // Create market
+        let market_id = 1u64;
+        let question_hash = [1u8; 32];
+        let current_time = context
+            .banks_client
+            .get_sysvar::<solana_program::clock::Clock>()
+            .await
+            .unwrap()
+            .unix_timestamp;
+        let end_time = current_time + 86400;
+        let max_bet = 1_000_000_000;
+
+        let create_ix = create_market_instruction(
+            &program_id,
+            &authority.pubkey(),
+            &oracle.pubkey(),
+            market_id,
+            question_hash,
+            end_time,
+            max_bet,
+        );
+
+        let tx = Transaction::new_signed_with_payer(
+            &[create_ix],
+            Some(&authority.pubkey()),
+            &[&authority],
+            context.last_blockhash,
+        );
+
+        context.banks_client.process_transaction(tx).await.unwrap();
+
+        // Try to cancel with wrong authority
+        let cancel_ix = cancel_market_instruction(&program_id, &fake_authority.pubkey(), market_id);
+
+        let tx = Transaction::new_signed_with_payer(
+            &[cancel_ix],
+            Some(&fake_authority.pubkey()),
+            &[&fake_authority],
+            context.last_blockhash,
+        );
+
+        // Should fail
+        let result = context.banks_client.process_transaction(tx).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_cancel_market_missing_signature() {
+        let program_id = futarchy_markets::id();
+        let mut program_test = setup_program_test();
+
+        let authority = Keypair::new();
+        let oracle = Keypair::new();
+        let fake_payer = Keypair::new();
+
+        program_test.add_account(
+            authority.pubkey(),
+            Account {
+                lamports: 10_000_000_000,
+                ..Default::default()
+            },
+        );
+
+        program_test.add_account(
+            fake_payer.pubkey(),
+            Account {
+                lamports: 10_000_000_000,
+                ..Default::default()
+            },
+        );
+
+        let mut context = program_test.start_with_context().await;
+
+        // Create market
+        let market_id = 1u64;
+        let question_hash = [1u8; 32];
+        let current_time = context
+            .banks_client
+            .get_sysvar::<solana_program::clock::Clock>()
+            .await
+            .unwrap()
+            .unix_timestamp;
+        let end_time = current_time + 86400;
+        let max_bet = 1_000_000_000;
+
+        let create_ix = create_market_instruction(
+            &program_id,
+            &authority.pubkey(),
+            &oracle.pubkey(),
+            market_id,
+            question_hash,
+            end_time,
+            max_bet,
+        );
+
+        let tx = Transaction::new_signed_with_payer(
+            &[create_ix],
+            Some(&authority.pubkey()),
+            &[&authority],
+            context.last_blockhash,
+        );
+
+        context.banks_client.process_transaction(tx).await.unwrap();
+
+        // Try to cancel without authority signature
+        let (market_pda, _) = derive_market_pda(&program_id, market_id);
+
+        let instruction = FutarchyInstruction::CancelMarket { market_id };
+
+        let data = instruction.pack().unwrap();
+
+        let ix = Instruction {
+            program_id,
+            accounts: vec![
+                AccountMeta::new(authority.pubkey(), false), // Not a signer
+                AccountMeta::new(market_pda, false),
+            ],
+            data,
+        };
+
+        let tx = Transaction::new_signed_with_payer(
+            &[ix],
+            Some(&fake_payer.pubkey()),
+            &[&fake_payer],
+            context.last_blockhash,
+        );
+
+        // Should fail
+        let result = context.banks_client.process_transaction(tx).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_cancel_market_already_settled() {
+        let program_id = futarchy_markets::id();
+        let mut program_test = setup_program_test();
+
+        let authority = Keypair::new();
+        let oracle = Keypair::new();
+
+        program_test.add_account(
+            authority.pubkey(),
+            Account {
+                lamports: 10_000_000_000,
+                ..Default::default()
+            },
+        );
+
+        program_test.add_account(
+            oracle.pubkey(),
+            Account {
+                lamports: 10_000_000_000,
+                ..Default::default()
+            },
+        );
+
+        let mut context = program_test.start_with_context().await;
+
+        // Create market
+        let market_id = 1u64;
+        let question_hash = [1u8; 32];
+        let current_time = context
+            .banks_client
+            .get_sysvar::<solana_program::clock::Clock>()
+            .await
+            .unwrap()
+            .unix_timestamp;
+        let end_time = current_time + 86400;
+        let max_bet = 1_000_000_000;
+
+        let (market_pda, _) = derive_market_pda(&program_id, market_id);
+
+        let create_ix = create_market_instruction(
+            &program_id,
+            &authority.pubkey(),
+            &oracle.pubkey(),
+            market_id,
+            question_hash,
+            end_time,
+            max_bet,
+        );
+
+        let tx = Transaction::new_signed_with_payer(
+            &[create_ix],
+            Some(&authority.pubkey()),
+            &[&authority],
+            context.last_blockhash,
+        );
+
+        context.banks_client.process_transaction(tx).await.unwrap();
+
+        // Force market to be ended and settle it
+        force_market_ended(&mut context, &program_id, &market_pda).await;
+
+        let settle_ix = settle_market_instruction(&program_id, &oracle.pubkey(), market_id, true);
+
+        let tx = Transaction::new_signed_with_payer(
+            &[settle_ix],
+            Some(&oracle.pubkey()),
+            &[&oracle],
+            context.last_blockhash,
+        );
+
+        context.banks_client.process_transaction(tx).await.unwrap();
+
+        // Try to cancel settled market
+        let cancel_ix = cancel_market_instruction(&program_id, &authority.pubkey(), market_id);
+
+        let tx = Transaction::new_signed_with_payer(
+            &[cancel_ix],
+            Some(&authority.pubkey()),
+            &[&authority],
+            context.last_blockhash,
+        );
+
+        // Should fail
+        let result = context.banks_client.process_transaction(tx).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_cancel_market_invalid_pda() {
+        let program_id = futarchy_markets::id();
+        let mut program_test = setup_program_test();
+
+        let authority = Keypair::new();
+        let oracle = Keypair::new();
+
+        program_test.add_account(
+            authority.pubkey(),
+            Account {
+                lamports: 10_000_000_000,
+                ..Default::default()
+            },
+        );
+
+        let mut context = program_test.start_with_context().await;
+
+        // Create market
+        let market_id = 1u64;
+        let question_hash = [1u8; 32];
+        let current_time = context
+            .banks_client
+            .get_sysvar::<solana_program::clock::Clock>()
+            .await
+            .unwrap()
+            .unix_timestamp;
+        let end_time = current_time + 86400;
+        let max_bet = 1_000_000_000;
+
+        let create_ix = create_market_instruction(
+            &program_id,
+            &authority.pubkey(),
+            &oracle.pubkey(),
+            market_id,
+            question_hash,
+            end_time,
+            max_bet,
+        );
+
+        let tx = Transaction::new_signed_with_payer(
+            &[create_ix],
+            Some(&authority.pubkey()),
+            &[&authority],
+            context.last_blockhash,
+        );
+
+        context.banks_client.process_transaction(tx).await.unwrap();
+
+        // Try to cancel with wrong market PDA
+        let (wrong_market_pda, _) = derive_market_pda(&program_id, market_id + 1);
+
+        let instruction = FutarchyInstruction::CancelMarket { market_id };
+
+        let data = instruction.pack().unwrap();
+
+        let ix = Instruction {
+            program_id,
+            accounts: vec![
+                AccountMeta::new(authority.pubkey(), true),
+                AccountMeta::new(wrong_market_pda, false), // Wrong PDA
+            ],
+            data,
+        };
+
+        let tx = Transaction::new_signed_with_payer(
+            &[ix],
+            Some(&authority.pubkey()),
+            &[&authority],
+            context.last_blockhash,
+        );
+
+        // Should fail
+        let result = context.banks_client.process_transaction(tx).await;
+        assert!(result.is_err());
+    }
+}
+
+/// Tests for CreateMarketWithGovernance instruction
+#[cfg(test)]
+mod create_governance_market_tests {
+    use super::*;
+    use helpers::*;
+
+    #[tokio::test]
+    async fn test_create_governance_market_success() {
+        let program_id = futarchy_markets::id();
+        let mut program_test = setup_program_test();
+
+        let authority = Keypair::new();
+        let oracle = Keypair::new();
+
+        program_test.add_account(
+            authority.pubkey(),
+            Account {
+                lamports: 10_000_000_000,
+                ..Default::default()
+            },
+        );
+
+        let mut context = program_test.start_with_context().await;
+
+        let market_id = 1u64;
+        let question_hash = [1u8; 32];
+        let current_time = context
+            .banks_client
+            .get_sysvar::<solana_program::clock::Clock>()
+            .await
+            .unwrap()
+            .unix_timestamp;
+        let end_time = current_time + 86400;
+        let max_bet = 1_000_000_000;
+
+        let executable_action = ExecutableAction::TransferTokens {
+            token_mint: Pubkey::new_unique(),
+            from_treasury: Pubkey::new_unique(),
+            to: Pubkey::new_unique(),
+            amount: 1_000_000,
+        };
+
+        let execution_threshold = 50;
+        let timelock_duration = 3600;
+
+        let (market_pda, _) = derive_market_pda(&program_id, market_id);
+
+        let ix = create_market_with_governance_instruction(
+            &program_id,
+            &authority.pubkey(),
+            &oracle.pubkey(),
+            market_id,
+            question_hash,
+            end_time,
+            max_bet,
+            executable_action.clone(),
+            execution_threshold,
+            timelock_duration,
+        );
+
+        let tx = Transaction::new_signed_with_payer(
+            &[ix],
+            Some(&authority.pubkey()),
+            &[&authority],
+            context.last_blockhash,
+        );
+
+        context.banks_client.process_transaction(tx).await.unwrap();
+
+        // Verify governance fields
+        let market = get_market_account(&mut context, &market_pda).await;
+        assert_eq!(market.status, MarketStatus::Active);
+        assert!(market.is_governance_market());
+        assert_eq!(market.execution_threshold, execution_threshold);
+        assert_eq!(market.timelock_duration, timelock_duration);
+        assert_eq!(market.timelock_expires_at, None);
+        assert!(!market.action_executed);
+        assert_eq!(market.executable_action.action_type(), "TransferTokens");
+    }
+
+    #[tokio::test]
+    async fn test_create_governance_market_invalid_threshold() {
+        let program_id = futarchy_markets::id();
+        let mut program_test = setup_program_test();
+
+        let authority = Keypair::new();
+        let oracle = Keypair::new();
+
+        program_test.add_account(
+            authority.pubkey(),
+            Account {
+                lamports: 10_000_000_000,
+                ..Default::default()
+            },
+        );
+
+        let mut context = program_test.start_with_context().await;
+
+        let market_id = 1u64;
+        let question_hash = [1u8; 32];
+        let current_time = context
+            .banks_client
+            .get_sysvar::<solana_program::clock::Clock>()
+            .await
+            .unwrap()
+            .unix_timestamp;
+        let end_time = current_time + 86400;
+        let max_bet = 1_000_000_000;
+
+        let executable_action = ExecutableAction::TransferTokens {
+            token_mint: Pubkey::new_unique(),
+            from_treasury: Pubkey::new_unique(),
+            to: Pubkey::new_unique(),
+            amount: 1_000_000,
+        };
+
+        let execution_threshold = 101; // Invalid (>100)
+        let timelock_duration = 3600;
+
+        let ix = create_market_with_governance_instruction(
+            &program_id,
+            &authority.pubkey(),
+            &oracle.pubkey(),
+            market_id,
+            question_hash,
+            end_time,
+            max_bet,
+            executable_action,
+            execution_threshold,
+            timelock_duration,
+        );
+
+        let tx = Transaction::new_signed_with_payer(
+            &[ix],
+            Some(&authority.pubkey()),
+            &[&authority],
+            context.last_blockhash,
+        );
+
+        // Should fail
+        let result = context.banks_client.process_transaction(tx).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_create_governance_market_negative_timelock() {
+        let program_id = futarchy_markets::id();
+        let mut program_test = setup_program_test();
+
+        let authority = Keypair::new();
+        let oracle = Keypair::new();
+
+        program_test.add_account(
+            authority.pubkey(),
+            Account {
+                lamports: 10_000_000_000,
+                ..Default::default()
+            },
+        );
+
+        let mut context = program_test.start_with_context().await;
+
+        let market_id = 1u64;
+        let question_hash = [1u8; 32];
+        let current_time = context
+            .banks_client
+            .get_sysvar::<solana_program::clock::Clock>()
+            .await
+            .unwrap()
+            .unix_timestamp;
+        let end_time = current_time + 86400;
+        let max_bet = 1_000_000_000;
+
+        let executable_action = ExecutableAction::TransferTokens {
+            token_mint: Pubkey::new_unique(),
+            from_treasury: Pubkey::new_unique(),
+            to: Pubkey::new_unique(),
+            amount: 1_000_000,
+        };
+
+        let execution_threshold = 50;
+        let timelock_duration = -1; // Invalid (negative)
+
+        let ix = create_market_with_governance_instruction(
+            &program_id,
+            &authority.pubkey(),
+            &oracle.pubkey(),
+            market_id,
+            question_hash,
+            end_time,
+            max_bet,
+            executable_action,
+            execution_threshold,
+            timelock_duration,
+        );
+
+        let tx = Transaction::new_signed_with_payer(
+            &[ix],
+            Some(&authority.pubkey()),
+            &[&authority],
+            context.last_blockhash,
+        );
+
+        // Should fail
+        let result = context.banks_client.process_transaction(tx).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_create_governance_market_action_none() {
+        let program_id = futarchy_markets::id();
+        let mut program_test = setup_program_test();
+
+        let authority = Keypair::new();
+        let oracle = Keypair::new();
+
+        program_test.add_account(
+            authority.pubkey(),
+            Account {
+                lamports: 10_000_000_000,
+                ..Default::default()
+            },
+        );
+
+        let mut context = program_test.start_with_context().await;
+
+        let market_id = 1u64;
+        let question_hash = [1u8; 32];
+        let current_time = context
+            .banks_client
+            .get_sysvar::<solana_program::clock::Clock>()
+            .await
+            .unwrap()
+            .unix_timestamp;
+        let end_time = current_time + 86400;
+        let max_bet = 1_000_000_000;
+
+        let executable_action = ExecutableAction::None; // No action
+
+        let execution_threshold = 50;
+        let timelock_duration = 3600;
+
+        let (market_pda, _) = derive_market_pda(&program_id, market_id);
+
+        let ix = create_market_with_governance_instruction(
+            &program_id,
+            &authority.pubkey(),
+            &oracle.pubkey(),
+            market_id,
+            question_hash,
+            end_time,
+            max_bet,
+            executable_action,
+            execution_threshold,
+            timelock_duration,
+        );
+
+        let tx = Transaction::new_signed_with_payer(
+            &[ix],
+            Some(&authority.pubkey()),
+            &[&authority],
+            context.last_blockhash,
+        );
+
+        context.banks_client.process_transaction(tx).await.unwrap();
+
+        // Verify it's not really a governance market (action is None)
+        let market = get_market_account(&mut context, &market_pda).await;
+        assert!(!market.is_governance_market());
+        assert!(market.executable_action.is_none());
+    }
+}
+
+/// Tests for User Escrow System (DepositToMarket, WithdrawFromEscrow)
+#[cfg(test)]
+mod user_escrow_tests {
+    use super::*;
+    use helpers::*;
+
+    #[tokio::test]
+    async fn test_deposit_creates_new_escrow() {
+        let program_id = futarchy_markets::id();
+        let mut program_test = setup_program_test();
+
+        let authority = Keypair::new();
+        let oracle = Keypair::new();
+        let user = Keypair::new();
+
+        program_test.add_account(
+            authority.pubkey(),
+            Account {
+                lamports: 10_000_000_000,
+                ..Default::default()
+            },
+        );
+
+        program_test.add_account(
+            user.pubkey(),
+            Account {
+                lamports: 10_000_000_000,
+                ..Default::default()
+            },
+        );
+
+        let mut context = program_test.start_with_context().await;
+
+        // Create market first
+        let market_id = 1u64;
+        let question_hash = [1u8; 32];
+        let current_time = context
+            .banks_client
+            .get_sysvar::<solana_program::clock::Clock>()
+            .await
+            .unwrap()
+            .unix_timestamp;
+        let end_time = current_time + 86400;
+        let max_bet = 2_000_000_000;
+
+        let (market_pda, _) = derive_market_pda(&program_id, market_id);
+        let (user_escrow_pda, _) = derive_user_escrow_pda(&program_id, &user.pubkey(), &market_pda);
+
+        let create_market_ix = create_market_instruction(
+            &program_id,
+            &authority.pubkey(),
+            &oracle.pubkey(),
+            market_id,
+            question_hash,
+            end_time,
+            max_bet,
+        );
+
+        let tx = Transaction::new_signed_with_payer(
+            &[create_market_ix],
+            Some(&authority.pubkey()),
+            &[&authority],
+            context.last_blockhash,
+        );
+
+        context.banks_client.process_transaction(tx).await.unwrap();
+
+        // Deposit 5 SOL
+        let deposit_amount = 5_000_000_000;
+
+        let deposit_ix = deposit_to_market_instruction(
+            &program_id,
+            &user.pubkey(),
+            market_id,
+            deposit_amount,
+        );
+
+        let tx = Transaction::new_signed_with_payer(
+            &[deposit_ix],
+            Some(&user.pubkey()),
+            &[&user],
+            context.last_blockhash,
+        );
+
+        context.banks_client.process_transaction(tx).await.unwrap();
+
+        // Verify escrow created with correct balances
+        let escrow = get_user_escrow_account(&mut context, &user_escrow_pda).await;
+        assert_eq!(escrow.user, user.pubkey());
+        assert_eq!(escrow.market, market_pda);
+        assert_eq!(escrow.deposited, deposit_amount);
+        assert_eq!(escrow.available, deposit_amount);
+        assert_eq!(escrow.reserved, 0);
+        assert!(escrow.verify_invariant());
+    }
+
+    #[tokio::test]
+    async fn test_deposit_adds_to_existing_escrow() {
+        let program_id = futarchy_markets::id();
+        let mut program_test = setup_program_test();
+
+        let authority = Keypair::new();
+        let oracle = Keypair::new();
+        let user = Keypair::new();
+
+        program_test.add_account(
+            authority.pubkey(),
+            Account {
+                lamports: 10_000_000_000,
+                ..Default::default()
+            },
+        );
+
+        program_test.add_account(
+            user.pubkey(),
+            Account {
+                lamports: 10_000_000_000,
+                ..Default::default()
+            },
+        );
+
+        let mut context = program_test.start_with_context().await;
+
+        // Create market
+        let market_id = 1u64;
+        let question_hash = [1u8; 32];
+        let current_time = context
+            .banks_client
+            .get_sysvar::<solana_program::clock::Clock>()
+            .await
+            .unwrap()
+            .unix_timestamp;
+        let end_time = current_time + 86400;
+        let max_bet = 2_000_000_000;
+
+        let (market_pda, _) = derive_market_pda(&program_id, market_id);
+        let (user_escrow_pda, _) = derive_user_escrow_pda(&program_id, &user.pubkey(), &market_pda);
+
+        let create_ix = create_market_instruction(
+            &program_id,
+            &authority.pubkey(),
+            &oracle.pubkey(),
+            market_id,
+            question_hash,
+            end_time,
+            max_bet,
+        );
+
+        let tx = Transaction::new_signed_with_payer(
+            &[create_ix],
+            Some(&authority.pubkey()),
+            &[&authority],
+            context.last_blockhash,
+        );
+
+        context.banks_client.process_transaction(tx).await.unwrap();
+
+        // First deposit: 3 SOL
+        let deposit1 = 3_000_000_000;
+        let deposit_ix1 = deposit_to_market_instruction(&program_id, &user.pubkey(), market_id, deposit1);
+
+        let tx = Transaction::new_signed_with_payer(
+            &[deposit_ix1],
+            Some(&user.pubkey()),
+            &[&user],
+            context.last_blockhash,
+        );
+
+        context.banks_client.process_transaction(tx).await.unwrap();
+
+        // Second deposit: 2 SOL
+        let deposit2 = 2_000_000_000;
+        let deposit_ix2 = deposit_to_market_instruction(&program_id, &user.pubkey(), market_id, deposit2);
+
+        let tx = Transaction::new_signed_with_payer(
+            &[deposit_ix2],
+            Some(&user.pubkey()),
+            &[&user],
+            context.last_blockhash,
+        );
+
+        context.banks_client.process_transaction(tx).await.unwrap();
+
+        // Verify total is 5 SOL
+        let escrow = get_user_escrow_account(&mut context, &user_escrow_pda).await;
+        assert_eq!(escrow.deposited, 5_000_000_000);
+        assert_eq!(escrow.available, 5_000_000_000);
+        assert_eq!(escrow.reserved, 0);
+        assert!(escrow.verify_invariant());
+    }
+
+    #[tokio::test]
+    async fn test_withdraw_from_escrow() {
+        let program_id = futarchy_markets::id();
+        let mut program_test = setup_program_test();
+
+        let authority = Keypair::new();
+        let oracle = Keypair::new();
+        let user = Keypair::new();
+
+        program_test.add_account(
+            authority.pubkey(),
+            Account {
+                lamports: 10_000_000_000,
+                ..Default::default()
+            },
+        );
+
+        program_test.add_account(
+            user.pubkey(),
+            Account {
+                lamports: 10_000_000_000,
+                ..Default::default()
+            },
+        );
+
+        let mut context = program_test.start_with_context().await;
+
+        // Create market
+        let market_id = 1u64;
+        let question_hash = [1u8; 32];
+        let current_time = context
+            .banks_client
+            .get_sysvar::<solana_program::clock::Clock>()
+            .await
+            .unwrap()
+            .unix_timestamp;
+        let end_time = current_time + 86400;
+        let max_bet = 2_000_000_000;
+
+        let (market_pda, _) = derive_market_pda(&program_id, market_id);
+        let (user_escrow_pda, _) = derive_user_escrow_pda(&program_id, &user.pubkey(), &market_pda);
+
+        let create_ix = create_market_instruction(
+            &program_id,
+            &authority.pubkey(),
+            &oracle.pubkey(),
+            market_id,
+            question_hash,
+            end_time,
+            max_bet,
+        );
+
+        let tx = Transaction::new_signed_with_payer(
+            &[create_ix],
+            Some(&authority.pubkey()),
+            &[&authority],
+            context.last_blockhash,
+        );
+
+        context.banks_client.process_transaction(tx).await.unwrap();
+
+        // Deposit 5 SOL
+        let deposit_amount = 5_000_000_000;
+        let deposit_ix = deposit_to_market_instruction(&program_id, &user.pubkey(), market_id, deposit_amount);
+
+        let tx = Transaction::new_signed_with_payer(
+            &[deposit_ix],
+            Some(&user.pubkey()),
+            &[&user],
+            context.last_blockhash,
+        );
+
+        context.banks_client.process_transaction(tx).await.unwrap();
+
+        // Withdraw 2 SOL
+        let withdraw_amount = 2_000_000_000;
+        let withdraw_ix = withdraw_from_escrow_instruction(&program_id, &user.pubkey(), market_id, withdraw_amount);
+
+        let tx = Transaction::new_signed_with_payer(
+            &[withdraw_ix],
+            Some(&user.pubkey()),
+            &[&user],
+            context.last_blockhash,
+        );
+
+        context.banks_client.process_transaction(tx).await.unwrap();
+
+        // Verify escrow updated
+        let escrow = get_user_escrow_account(&mut context, &user_escrow_pda).await;
+        assert_eq!(escrow.deposited, 3_000_000_000); // 5 - 2 = 3 SOL
+        assert_eq!(escrow.available, 3_000_000_000);
+        assert_eq!(escrow.reserved, 0);
+        assert!(escrow.verify_invariant());
+    }
+
+    #[tokio::test]
+    async fn test_withdraw_insufficient_available() {
+        let program_id = futarchy_markets::id();
+        let mut program_test = setup_program_test();
+
+        let authority = Keypair::new();
+        let oracle = Keypair::new();
+        let user = Keypair::new();
+
+        program_test.add_account(
+            authority.pubkey(),
+            Account {
+                lamports: 10_000_000_000,
+                ..Default::default()
+            },
+        );
+
+        program_test.add_account(
+            user.pubkey(),
+            Account {
+                lamports: 10_000_000_000,
+                ..Default::default()
+            },
+        );
+
+        let mut context = program_test.start_with_context().await;
+
+        // Create market
+        let market_id = 1u64;
+        let question_hash = [1u8; 32];
+        let current_time = context
+            .banks_client
+            .get_sysvar::<solana_program::clock::Clock>()
+            .await
+            .unwrap()
+            .unix_timestamp;
+        let end_time = current_time + 86400;
+        let max_bet = 2_000_000_000;
+
+        let (market_pda, _) = derive_market_pda(&program_id, market_id);
+
+        let create_ix = create_market_instruction(
+            &program_id,
+            &authority.pubkey(),
+            &oracle.pubkey(),
+            market_id,
+            question_hash,
+            end_time,
+            max_bet,
+        );
+
+        let tx = Transaction::new_signed_with_payer(
+            &[create_ix],
+            Some(&authority.pubkey()),
+            &[&authority],
+            context.last_blockhash,
+        );
+
+        context.banks_client.process_transaction(tx).await.unwrap();
+
+        // Deposit 2 SOL
+        let deposit_amount = 2_000_000_000;
+        let deposit_ix = deposit_to_market_instruction(&program_id, &user.pubkey(), market_id, deposit_amount);
+
+        let tx = Transaction::new_signed_with_payer(
+            &[deposit_ix],
+            Some(&user.pubkey()),
+            &[&user],
+            context.last_blockhash,
+        );
+
+        context.banks_client.process_transaction(tx).await.unwrap();
+
+        // Try to withdraw 5 SOL (more than deposited)
+        let withdraw_amount = 5_000_000_000;
+        let withdraw_ix = withdraw_from_escrow_instruction(&program_id, &user.pubkey(), market_id, withdraw_amount);
+
+        let tx = Transaction::new_signed_with_payer(
+            &[withdraw_ix],
+            Some(&user.pubkey()),
+            &[&user],
+            context.last_blockhash,
+        );
+
+        // Should fail
+        let result = context.banks_client.process_transaction(tx).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_deposit_to_inactive_market_fails() {
+        let program_id = futarchy_markets::id();
+        let mut program_test = setup_program_test();
+
+        let authority = Keypair::new();
+        let oracle = Keypair::new();
+        let user = Keypair::new();
+
+        program_test.add_account(
+            authority.pubkey(),
+            Account {
+                lamports: 10_000_000_000,
+                ..Default::default()
+            },
+        );
+
+        program_test.add_account(
+            oracle.pubkey(),
+            Account {
+                lamports: 10_000_000_000,
+                ..Default::default()
+            },
+        );
+
+        program_test.add_account(
+            user.pubkey(),
+            Account {
+                lamports: 10_000_000_000,
+                ..Default::default()
+            },
+        );
+
+        let mut context = program_test.start_with_context().await;
+
+        // Create and cancel market
+        let market_id = 1u64;
+        let question_hash = [1u8; 32];
+        let current_time = context
+            .banks_client
+            .get_sysvar::<solana_program::clock::Clock>()
+            .await
+            .unwrap()
+            .unix_timestamp;
+        let end_time = current_time + 86400;
+        let max_bet = 2_000_000_000;
+
+        let (market_pda, _) = derive_market_pda(&program_id, market_id);
+
+        let create_ix = create_market_instruction(
+            &program_id,
+            &authority.pubkey(),
+            &oracle.pubkey(),
+            market_id,
+            question_hash,
+            end_time,
+            max_bet,
+        );
+
+        let tx = Transaction::new_signed_with_payer(
+            &[create_ix],
+            Some(&authority.pubkey()),
+            &[&authority],
+            context.last_blockhash,
+        );
+
+        context.banks_client.process_transaction(tx).await.unwrap();
+
+        // Cancel market
+        let cancel_ix = cancel_market_instruction(&program_id, &authority.pubkey(), market_id);
+
+        let tx = Transaction::new_signed_with_payer(
+            &[cancel_ix],
+            Some(&authority.pubkey()),
+            &[&authority],
+            context.last_blockhash,
+        );
+
+        context.banks_client.process_transaction(tx).await.unwrap();
+
+        // Try to deposit to cancelled market
+        let deposit_amount = 2_000_000_000;
+        let deposit_ix = deposit_to_market_instruction(&program_id, &user.pubkey(), market_id, deposit_amount);
+
+        let tx = Transaction::new_signed_with_payer(
+            &[deposit_ix],
+            Some(&user.pubkey()),
+            &[&user],
+            context.last_blockhash,
+        );
+
+        // Should fail
+        let result = context.banks_client.process_transaction(tx).await;
+        assert!(result.is_err());
     }
 }

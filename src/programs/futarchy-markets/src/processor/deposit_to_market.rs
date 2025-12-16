@@ -5,7 +5,7 @@ use solana_program::{
     account_info::{next_account_info, AccountInfo},
     entrypoint::ProgramResult,
     msg,
-    program::invoke,
+    program::{invoke, invoke_signed},
     program_error::ProgramError,
     pubkey::Pubkey,
     rent::Rent,
@@ -99,6 +99,9 @@ pub fn process_deposit_to_market(
             return Err(ProgramError::InvalidAccountData);
         }
 
+        // Drop borrow before transfer
+        drop(escrow_data);
+
         // Transfer lamports to escrow account
         invoke(
             &system_instruction::transfer(user_info.key, user_escrow_info.key, amount),
@@ -109,7 +112,9 @@ pub fn process_deposit_to_market(
             ],
         )?;
 
-        // Update escrow balance
+        // Re-load and update escrow balance
+        let mut escrow_data = user_escrow_info.try_borrow_mut_data()?;
+        let mut user_escrow = UserEscrow::deserialize(&mut &escrow_data[..])?;
         user_escrow.deposit(amount)?;
 
         // Write updated escrow
@@ -124,15 +129,22 @@ pub fn process_deposit_to_market(
         msg!("  New balance: {} lamports", user_escrow.deposited);
         msg!("  Available: {} lamports", user_escrow.available);
     } else {
-        // Create new escrow account
+        // Create new escrow account (PDA)
         let rent = Rent::get()?;
         let escrow_space = UserEscrow::SPACE;
         let escrow_lamports = rent.minimum_balance(escrow_space);
 
         msg!("Creating new user escrow account");
 
-        // Create account
-        invoke(
+        // Create PDA account with invoke_signed
+        let user_escrow_seeds = &[
+            USER_ESCROW_SEED,
+            user_info.key.as_ref(),
+            market_info.key.as_ref(),
+            &[user_escrow_bump],
+        ];
+
+        invoke_signed(
             &system_instruction::create_account(
                 user_info.key,
                 user_escrow_info.key,
@@ -145,22 +157,23 @@ pub fn process_deposit_to_market(
                 user_escrow_info.clone(),
                 system_program_info.clone(),
             ],
+            &[user_escrow_seeds],
         )?;
 
-        // Initialize escrow state
+        // Initialize escrow state with initial deposit
         let user_escrow = UserEscrow::new(
             *user_info.key,
             *market_info.key,
-            0,  // Initial deposit is 0, we'll add it next
+            amount,  // Initialize with deposit amount directly
             user_escrow_bump,
         );
 
-        // Serialize initial state
+        // Serialize state
         let mut escrow_data = user_escrow_info.try_borrow_mut_data()?;
         user_escrow.serialize(&mut &mut escrow_data[..])?;
-
-        // Now transfer the deposit amount
         drop(escrow_data);
+
+        // Transfer deposit amount to escrow
         invoke(
             &system_instruction::transfer(user_info.key, user_escrow_info.key, amount),
             &[
@@ -169,16 +182,6 @@ pub fn process_deposit_to_market(
                 system_program_info.clone(),
             ],
         )?;
-
-        // Update escrow with deposit
-        let mut escrow_data = user_escrow_info.try_borrow_mut_data()?;
-        let mut user_escrow = UserEscrow::deserialize(&mut &escrow_data[..])?;
-        user_escrow.deposit(amount)?;
-
-        // Write final state
-        drop(escrow_data);
-        let mut escrow_data = user_escrow_info.try_borrow_mut_data()?;
-        user_escrow.serialize(&mut &mut escrow_data[..])?;
 
         msg!("Created new user escrow and deposited");
         msg!("  User: {}", user_info.key);

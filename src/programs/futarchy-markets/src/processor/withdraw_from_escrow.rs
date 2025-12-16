@@ -101,13 +101,24 @@ pub fn process_withdraw_from_escrow(
     // Update escrow state
     user_escrow.withdraw(amount)?;
 
+    // Drop borrow before modifying lamports
+    drop(escrow_data);
+
     // Transfer lamports from escrow to user
     // We do this by decreasing escrow's lamports and increasing user's lamports
+    let escrow_lamports = user_escrow_info.lamports();
+
+    if escrow_lamports < amount {
+        msg!("Escrow account doesn't have sufficient lamports");
+        msg!("  Escrow lamports: {}", escrow_lamports);
+        msg!("  Withdrawal amount: {}", amount);
+        return Err(ProgramError::InsufficientFunds);
+    }
+
     **user_escrow_info.try_borrow_mut_lamports()? -= amount;
     **user_info.try_borrow_mut_lamports()? += amount;
 
     // Write updated escrow
-    drop(escrow_data);
     let mut escrow_data = user_escrow_info.try_borrow_mut_data()?;
     user_escrow.serialize(&mut &mut escrow_data[..])?;
 
