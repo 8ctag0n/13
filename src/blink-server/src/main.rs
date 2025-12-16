@@ -296,6 +296,7 @@ async fn main() -> std::io::Result<()> {
 
         let mut app = App::new()
             .app_data(app_state.clone())
+            .app_data(web::Data::new(pool.clone())) // For pBTCFi handlers
             // Increase JSON payload limit for large TFHE ServerKeys (up to 200 MB)
             .app_data(web::JsonConfig::default().limit(200 * 1024 * 1024))
             // Increase raw payload limit for witness data (up to 200 MB)
