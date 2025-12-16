@@ -1,0 +1,18 @@
+[package]
+name = "pbtcfi_core"
+version = "0.1.0"
+edition = "2024_07"
+
+[dependencies]
+starknet = ">=2.8.0"
+
+[dev-dependencies]
+cairo_test = "2.8.4"
+
+[[target.starknet-contract]]
+sierra = true
+casm = true
+
+[scripts]
+test = "scarb test"
+build = "scarb build"

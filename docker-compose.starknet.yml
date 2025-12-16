@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  cairo-dev:
+    build: ./docker/starknet
+    container_name: pbtcfi-cairo-dev
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    command: sleep infinity
+    networks:
+      - starknet-network
+
+  katana:
+    image: ghcr.io/dojoengine/dojo:latest
+    container_name: pbtcfi-katana
+    command: katana --dev --http.addr 0.0.0.0
+    ports:
+      - "5050:5050"
+    networks:
+      - starknet-network
+
+networks:
+  starknet-network:
+    driver: bridge
