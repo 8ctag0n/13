@@ -22,6 +22,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 use zyberlink_sdk::instructions::InstructionBuilder;
+use zyberlink_chain_client::SolanaClient;
 
 use services::AttestationService;
 
@@ -186,11 +187,16 @@ async fn main() -> std::io::Result<()> {
     cleanup::spawn_cleanup_task(pool.clone(), cleanup_interval_secs);
 
     log::info!("Starting blockchain sync task...");
-    chain_sync::start_chain_sync(rpc_url.clone(), program_id, pool.clone());
+    log::info!("Creating SolanaClient for chain sync...");
+    let chain_client = Arc::new(
+        SolanaClient::new(&rpc_url)
+            .expect("Failed to create SolanaClient")
+    );
+    chain_sync::start_chain_sync(chain_client.clone(), program_id, pool.clone());
     log::info!("Blockchain sync task started");
 
     log::info!("Starting prover sync task...");
-    prover_sync::start_prover_sync(rpc_url.clone(), program_id, pool.clone());
+    prover_sync::start_prover_sync(chain_client.clone(), program_id, pool.clone());
     log::info!("Prover sync task started");
 
     // Job finalizer (requires server keypair to sign finalize transactions)
@@ -202,7 +208,7 @@ async fn main() -> std::io::Result<()> {
             log::info!("Starting job finalizer task...");
             log::info!("  Finalizer pubkey: {}", keypair.pubkey());
             job_finalizer::start_job_finalizer(
-                rpc_url.clone(),
+                chain_client.clone(),
                 program_id,
                 pool.clone(),
                 Arc::new(keypair),

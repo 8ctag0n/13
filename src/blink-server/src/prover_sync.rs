@@ -1,26 +1,36 @@
 use borsh::BorshDeserialize;
-use solana_client::rpc_client::RpcClient;
 use solana_client::rpc_config::{RpcAccountInfoConfig, RpcProgramAccountsConfig};
 use solana_client::rpc_filter::RpcFilterType;
 use solana_sdk::commitment_config::CommitmentConfig;
 use solana_sdk::pubkey::Pubkey;
 use sqlx::PgPool;
+use std::sync::Arc;
 use std::time::Duration;
 use zyberlink_sdk::ProverAccount;
+use zyberlink_chain_client::{ChainClient, SolanaClient, SolanaSpecificOps};
 
 /// ProverAccount size in bytes (must match on-chain program)
 const PROVER_ACCOUNT_SIZE: u64 = 114;
 
 /// Start background task that syncs provers from blockchain to PostgreSQL
-pub fn start_prover_sync(rpc_url: String, program_id: Pubkey, db_pool: PgPool) {
+///
+/// # Multi-chain Ready
+/// This function now accepts a SolanaClient instead of raw RPC URL.
+/// For multi-chain support, verticales can pass MockChainClient during development.
+pub fn start_prover_sync(
+    client: Arc<SolanaClient>,
+    program_id: Pubkey,
+    db_pool: PgPool,
+) {
     tokio::spawn(async move {
         log::info!("Starting prover sync task...");
-        log::info!("  RPC URL: {}", rpc_url);
+        log::info!("  Chain: {}", client.chain_id());
+        log::info!("  Network: {}", client.network());
         log::info!("  Program ID: {}", program_id);
         log::info!("  Sync Interval: 12 seconds");
 
         loop {
-            match sync_provers(rpc_url.clone(), program_id, &db_pool).await {
+            match sync_provers(Arc::clone(&client), program_id, &db_pool).await {
                 Ok(count) => {
                     if count > 0 {
                         log::info!("Synced {} provers from blockchain", count);
@@ -38,31 +48,30 @@ pub fn start_prover_sync(rpc_url: String, program_id: Pubkey, db_pool: PgPool) {
 }
 
 /// Sync all prover accounts from blockchain to database
+///
+/// # Multi-chain Ready
+/// Uses SolanaSpecificOps trait for Solana-specific operations like get_program_accounts.
 async fn sync_provers(
-    rpc_url: String,
+    client: Arc<SolanaClient>,
     program_id: Pubkey,
     db_pool: &PgPool,
 ) -> anyhow::Result<usize> {
-    // Execute blocking RPC call in a separate thread pool
-    let accounts = tokio::task::spawn_blocking(move || {
-        let rpc_client = RpcClient::new_with_commitment(rpc_url, CommitmentConfig::confirmed());
-
-        // Fetch all program accounts with ProverAccount size filter
-        let config = RpcProgramAccountsConfig {
-            filters: Some(vec![RpcFilterType::DataSize(PROVER_ACCOUNT_SIZE)]),
-            account_config: RpcAccountInfoConfig {
-                encoding: Some(solana_account_decoder::UiAccountEncoding::Base64),
-                commitment: Some(CommitmentConfig::confirmed()),
-                ..Default::default()
-            },
+    // Fetch all program accounts with ProverAccount size filter
+    let config = RpcProgramAccountsConfig {
+        filters: Some(vec![RpcFilterType::DataSize(PROVER_ACCOUNT_SIZE)]),
+        account_config: RpcAccountInfoConfig {
+            encoding: Some(solana_account_decoder::UiAccountEncoding::Base64),
+            commitment: Some(CommitmentConfig::confirmed()),
             ..Default::default()
-        };
+        },
+        ..Default::default()
+    };
 
-        rpc_client.get_program_accounts_with_config(&program_id, config)
-    })
-    .await
-    .map_err(|e| anyhow::anyhow!("Task join error: {}", e))?
-    .map_err(|e| anyhow::anyhow!("Failed to fetch prover accounts: {}", e))?;
+    // Use SolanaSpecificOps trait for get_program_accounts
+    let accounts = client
+        .get_program_accounts(&program_id, Some(config))
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to fetch prover accounts: {}", e))?;
 
     log::debug!("Fetched {} prover accounts from blockchain", accounts.len());
 

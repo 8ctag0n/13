@@ -7,25 +7,27 @@ use sqlx::PgPool;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
+use zyberlink_chain_client::{ChainClient, SolanaClient};
 use zyberlink_sdk::{fetch_fhe_consensus, fetch_job, MarketplaceClient};
 
 /// Start background task that finalizes FHE jobs when consensus is reached
 pub fn start_job_finalizer(
-    rpc_url: String,
+    client: Arc<SolanaClient>,
     program_id: Pubkey,
     db_pool: PgPool,
     server_keypair: Arc<Keypair>,
 ) {
     tokio::spawn(async move {
         log::info!("Starting job finalizer task...");
-        log::info!("  RPC URL: {}", rpc_url);
+        log::info!("  Chain ID: {}", client.chain_id());
+        log::info!("  Network: {}", client.network());
         log::info!("  Program ID: {}", program_id);
         log::info!("  Finalizer: {}", server_keypair.pubkey());
         log::info!("  Check Interval: 10 seconds");
 
         loop {
             match check_and_finalize_jobs(
-                rpc_url.clone(),
+                client.clone(),
                 program_id,
                 &db_pool,
                 server_keypair.clone(),
@@ -50,11 +52,20 @@ pub fn start_job_finalizer(
 
 /// Check for FHE jobs ready to finalize and finalize them
 async fn check_and_finalize_jobs(
-    rpc_url: String,
+    client: Arc<SolanaClient>,
     program_id: Pubkey,
     db_pool: &PgPool,
     server_keypair: Arc<Keypair>,
 ) -> anyhow::Result<usize> {
+    // TODO: Update SDK to accept ChainClient in future
+    // For now, derive RPC URL from client.network() for MarketplaceClient
+    let rpc_url = match client.network() {
+        "mainnet" => "https://api.mainnet-beta.solana.com",
+        "devnet" => "https://api.devnet.solana.com",
+        "testnet" => "https://api.testnet.solana.com",
+        _ => "http://localhost:8899",
+    };
+
     // Query database for claimed FHE jobs
     let claimed_jobs: Vec<(i64, String, String)> = sqlx::query_as(
         r#"
@@ -82,7 +93,7 @@ async fn check_and_finalize_jobs(
 
     // Check each job for consensus
     for (job_id, _job_pubkey, creator_pubkey) in claimed_jobs {
-        let rpc_url_clone = rpc_url.clone();
+        let rpc_url_clone = rpc_url.to_string();
         let keypair_clone = server_keypair.clone();
         let creator_clone = creator_pubkey.clone();
 
