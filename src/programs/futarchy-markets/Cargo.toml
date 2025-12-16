@@ -1,0 +1,31 @@
+[package]
+name = "futarchy-markets"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "futarchy_markets"
+
+[features]
+no-entrypoint = []
+default = []
+
+[dependencies]
+solana-program.workspace = true
+borsh.workspace = true
+thiserror.workspace = true
+
+# Workspace dependencies for types and shared code
+zyberlink-types = { path = "../../shared/types" }
+zyberlink-jobs = { path = "../../shared/jobs" }
+
+# Core programs for CPI
+bedrock = { path = "../bedrock", features = ["no-entrypoint"] }
+zk-generator = { path = "../zk-generator", features = ["no-entrypoint"] }
+fhe-generator = { path = "../fhe-generator", features = ["no-entrypoint"] }
+
+[dev-dependencies]
+solana-program-test.workspace = true
+solana-sdk.workspace = true

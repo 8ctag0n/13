@@ -1532,6 +1532,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "28dd6caf6059519a65843af8fe2a3ae298b14b80179855aeb4adc2c1934ee619"
 
 [[package]]
+name = "futarchy-markets"
+version = "0.1.0"
+dependencies = [
+ "bedrock",
+ "borsh 1.5.7",
+ "fhe-generator",
+ "solana-program",
+ "solana-program-test",
+ "solana-sdk",
+ "thiserror 1.0.69",
+ "zk-generator",
+ "zyberlink-jobs",
+ "zyberlink-types",
+]
+
+[[package]]
 name = "futures"
 version = "0.3.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
