@@ -6,7 +6,7 @@ pub trait ILiquidation<TContractState> {
 
 #[starknet::contract]
 pub mod PbtcfiLiquidation {
-    use starknet::storage::{Map, StoragePathEntry, StoragePointerReadAccess, StoragePointerWriteAccess};
+    use starknet::storage::{Map, StoragePathEntry, StoragePointerWriteAccess};
 
     #[storage]
     struct Storage {
