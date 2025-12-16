@@ -48,6 +48,9 @@ pub mod mock;
 #[cfg(feature = "solana")]
 pub mod solana;
 
+#[cfg(feature = "solana")]
+pub mod solana_extensions;
+
 #[cfg(feature = "starknet")]
 pub mod starknet;
 
@@ -60,6 +63,9 @@ pub use types::*;
 
 #[cfg(feature = "solana")]
 pub use solana::SolanaClient;
+
+#[cfg(feature = "solana")]
+pub use solana_extensions::SolanaSpecificOps;
 
 #[cfg(feature = "starknet")]
 pub use starknet::StarknetClient;

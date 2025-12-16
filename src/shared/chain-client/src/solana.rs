@@ -4,9 +4,12 @@
 //! for Solana blockchain using the official Solana SDK.
 
 use crate::{ChainClient, ChainClientError, Result, TransactionStatus};
+use crate::solana_extensions::SolanaSpecificOps;
 use async_trait::async_trait;
 use solana_client::rpc_client::RpcClient;
+use solana_client::rpc_config::{RpcAccountInfoConfig, RpcProgramAccountsConfig};
 use solana_sdk::{
+    account::Account,
     commitment_config::CommitmentConfig,
     pubkey::Pubkey,
     signature::Signature,
@@ -363,4 +366,74 @@ mod tests {
 
     // Note: Integration tests requiring actual RPC connection
     // should be in a separate integration test file
+}
+
+// ========== Solana-Specific Operations Implementation ==========
+
+#[async_trait]
+impl SolanaSpecificOps for SolanaClient {
+    async fn get_program_accounts(
+        &self,
+        program_id: &Pubkey,
+        config: Option<RpcProgramAccountsConfig>,
+    ) -> Result<Vec<(Pubkey, Account)>> {
+        let program_id = *program_id;
+        let rpc_client = Arc::clone(&self.rpc_client);
+
+        tokio::task::spawn_blocking(move || {
+            if let Some(cfg) = config {
+                rpc_client
+                    .get_program_accounts_with_config(&program_id, cfg)
+                    .map_err(|e| ChainClientError::Network(e.to_string()))
+            } else {
+                rpc_client
+                    .get_program_accounts(&program_id)
+                    .map_err(|e| ChainClientError::Network(e.to_string()))
+            }
+        })
+        .await
+        .map_err(|e| ChainClientError::Generic(format!("Task join error: {}", e)))?
+    }
+
+    async fn get_multiple_accounts(
+        &self,
+        pubkeys: &[Pubkey],
+    ) -> Result<Vec<Option<Account>>> {
+        let pubkeys_vec = pubkeys.to_vec();
+        let rpc_client = Arc::clone(&self.rpc_client);
+
+        tokio::task::spawn_blocking(move || {
+            rpc_client
+                .get_multiple_accounts(&pubkeys_vec)
+                .map_err(|e| ChainClientError::Network(e.to_string()))
+        })
+        .await
+        .map_err(|e| ChainClientError::Generic(format!("Task join error: {}", e)))?
+    }
+
+    async fn get_account_with_config(
+        &self,
+        pubkey: &Pubkey,
+        config: RpcAccountInfoConfig,
+    ) -> Result<Account> {
+        let pubkey = *pubkey;
+        let rpc_client = Arc::clone(&self.rpc_client);
+
+        tokio::task::spawn_blocking(move || {
+            rpc_client
+                .get_account_with_config(&pubkey, config)
+                .and_then(|response| {
+                    response.value.ok_or_else(|| {
+                        solana_client::client_error::ClientError::from(
+                            solana_client::client_error::ClientErrorKind::Custom(
+                                "Account not found".to_string()
+                            )
+                        )
+                    })
+                })
+                .map_err(|e| ChainClientError::AccountNotFound(e.to_string()))
+        })
+        .await
+        .map_err(|e| ChainClientError::Generic(format!("Task join error: {}", e)))?
+    }
 }

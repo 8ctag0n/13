@@ -11377,6 +11377,7 @@ dependencies = [
  "tfhe",
  "tokio",
  "uuid",
+ "zyberlink-chain-client",
  "zyberlink-sdk",
  "zyberlink-types",
 ]
