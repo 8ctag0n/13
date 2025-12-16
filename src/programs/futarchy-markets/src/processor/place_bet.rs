@@ -234,14 +234,18 @@ pub fn process_place_bet(
     **user_escrow_info.try_borrow_mut_lamports()? -= amount;
     **market_escrow_info.try_borrow_mut_lamports()? += amount;
 
+    // Update escrow state: funds left the escrow
+    user_escrow.transfer_to_market(amount)?;
+
     // Write updated user escrow
     drop(user_escrow_data);
     let mut user_escrow_data = user_escrow_info.try_borrow_mut_data()?;
     user_escrow.serialize(&mut &mut user_escrow_data[..])?;
 
     msg!("Funds reserved and transferred");
-    msg!("  New user escrow available: {} lamports", user_escrow.available);
-    msg!("  New user escrow reserved: {} lamports", user_escrow.reserved);
+    msg!("  User escrow deposited: {} lamports", user_escrow.deposited);
+    msg!("  User escrow available: {} lamports", user_escrow.available);
+    msg!("  User escrow reserved: {} lamports", user_escrow.reserved);
 
     // Handle FHE pool update if encrypted bet provided
     let fhe_enabled = encrypted_bet_amount.is_some();

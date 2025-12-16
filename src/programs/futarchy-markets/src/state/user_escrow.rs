@@ -152,23 +152,36 @@ impl UserEscrow {
         Ok(())
     }
 
-    /// Claim winning bet funds
+    /// Transfer reserved funds to market escrow
     ///
-    /// Called when user claims payout. Removes funds from reserved.
-    /// The actual payout comes from market escrow, not user escrow.
-    pub fn claim(&mut self, bet_amount: u64) -> Result<(), ProgramError> {
-        if bet_amount > self.reserved {
+    /// Called after reserve() when funds are physically transferred to market escrow.
+    /// Decrements both deposited and reserved since funds left the escrow.
+    pub fn transfer_to_market(&mut self, amount: u64) -> Result<(), ProgramError> {
+        if amount > self.reserved {
             return Err(ProgramError::InvalidArgument);
         }
 
-        self.reserved = self
-            .reserved
-            .checked_sub(bet_amount)
+        self.deposited = self
+            .deposited
+            .checked_sub(amount)
             .ok_or(ProgramError::ArithmeticOverflow)?;
 
-        // Note: deposited stays same, we just unreserve
-        // The payout (which may be more than bet_amount) comes from market escrow
+        self.reserved = self
+            .reserved
+            .checked_sub(amount)
+            .ok_or(ProgramError::ArithmeticOverflow)?;
 
+        Ok(())
+    }
+
+    /// Claim winning bet funds
+    ///
+    /// Called when user claims payout.
+    /// Note: This is a no-op now since funds were already transferred via transfer_to_market().
+    /// Kept for backward compatibility and semantic clarity.
+    pub fn claim(&mut self, _bet_amount: u64) -> Result<(), ProgramError> {
+        // Funds were already transferred to market escrow via transfer_to_market()
+        // Nothing to do here
         Ok(())
     }
 
@@ -273,13 +286,25 @@ mod tests {
     #[test]
     fn test_claim() {
         let mut escrow = UserEscrow::new(Pubkey::new_unique(), Pubkey::new_unique(), 1_000_000_000, 255);
+
+        // Reserve funds for bet
         escrow.reserve(300_000_000).unwrap();
+        assert_eq!(escrow.deposited, 1_000_000_000);
+        assert_eq!(escrow.reserved, 300_000_000);
+        assert_eq!(escrow.available, 700_000_000);
 
+        // Transfer to market escrow (simulates physical lamport transfer)
+        escrow.transfer_to_market(300_000_000).unwrap();
+        assert_eq!(escrow.deposited, 700_000_000);  // Decremented
+        assert_eq!(escrow.reserved, 0);  // Decremented
+        assert_eq!(escrow.available, 700_000_000);  // Unchanged
+
+        // Claim is now a no-op (funds already transferred)
         escrow.claim(300_000_000).unwrap();
+        assert_eq!(escrow.deposited, 700_000_000);
+        assert_eq!(escrow.reserved, 0);
+        assert_eq!(escrow.available, 700_000_000);
 
-        assert_eq!(escrow.deposited, 1_000_000_000);  // Stays same
-        assert_eq!(escrow.reserved, 0);  // Unreserved
-        assert_eq!(escrow.available, 1_000_000_000);
         assert!(escrow.verify_invariant());
     }
 
@@ -287,23 +312,38 @@ mod tests {
     fn test_full_lifecycle() {
         let mut escrow = UserEscrow::new(Pubkey::new_unique(), Pubkey::new_unique(), 5_000_000_000, 255);
 
-        // Place bet 1
+        // Place bet 1: reserve + transfer to market escrow
         escrow.reserve(1_500_000_000).unwrap();
+        assert_eq!(escrow.deposited, 5_000_000_000);
+        assert_eq!(escrow.reserved, 1_500_000_000);
         assert_eq!(escrow.available, 3_500_000_000);
 
-        // Place bet 2
+        escrow.transfer_to_market(1_500_000_000).unwrap();
+        assert_eq!(escrow.deposited, 3_500_000_000);  // Decremented
+        assert_eq!(escrow.reserved, 0);
+        assert_eq!(escrow.available, 3_500_000_000);
+
+        // Place bet 2: reserve + transfer
         escrow.reserve(1_000_000_000).unwrap();
+        assert_eq!(escrow.deposited, 3_500_000_000);
+        assert_eq!(escrow.reserved, 1_000_000_000);
         assert_eq!(escrow.available, 2_500_000_000);
 
-        // Claim bet 1 (lost, just unreserve)
-        escrow.claim(1_500_000_000).unwrap();
-        assert_eq!(escrow.reserved, 1_000_000_000);
-        assert_eq!(escrow.available, 4_000_000_000);
+        escrow.transfer_to_market(1_000_000_000).unwrap();
+        assert_eq!(escrow.deposited, 2_500_000_000);  // Decremented again
+        assert_eq!(escrow.reserved, 0);
+        assert_eq!(escrow.available, 2_500_000_000);
 
-        // Withdraw some
-        escrow.withdraw(2_000_000_000).unwrap();
-        assert_eq!(escrow.deposited, 3_000_000_000);
-        assert_eq!(escrow.available, 2_000_000_000);
+        // Claim bet 1 (no-op, funds already transferred)
+        escrow.claim(1_500_000_000).unwrap();
+        assert_eq!(escrow.deposited, 2_500_000_000);  // Unchanged
+        assert_eq!(escrow.reserved, 0);
+        assert_eq!(escrow.available, 2_500_000_000);
+
+        // Withdraw available funds
+        escrow.withdraw(1_500_000_000).unwrap();
+        assert_eq!(escrow.deposited, 1_000_000_000);
+        assert_eq!(escrow.available, 1_000_000_000);
 
         assert!(escrow.verify_invariant());
     }
