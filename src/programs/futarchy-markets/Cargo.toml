@@ -27,5 +27,10 @@ zk-generator = { path = "../zk-generator", features = ["no-entrypoint"] }
 fhe-generator = { path = "../fhe-generator", features = ["no-entrypoint"] }
 
 [dev-dependencies]
+# Integration tests
 solana-program-test.workspace = true
 solana-sdk.workspace = true
+tokio = { version = "1", features = ["full"] }
+
+# Unit tests (ultra fast)
+mollusk-svm = "0.3"
