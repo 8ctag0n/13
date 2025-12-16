@@ -48,6 +48,10 @@
 //! - Private pool calculations
 //! - PoI integration (insider trading prevention)
 
+use solana_program::declare_id;
+
+declare_id!("FutMkts111111111111111111111111111111111111");
+
 pub mod error;
 pub mod instruction;
 pub mod processor;
