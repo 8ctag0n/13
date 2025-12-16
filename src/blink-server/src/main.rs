@@ -24,7 +24,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 use zyberlink_sdk::instructions::InstructionBuilder;
-use zyberlink_chain_client::SolanaClient;
+use zyberlink_chain_client::{SolanaClient, StarknetClient};
 
 use services::AttestationService;
 
@@ -210,12 +210,22 @@ async fn main() -> std::io::Result<()> {
         log::info!("  Starknet RPC: {}", starknet_rpc);
         log::info!("  pBTCFi Contract: {}", pbtcfi_contract);
 
-        pbtcfi_sync::start_pbtcfi_sync(
-            starknet_rpc,
-            pbtcfi_contract,
-            pool.clone(),
-        );
-        log::info!("pBTCFi event sync task started");
+        log::info!("Creating StarknetClient for pBTCFi sync...");
+        match StarknetClient::new(&starknet_rpc) {
+            Ok(starknet_client) => {
+                let starknet_client = Arc::new(starknet_client);
+                pbtcfi_sync::start_pbtcfi_sync(
+                    starknet_client,
+                    pbtcfi_contract,
+                    pool.clone(),
+                );
+                log::info!("pBTCFi event sync task started");
+            }
+            Err(e) => {
+                log::error!("Failed to create StarknetClient: {}", e);
+                log::error!("pBTCFi sync will not start");
+            }
+        }
     } else {
         log::info!("pBTCFi sync disabled (set PBTCFI_CONTRACT_ADDRESS to enable)");
     }

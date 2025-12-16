@@ -119,7 +119,7 @@ impl ChainClient for StarknetClient {
         }
     }
 
-    async fn get_balance(&self, address: &str) -> Result<u64> {
+    async fn get_balance(&self, _address: &str) -> Result<u64> {
         // For Starknet, balance is typically stored in an ERC-20 contract (STRK token)
         // For MVP, we'll return NotImplemented as this requires knowing the token contract
         // In production, this would query the balance of STRK token at the address
@@ -196,7 +196,7 @@ impl ChainClient for StarknetClient {
     ) -> Result<Vec<u8>> {
         // Deserialize args as JSON array
         let calldata: Vec<String> = serde_json::from_slice(args)
-            .map_err(|e| ChainClientError::InvalidParameter(format!("Invalid calldata: {}", e)))?;
+            .map_err(|e| ChainClientError::Deserialization(format!("Invalid calldata: {}", e)))?;
 
         let params = serde_json::json!({
             "request": {

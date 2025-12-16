@@ -141,7 +141,7 @@ pub fn parse_felt252(hex_str: &str) -> Result<String> {
 
     // Validate hex string
     if hex.len() > 64 {
-        return Err(ChainClientError::InvalidParameter(
+        return Err(ChainClientError::Serialization(
             format!("felt252 too long: {} chars (max 64)", hex.len())
         ));
     }

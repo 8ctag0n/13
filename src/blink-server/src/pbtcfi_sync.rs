@@ -9,43 +9,29 @@ use sqlx::PgPool;
 use anyhow::{anyhow, Result};
 
 use crate::db::{pbtcfi_queries::{LoanData, PbtcfiQueries}};
-
-// Re-use StarknetClient from chain-client
-// This will require adding zyberlink-chain-client as a dependency to blink-server
+use zyberlink_chain_client::{ChainClient, StarknetClient, StarknetSpecificOps, StarknetEvent};
 
 /// Start the pBTCFi event synchronization background task
 ///
 /// # Arguments
-/// * `starknet_rpc_url` - Starknet RPC endpoint URL
+/// * `client` - StarknetClient instance
 /// * `contract_address` - pBTCFi core contract address
 /// * `db_pool` - PostgreSQL connection pool
 pub fn start_pbtcfi_sync(
-    starknet_rpc_url: String,
+    client: Arc<StarknetClient>,
     contract_address: String,
     db_pool: PgPool,
 ) {
     tokio::spawn(async move {
         log::info!("Starting pBTCFi event sync task...");
-        log::info!("  RPC URL: {}", starknet_rpc_url);
         log::info!("  Contract: {}", contract_address);
         log::info!("  Sync Interval: 6 seconds");
 
-        // Create StarknetClient
-        // Note: This requires zyberlink-chain-client dependency
-        let client = match create_starknet_client(&starknet_rpc_url) {
-            Ok(c) => Arc::new(c),
-            Err(e) => {
-                log::error!("Failed to create StarknetClient: {}", e);
-                log::error!("pBTCFi sync task will not start");
-                return;
-            }
-        };
-
         // Verify connection
-        match verify_starknet_connection(&client).await {
-            Ok(_) => log::info!("Starknet connection verified"),
-            Err(e) => {
-                log::error!("Starknet connection failed: {}", e);
+        match client.health_check().await {
+            Ok(true) => log::info!("Starknet connection verified"),
+            Ok(false) | Err(_) => {
+                log::error!("Starknet connection failed");
                 log::error!("pBTCFi sync task will not start");
                 return;
             }
@@ -72,25 +58,9 @@ pub fn start_pbtcfi_sync(
     });
 }
 
-/// Create StarknetClient instance
-fn create_starknet_client(rpc_url: &str) -> Result<Box<dyn StarknetClientTrait>> {
-    // Placeholder: This will be implemented once we add zyberlink-chain-client dependency
-    // For now, return mock
-    log::warn!("Using mock StarknetClient - add zyberlink-chain-client dependency for real implementation");
-    Ok(Box::new(MockStarknetClient::new(rpc_url)))
-}
-
-/// Verify Starknet connection is working
-async fn verify_starknet_connection(client: &Arc<Box<dyn StarknetClientTrait>>) -> Result<()> {
-    // Try to get current block height
-    let block_height = client.get_block_height().await?;
-    log::info!("Current Starknet block height: {}", block_height);
-    Ok(())
-}
-
 /// Sync events from Starknet to database
 async fn sync_events(
-    client: Arc<Box<dyn StarknetClientTrait>>,
+    client: Arc<StarknetClient>,
     contract_address: &str,
     db_pool: &PgPool,
 ) -> Result<usize> {
@@ -244,59 +214,3 @@ fn parse_u64_from_felt(felt: &str) -> Result<u64> {
 // =============================================================================
 
 const EVENT_KEY_LOAN_CREATED: &str = "0x00000000000000000000000000000000000000000000000000004c6f616e437265617465645f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f";
-
-// =============================================================================
-// Mock StarknetClient (temporary until we add proper dependency)
-// =============================================================================
-
-#[async_trait::async_trait]
-trait StarknetClientTrait: Send + Sync {
-    async fn get_block_height(&self) -> Result<u64>;
-    async fn get_events(
-        &self,
-        from_block: u64,
-        to_block: u64,
-        address: Option<&str>,
-        keys: Option<Vec<Vec<String>>>,
-    ) -> Result<Vec<StarknetEvent>>;
-}
-
-struct MockStarknetClient {
-    _rpc_url: String,
-}
-
-impl MockStarknetClient {
-    fn new(rpc_url: &str) -> Self {
-        Self {
-            _rpc_url: rpc_url.to_string(),
-        }
-    }
-}
-
-#[async_trait::async_trait]
-impl StarknetClientTrait for MockStarknetClient {
-    async fn get_block_height(&self) -> Result<u64> {
-        // Mock: return a fixed block height
-        Ok(1000)
-    }
-
-    async fn get_events(
-        &self,
-        _from_block: u64,
-        _to_block: u64,
-        _address: Option<&str>,
-        _keys: Option<Vec<Vec<String>>>,
-    ) -> Result<Vec<StarknetEvent>> {
-        // Mock: return empty events
-        Ok(vec![])
-    }
-}
-
-#[derive(Debug, Clone)]
-struct StarknetEvent {
-    pub from_address: String,
-    pub keys: Vec<String>,
-    pub data: Vec<String>,
-    pub block_number: u64,
-    pub transaction_hash: String,
-}

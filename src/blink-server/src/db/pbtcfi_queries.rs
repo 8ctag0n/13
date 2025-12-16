@@ -19,7 +19,7 @@ pub struct LoanData {
 }
 
 /// Loan query result
-#[derive(Debug, sqlx::FromRow)]
+#[derive(Debug, sqlx::FromRow, serde::Serialize)]
 pub struct LoanRow {
     pub loan_id: String,
     pub borrower: String,
@@ -44,7 +44,7 @@ pub struct PbtcfiQueries;
 impl PbtcfiQueries {
     /// Insert or update a loan (upsert)
     pub async fn upsert_loan(pool: &PgPool, loan: &LoanData) -> Result<()> {
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO pbtcfi_loans (
                 loan_id, borrower, btc_commitment,
@@ -55,13 +55,13 @@ impl PbtcfiQueries {
             ON CONFLICT (loan_id) DO UPDATE SET
                 synced_at = NOW()
             "#,
-            loan.loan_id,
-            loan.borrower,
-            loan.btc_commitment,
-            loan.btc_encrypted_c1,
-            loan.btc_encrypted_c2,
-            loan.created_at,
         )
+        .bind(&loan.loan_id)
+        .bind(&loan.borrower)
+        .bind(&loan.btc_commitment)
+        .bind(&loan.btc_encrypted_c1)
+        .bind(&loan.btc_encrypted_c2)
+        .bind(loan.created_at)
         .execute(pool)
         .await
         .map_err(|e| anyhow!("Failed to upsert loan: {}", e))?;
@@ -176,15 +176,15 @@ impl PbtcfiQueries {
         loan_id: &str,
         status: &str,
     ) -> Result<()> {
-        let result = sqlx::query!(
+        let result = sqlx::query(
             r#"
             UPDATE pbtcfi_loans
             SET status = $1, synced_at = NOW()
             WHERE loan_id = $2
             "#,
-            status,
-            loan_id,
         )
+        .bind(status)
+        .bind(loan_id)
         .execute(pool)
         .await
         .map_err(|e| anyhow!("Failed to update loan status: {}", e))?;
@@ -202,7 +202,7 @@ impl PbtcfiQueries {
         loan_id: &str,
         collateral_hash: &str,
     ) -> Result<()> {
-        sqlx::query!(
+        sqlx::query(
             r#"
             UPDATE pbtcfi_loans
             SET collateral_hash = $1,
@@ -213,9 +213,9 @@ impl PbtcfiQueries {
                 synced_at = NOW()
             WHERE loan_id = $2
             "#,
-            collateral_hash,
-            loan_id,
         )
+        .bind(collateral_hash)
+        .bind(loan_id)
         .execute(pool)
         .await
         .map_err(|e| anyhow!("Failed to update collateral: {}", e))?;
@@ -237,10 +237,10 @@ impl PbtcfiQueries {
 
     /// Update last synced block number
     pub async fn update_last_synced_block(pool: &PgPool, block: u64) -> Result<()> {
-        sqlx::query!(
+        sqlx::query(
             "UPDATE pbtcfi_sync_state SET last_synced_block = $1, updated_at = NOW() WHERE id = 1",
-            block as i64
         )
+        .bind(block as i64)
         .execute(pool)
         .await
         .map_err(|e| anyhow!("Failed to update last synced block: {}", e))?;
@@ -307,7 +307,7 @@ impl PbtcfiQueries {
 }
 
 /// Event query result
-#[derive(Debug, sqlx::FromRow)]
+#[derive(Debug, sqlx::FromRow, serde::Serialize)]
 pub struct EventRow {
     pub id: i64,
     pub event_type: String,
