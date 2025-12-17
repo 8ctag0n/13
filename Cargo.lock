@@ -11127,6 +11127,7 @@ dependencies = [
  "sqlx",
  "tokio",
  "uuid",
+ "zyberlink-chain-client",
 ]
 
 [[package]]
@@ -11510,6 +11511,7 @@ dependencies = [
  "shellexpand",
  "solana-client",
  "solana-sdk",
+ "thiserror 1.0.69",
  "tokio",
  "url",
  "urlencoding",

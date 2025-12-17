@@ -10,6 +10,7 @@ use solana_sdk::pubkey::Pubkey;
 use solana_sdk::signature::Signature;
 use std::future::{ready, Ready};
 use std::str::FromStr;
+use zyberlink_chain_client::SignatureVerifier;
 
 /// Maximum allowed timestamp drift (5 minutes)
 const MAX_TIMESTAMP_DRIFT_SECS: i64 = 300;
@@ -48,6 +49,22 @@ impl ProverAuth {
         let valid = signature.verify(pubkey.as_ref(), message);
 
         Ok(valid)
+    }
+
+    /// Verify signature using chain-agnostic SignatureVerifier trait
+    ///
+    /// New recommended method supporting multiple chains.
+    /// This method provides a generic interface for signature verification
+    /// that works across different blockchain implementations.
+    pub fn verify_signature_generic<V: SignatureVerifier>(
+        verifier: &V,
+        pubkey: &str,
+        signature: &str,
+        message: &[u8],
+    ) -> Result<bool, Error> {
+        verifier
+            .verify_signature(pubkey, signature, message)
+            .map_err(|e| ErrorUnauthorized(format!("Signature verification failed: {}", e)))
     }
 
     /// Build the message to sign for a request

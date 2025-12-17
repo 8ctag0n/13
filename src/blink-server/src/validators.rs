@@ -5,6 +5,7 @@ use solana_sdk::{pubkey::Pubkey, signature::Signature};
 use sqlx::PgPool;
 use std::str::FromStr;
 use tfhe::ServerKey;
+use zyberlink_chain_client::SignatureVerifier;
 use zyberlink_types::fhe::FhePredicate;
 
 use crate::db::{NonceQueries, ServerKeyQueries};
@@ -353,6 +354,22 @@ impl JobValidator {
             "Either server_key (base64) or server_key_hash must be provided. \
             For large keys, use POST /api/server-key/upload first to get a hash."
         ))
+    }
+
+    /// Verify signature using chain-agnostic SignatureVerifier trait
+    ///
+    /// New recommended method supporting multiple chains.
+    /// This method provides a generic interface for signature verification
+    /// that works across different blockchain implementations.
+    pub fn verify_signature_generic<V: SignatureVerifier>(
+        verifier: &V,
+        pubkey: &str,
+        signature: &str,
+        message: &[u8],
+    ) -> Result<bool> {
+        verifier
+            .verify_signature(pubkey, signature, message)
+            .map_err(|e| anyhow!("Signature verification failed: {}", e))
     }
 }
 

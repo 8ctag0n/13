@@ -4,6 +4,7 @@
 //! for Aptos blockchain using the REST API directly.
 
 use crate::{ChainClient, ChainClientError, Result, TransactionStatus};
+use crate::signature::SignatureVerifier;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
@@ -596,5 +597,55 @@ mod tests {
         let client = AptosClient::local().unwrap();
         // This will fail if local node is not running
         let _ = client.get_block_height().await;
+    }
+}
+
+impl SignatureVerifier for AptosClient {
+    fn verify_signature(
+        &self,
+        public_key: &str,
+        signature: &str,
+        message: &[u8],
+    ) -> Result<bool> {
+        use ed25519_dalek::{Signature, VerifyingKey, Verifier};
+
+        // Decode hex public key
+        let pubkey_bytes = hex::decode(public_key)
+            .map_err(|e| ChainClientError::InvalidAddress(
+                format!("Invalid hex pubkey: {}", e)
+            ))?;
+
+        // Decode hex signature
+        let sig_bytes = hex::decode(signature)
+            .map_err(|e| ChainClientError::InvalidSignature(
+                format!("Invalid hex signature: {}", e)
+            ))?;
+
+        // Verify using ed25519
+        let verifying_key = VerifyingKey::from_bytes(
+            pubkey_bytes.as_slice().try_into()
+                .map_err(|_| ChainClientError::InvalidAddress(
+                    "Invalid pubkey length (expected 32 bytes)".to_string()
+                ))?
+        ).map_err(|e| ChainClientError::InvalidAddress(
+            format!("Invalid pubkey: {}", e)
+        ))?;
+
+        let sig = Signature::from_bytes(
+            sig_bytes.as_slice().try_into()
+                .map_err(|_| ChainClientError::InvalidSignature(
+                    "Invalid signature length (expected 64 bytes)".to_string()
+                ))?
+        );
+
+        Ok(verifying_key.verify(message, &sig).is_ok())
+    }
+
+    fn signature_encoding(&self) -> &str {
+        "hex"
+    }
+
+    fn signature_algorithm(&self) -> &str {
+        "ed25519"
     }
 }
