@@ -44,6 +44,7 @@
 pub mod types;
 pub mod error;
 pub mod mock;
+pub mod signature;
 
 #[cfg(feature = "solana")]
 pub mod solana;
@@ -60,6 +61,7 @@ pub mod aptos;
 pub use error::{ChainClientError, Result};
 pub use mock::MockChainClient;
 pub use types::*;
+pub use signature::SignatureVerifier;
 
 #[cfg(feature = "solana")]
 pub use solana::SolanaClient;

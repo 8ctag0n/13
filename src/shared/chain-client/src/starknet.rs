@@ -6,6 +6,7 @@
 //! **Status**: Placeholder - awaiting Starknet SDK integration
 
 use crate::{ChainClient, ChainClientError, Result, TransactionStatus};
+use crate::signature::SignatureVerifier;
 use async_trait::async_trait;
 
 /// Starknet chain client (placeholder)
@@ -153,5 +154,28 @@ impl ChainClient for StarknetClient {
         Err(ChainClientError::NotImplemented(
             "Starknet client not yet implemented - awaiting Phase 2-6".to_string(),
         ))
+    }
+}
+
+impl SignatureVerifier for StarknetClient {
+    fn verify_signature(
+        &self,
+        _public_key: &str,
+        _signature: &str,
+        _message: &[u8],
+    ) -> Result<bool> {
+        // Starknet uses ECDSA over STARK curve
+        // Full implementation requires starknet-crypto crate
+        Err(ChainClientError::NotImplemented(
+            "Starknet signature verification requires starknet-crypto dependency".to_string()
+        ))
+    }
+
+    fn signature_encoding(&self) -> &str {
+        "hex"
+    }
+
+    fn signature_algorithm(&self) -> &str {
+        "ecdsa-stark"
     }
 }
