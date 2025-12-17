@@ -39,6 +39,7 @@ use std::sync::Arc;
 /// ```
 pub struct SolanaClient {
     rpc_client: Arc<RpcClient>,
+    rpc_url: String,
     network: String,
 }
 
@@ -74,8 +75,14 @@ impl SolanaClient {
 
         Ok(Self {
             rpc_client: Arc::new(rpc_client),
+            rpc_url: rpc_url.to_string(),
             network,
         })
+    }
+
+    /// Get the RPC URL this client is connected to
+    pub fn rpc_url(&self) -> &str {
+        &self.rpc_url
     }
 
     /// Create a Solana client for devnet
@@ -364,6 +371,38 @@ mod tests {
         assert!(result.is_err());
     }
 
+    #[test]
+    fn test_signature_verifier_metadata() {
+        use crate::signature::SignatureVerifier;
+
+        let client = SolanaClient::devnet().unwrap();
+        assert_eq!(client.signature_encoding(), "base58");
+        assert_eq!(client.signature_algorithm(), "ed25519");
+    }
+
+    #[test]
+    fn test_signature_verifier_invalid_inputs() {
+        use crate::signature::SignatureVerifier;
+
+        let client = SolanaClient::devnet().unwrap();
+
+        // Test with invalid public key
+        let result = client.verify_signature(
+            "invalid_pubkey",
+            "valid_signature_format_but_wont_matter",
+            b"message"
+        );
+        assert!(result.is_err());
+
+        // Test with invalid signature
+        let result = client.verify_signature(
+            "11111111111111111111111111111111",
+            "invalid_signature",
+            b"message"
+        );
+        assert!(result.is_err());
+    }
+
     // Note: Integration tests requiring actual RPC connection
     // should be in a separate integration test file
 }
@@ -435,5 +474,30 @@ impl SolanaSpecificOps for SolanaClient {
         })
         .await
         .map_err(|e| ChainClientError::Generic(format!("Task join error: {}", e)))?
+    }
+}
+
+// ========== Signature Verification Implementation ==========
+
+use crate::signature::SignatureVerifier;
+
+impl SignatureVerifier for SolanaClient {
+    fn verify_signature(
+        &self,
+        public_key: &str,
+        signature: &str,
+        message: &[u8],
+    ) -> Result<bool> {
+        let pubkey = Self::parse_address(public_key)?;
+        let sig = Self::parse_signature(signature)?;
+        Ok(sig.verify(pubkey.as_ref(), message))
+    }
+
+    fn signature_encoding(&self) -> &str {
+        "base58"
+    }
+
+    fn signature_algorithm(&self) -> &str {
+        "ed25519"
     }
 }

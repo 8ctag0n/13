@@ -57,14 +57,8 @@ async fn check_and_finalize_jobs(
     db_pool: &PgPool,
     server_keypair: Arc<Keypair>,
 ) -> anyhow::Result<usize> {
-    // TODO: Update SDK to accept ChainClient in future
-    // For now, derive RPC URL from client.network() for MarketplaceClient
-    let rpc_url = match client.network() {
-        "mainnet" => "https://api.mainnet-beta.solana.com",
-        "devnet" => "https://api.devnet.solana.com",
-        "testnet" => "https://api.testnet.solana.com",
-        _ => "http://localhost:8899",
-    };
+    // Get RPC URL from the SolanaClient
+    let rpc_url = client.rpc_url();
 
     // Query database for claimed FHE jobs
     let claimed_jobs: Vec<(i64, String, String)> = sqlx::query_as(
