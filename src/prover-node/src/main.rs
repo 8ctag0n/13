@@ -34,6 +34,7 @@ mod core;
 mod engines;
 mod gateway;
 mod halo2_prover;
+mod marketplace;
 mod roi_calculator;
 mod services;
 mod tui;
@@ -44,6 +45,7 @@ mod wizard;
 // Re-exports for convenience
 use cli::{ProverArgs, ProverCommand};
 use config::ProverConfig;
+use marketplace::{MarketplaceFactory, SolanaMarketplace};
 use core::{CircuitRegistry, JobProcessor};
 use gateway::GatewayClient;
 use halo2_prover::Halo2Prover;
@@ -83,7 +85,7 @@ fn config_from_args(args: &ProverArgs) -> Result<ProverConfig> {
 
 /// Main prover node that manages job polling and proof generation
 struct ProverNode {
-    client: Arc<MarketplaceClient>,
+    marketplace: Arc<SolanaMarketplace>,
     keypair: Arc<Keypair>,
     config: ProverConfig,
     roi_calculator: Arc<ROICalculator>,
@@ -101,12 +103,14 @@ impl ProverNode {
     fn new_with_tui(config: ProverConfig, tui_state: Option<Arc<tui::TUIState>>) -> Result<Self> {
         let keypair = read_keypair_file(&config.keypair_path)
             .map_err(|e| anyhow::anyhow!("Failed to read keypair file: {}", e))?;
+        let keypair_arc = Arc::new(keypair);
 
-        let client = MarketplaceClient::new_with_commitment(
-            config.rpc_url.clone(),
+        // Create SolanaMarketplace using factory
+        let marketplace = MarketplaceFactory::create_solana(
+            &config.rpc_url,
             config.program_id,
-            CommitmentConfig::confirmed(),
-        );
+            keypair_arc.clone(),
+        )?;
 
         // Initialize Halo2 prover
         info!("Initializing Halo2 proving system...");
@@ -116,7 +120,7 @@ impl ProverNode {
 
         // Initialize witness encryption (derived from Solana keypair for determinism)
         info!("Initializing witness encryption system...");
-        let encryption_seed = derive_encryption_seed(&keypair);
+        let encryption_seed = derive_encryption_seed(&*keypair_arc);
         let witness_encryption = WitnessEncryption::from_seed(encryption_seed)?;
         let pubkey = witness_encryption.public_key();
         info!("Witness encryption ready (pubkey: {})", hex::encode(pubkey));
@@ -133,7 +137,7 @@ impl ProverNode {
         info!("Initializing gateway client...");
         let gateway_client = GatewayClient::new(
             config.gateway_url.clone(),
-            Arc::new(keypair.insecure_clone()),
+            Arc::new(keypair_arc.insecure_clone()),
         );
         info!(
             "Gateway client ready (gateway: {})",
@@ -163,8 +167,6 @@ impl ProverNode {
         );
 
         // Create shared references
-        let client_arc = Arc::new(client);
-        let keypair_arc = Arc::new(keypair);
         let halo2_prover_arc = Arc::new(halo2_prover);
         let witness_encryption_arc = Arc::new(witness_encryption);
         let witness_fetcher_arc = Arc::new(witness_fetcher);
@@ -172,7 +174,7 @@ impl ProverNode {
 
         // Initialize JobProcessor with all dependencies
         let job_processor = Arc::new(JobProcessor::new(
-            client_arc.clone(),
+            marketplace.clone(),
             keypair_arc.clone(),
             halo2_prover_arc,
             witness_encryption_arc,
@@ -182,7 +184,7 @@ impl ProverNode {
         ));
 
         Ok(Self {
-            client: client_arc,
+            marketplace,
             keypair: keypair_arc,
             config,
             roi_calculator: Arc::new(roi_calculator),
@@ -227,14 +229,14 @@ impl ProverNode {
         }
 
         // Find pending ZK jobs
-        let pending_jobs = find_pending_jobs(&self.client.rpc_client, &self.config.program_id)
+        let pending_jobs = find_pending_jobs(&self.marketplace.inner().rpc_client, &self.config.program_id)
             .context("Failed to query pending jobs")?;
 
         // Also find FHE jobs that need more provers (for consensus)
         let keypair = read_keypair_file(&self.config.keypair_path)
             .map_err(|e| anyhow::anyhow!("Failed to read keypair for FHE job query: {}", e))?;
         let fhe_jobs = find_fhe_jobs_needing_provers(
-            &self.client.rpc_client,
+            &self.marketplace.inner().rpc_client,
             &self.config.program_id,
             &keypair.pubkey(),
         )

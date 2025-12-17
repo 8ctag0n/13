@@ -7,17 +7,22 @@ use anyhow::Result;
 use solana_sdk::signature::{Keypair, Signer};
 
 use crate::config::ProverConfiguration;
+use crate::marketplace::ChainType;
 use crate::witness_encryption::WitnessEncryption;
 
 /// Main wizard orchestrator
 pub struct SetupWizard {
     stake_amount: u64,
+    chain: Option<ChainType>,
 }
 
 impl SetupWizard {
     /// Create new setup wizard
     pub fn new(stake_amount: u64) -> Self {
-        Self { stake_amount }
+        Self {
+            stake_amount,
+            chain: None,
+        }
     }
 
     /// Run the complete setup wizard
@@ -27,10 +32,14 @@ impl SetupWizard {
         ui::print_welcome_message();
         ui::wait_for_enter()?;
 
+        // Step 0: Chain selection (multi-chain support)
+        let chain = steps::step_chain_selection().await?;
+        self.chain = Some(chain.clone());
+
         // Step 1: System validation
         steps::step_system_validation().await?;
 
-        // Step 2: Keypair setup
+        // Step 2: Keypair setup (chain-specific in the future)
         let (keypair, keypair_path) = steps::step_keypair_setup().await?;
 
         // Step 3: Network configuration
