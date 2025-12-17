@@ -109,6 +109,25 @@ pub enum FheOperation {
     /// Used for private voting and demographic distribution
     /// Example: histogram([votes...], [bin1, bin2, bin3]) = [encrypt(30), encrypt(20), encrypt(10)]
     Histogram { bins: Vec<HistogramBin> },
+
+    // FUTARCHY MARKETS - Encrypted Pool Operations
+    /// Update encrypted pool with a new bet (homomorphic addition)
+    /// Used for Futarchy Markets with FHE-encrypted bet amounts
+    ///
+    /// Ciphertexts are stored off-chain (app server/IPFS), only hashes on-chain.
+    /// Prover fetches ciphertexts using hashes, performs addition, submits result hash.
+    ///
+    /// Example: new_pool = encrypt(pool) + encrypt(bet)
+    FutarchyPoolUpdate {
+        /// Market ID (pubkey as bytes)
+        market_id: [u8; 32],
+        /// Side of the bet (true = YES, false = NO)
+        side: bool,
+        /// SHA256 hash of the current pool ciphertext
+        pool_ciphertext_hash: [u8; 32],
+        /// SHA256 hash of the bet ciphertext to add
+        bet_ciphertext_hash: [u8; 32],
+    },
 }
 
 impl FheOperation {
@@ -123,6 +142,7 @@ impl FheOperation {
             FheOperation::Average { .. } => "Average",
             FheOperation::CountIf { .. } => "CountIf",
             FheOperation::Histogram { .. } => "Histogram",
+            FheOperation::FutarchyPoolUpdate { .. } => "FutarchyPoolUpdate",
         }
     }
 
@@ -141,6 +161,9 @@ impl FheOperation {
                 let bin_count = bins.len() as u32;
                 500 + (bin_count * 3000) // ~3s per bin for 100 inputs
             }
+            // FutarchyPoolUpdate: ~5 minutes for FheUint64 addition
+            // Includes: fetch ciphertexts (~500KB each), deserialize, add, serialize
+            FheOperation::FutarchyPoolUpdate { .. } => 300_000, // 5 minutes
         }
     }
 
@@ -236,6 +259,16 @@ impl FheOperation {
                     complexity_tier: 5,
                 }
             }
+
+            // Futarchy Pool Update: FheUint64 homomorphic addition
+            // Higher tier due to large ciphertext sizes (~500KB) and network fetch
+            // Cost: 0.01 SOL (fixed - single addition operation)
+            // Timeout: 10 minutes (includes network fetch time)
+            FheOperation::FutarchyPoolUpdate { .. } => OperationCostConfig {
+                min_payment_lamports: LAMPORTS_PER_SOL / 100, // 0.01 SOL
+                timeout_seconds: 600,                         // 10 minutes
+                complexity_tier: 4,
+            },
         }
     }
 }

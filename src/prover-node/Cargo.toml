@@ -55,9 +55,13 @@ zeroize = { version = "1.8", features = ["derive"] }
 # HTTP client
 reqwest = { version = "0.12", features = ["blocking", "json"] }
 blake2 = "0.10"
+base64 = "0.22"
 
 # FHE (Fully Homomorphic Encryption) - using shared crate
 zyberlink-fhe = { path = "../shared/fhe" }
+
+# Futarchy FHE SDK for encrypted bet amounts (FheUint64)
+fhe-client-sdk = { path = "../../sdks/fhe-client-sdk" }
 
 # TUI dependencies
 ratatui = "0.26"

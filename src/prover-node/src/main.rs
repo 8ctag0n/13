@@ -32,6 +32,7 @@ mod cli;
 mod config;
 mod core;
 mod engines;
+mod futarchy;
 mod gateway;
 mod halo2_prover;
 mod marketplace;
