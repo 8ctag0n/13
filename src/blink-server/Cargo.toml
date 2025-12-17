@@ -9,6 +9,10 @@ authors.workspace = true
 name = "blink-server"
 path = "src/main.rs"
 
+[[bin]]
+name = "callback-executor"
+path = "src/bin/callback_executor.rs"
+
 [dependencies]
 # Web framework
 actix-web = "4.5"

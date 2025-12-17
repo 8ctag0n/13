@@ -173,6 +173,27 @@ async fn process_loan_created_event(
         timestamp as i64,
     ).await?;
 
+    // Create FHE verification job for the loan
+    // This triggers the FHE provers to verify the encrypted collateral
+    match PbtcfiQueries::create_fhe_job(db_pool, &loan.loan_id).await {
+        Ok(()) => {
+            log::info!(
+                "Created FHE verification job for loan {} (borrower: {})",
+                loan.loan_id,
+                loan.borrower
+            );
+        }
+        Err(e) => {
+            // Log but don't fail - the loan is already in the DB
+            // FHE job can be created manually or on retry
+            log::warn!(
+                "Failed to create FHE job for loan {}: {} (loan saved, job pending)",
+                loan.loan_id,
+                e
+            );
+        }
+    }
+
     log::debug!("Processed LoanCreated event for loan {}", loan.loan_id);
 
     Ok(())
@@ -209,8 +230,9 @@ fn parse_u64_from_felt(felt: &str) -> Result<u64> {
 }
 
 // =============================================================================
-// Event Key Constants
-// TODO: Calculate actual keccak256 hashes of Cairo event names
+// Event Key Constants (calculated with starkli selector <name>)
 // =============================================================================
 
-const EVENT_KEY_LOAN_CREATED: &str = "0x00000000000000000000000000000000000000000000000000004c6f616e437265617465645f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f";
+/// Event selector for LoanCreated
+/// Calculated with: starkli selector LoanCreated
+const EVENT_KEY_LOAN_CREATED: &str = "0x03b632a8f9576e6775190ccd7c22bd55e4533d9e375fb405bc9ed5591accab4d";

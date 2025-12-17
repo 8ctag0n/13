@@ -22,8 +22,27 @@ pub trait IPLST<TContractState> {
     fn mint(ref self: TContractState, to: ContractAddress, amount: u256);
     fn burn(ref self: TContractState, from: ContractAddress, amount: u256);
 
-    // Privacy extensions (V2 - prepared interfaces)
+    // Privacy extensions (V2) - FHE-enabled operations
     fn encrypted_balance_of(self: @TContractState, account: ContractAddress) -> (felt252, felt252);
+
+    /// Mint with encrypted amount (FHE mode)
+    /// Used when FHE prover computes the pLST amount from collateral
+    /// Only callable by minter (pBTCFi core)
+    fn mint_encrypted(
+        ref self: TContractState,
+        to: ContractAddress,
+        encrypted_c1: felt252,
+        encrypted_c2: felt252,
+    );
+
+    /// Update encrypted balance (for FHE operations)
+    /// Adds encrypted amount to existing encrypted balance
+    fn add_encrypted_balance(
+        ref self: TContractState,
+        account: ContractAddress,
+        encrypted_c1: felt252,
+        encrypted_c2: felt252,
+    );
 }
 
 #[starknet::contract]
@@ -61,6 +80,8 @@ pub mod PLSTToken {
         Approval: Approval,
         Mint: Mint,
         Burn: Burn,
+        EncryptedMint: EncryptedMint,
+        EncryptedBalanceUpdated: EncryptedBalanceUpdated,
     }
 
     #[derive(Drop, starknet::Event)]
@@ -87,6 +108,22 @@ pub mod PLSTToken {
     pub struct Burn {
         pub from: ContractAddress,
         pub amount: u256,
+    }
+
+    /// Emitted when encrypted pLST is minted (FHE mode)
+    #[derive(Drop, starknet::Event)]
+    pub struct EncryptedMint {
+        pub to: ContractAddress,
+        pub encrypted_c1: felt252,
+        pub encrypted_c2: felt252,
+    }
+
+    /// Emitted when encrypted balance is updated
+    #[derive(Drop, starknet::Event)]
+    pub struct EncryptedBalanceUpdated {
+        pub account: ContractAddress,
+        pub new_encrypted_c1: felt252,
+        pub new_encrypted_c2: felt252,
     }
 
     #[constructor]
@@ -206,14 +243,69 @@ pub mod PLSTToken {
             });
         }
 
-        // ===== Privacy Extensions (V2 - Mock for now) =====
+        // ===== Privacy Extensions (V2 - FHE enabled) =====
 
         fn encrypted_balance_of(
             self: @ContractState, account: ContractAddress
         ) -> (felt252, felt252) {
-            // V2: Return real ElGamal encrypted balance
-            // MVP: Return mock ciphertext (0, 0)
             self.encrypted_balances.read(account)
+        }
+
+        /// Mint pLST with encrypted amount
+        /// Called when FHE prover computes the pLST amount from encrypted collateral
+        fn mint_encrypted(
+            ref self: ContractState,
+            to: ContractAddress,
+            encrypted_c1: felt252,
+            encrypted_c2: felt252,
+        ) {
+            let caller = get_caller_address();
+            assert(caller == self.minter.read(), 'Only minter can mint');
+            assert(!to.is_zero(), 'Cannot mint to zero address');
+
+            // Update encrypted balance (homomorphic add)
+            let (current_c1, current_c2) = self.encrypted_balances.read(to);
+
+            // FHE: new_encrypted = current_encrypted + mint_encrypted
+            // For ElGamal: (c1_new, c2_new) = (c1_old + c1_mint, c2_old + c2_mint)
+            // Note: This is a simplified model - real FHE addition is more complex
+            let new_c1 = current_c1 + encrypted_c1;
+            let new_c2 = current_c2 + encrypted_c2;
+
+            self.encrypted_balances.write(to, (new_c1, new_c2));
+
+            self.emit(EncryptedMint { to, encrypted_c1, encrypted_c2 });
+            self.emit(EncryptedBalanceUpdated {
+                account: to,
+                new_encrypted_c1: new_c1,
+                new_encrypted_c2: new_c2,
+            });
+        }
+
+        /// Add to encrypted balance (for FHE operations like rewards, interest)
+        fn add_encrypted_balance(
+            ref self: ContractState,
+            account: ContractAddress,
+            encrypted_c1: felt252,
+            encrypted_c2: felt252,
+        ) {
+            let caller = get_caller_address();
+            assert(caller == self.minter.read(), 'Only minter can update');
+            assert(!account.is_zero(), 'Cannot update zero address');
+
+            let (current_c1, current_c2) = self.encrypted_balances.read(account);
+
+            // Homomorphic addition
+            let new_c1 = current_c1 + encrypted_c1;
+            let new_c2 = current_c2 + encrypted_c2;
+
+            self.encrypted_balances.write(account, (new_c1, new_c2));
+
+            self.emit(EncryptedBalanceUpdated {
+                account,
+                new_encrypted_c1: new_c1,
+                new_encrypted_c2: new_c2,
+            });
         }
     }
 

@@ -5,6 +5,7 @@ mod cleanup;
 mod db;
 mod job_finalizer;
 mod pbtcfi_handlers;
+mod pbtcfi_prover;
 mod pbtcfi_sync;
 mod prover_sync;
 mod services;
@@ -226,6 +227,11 @@ async fn main() -> std::io::Result<()> {
                 log::error!("pBTCFi sync will not start");
             }
         }
+
+        // Start pBTCFi FHE prover worker
+        let prover_config = pbtcfi_prover::PbtcfiProverConfig::default();
+        pbtcfi_prover::start_pbtcfi_prover(pool.clone(), prover_config);
+        log::info!("pBTCFi FHE prover started");
     } else {
         log::info!("pBTCFi sync disabled (set PBTCFI_CONTRACT_ADDRESS to enable)");
     }

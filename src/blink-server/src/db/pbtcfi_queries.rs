@@ -2,7 +2,6 @@
 
 use anyhow::{anyhow, Result};
 use sqlx::PgPool;
-use serde_json::json;
 
 // Re-export types from pbtcfi
 // Note: This will require adding pbtcfi types as a dependency to blink-server
@@ -317,4 +316,274 @@ pub struct EventRow {
     pub event_index: i32,
     pub event_data: serde_json::Value,
     pub timestamp: i64,
+}
+
+// ============================================================================
+// FHE Job Queries for pBTCFi
+// ============================================================================
+
+/// FHE job status for pBTCFi loans
+#[derive(Debug, Clone, PartialEq)]
+pub enum FheJobStatus {
+    Pending,     // Waiting for prover
+    Processing,  // Prover working on it
+    Completed,   // FHE computation done
+    Failed,      // Computation failed
+}
+
+impl FheJobStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            FheJobStatus::Pending => "fhe_pending",
+            FheJobStatus::Processing => "fhe_processing",
+            FheJobStatus::Completed => "fhe_completed",
+            FheJobStatus::Failed => "fhe_failed",
+        }
+    }
+}
+
+/// Loan ready for FHE processing
+#[derive(Debug, sqlx::FromRow, serde::Serialize)]
+pub struct FhePendingLoan {
+    pub loan_id: String,
+    pub borrower: String,
+    pub btc_encrypted_c1: String,
+    pub btc_encrypted_c2: String,
+    pub btc_commitment: String,
+    pub created_at: i64,
+}
+
+// ============================================================================
+// Starknet Callback Queries
+// ============================================================================
+
+/// Callback record for Starknet execution
+#[derive(Debug, sqlx::FromRow, serde::Serialize)]
+pub struct PendingCallback {
+    pub id: i64,
+    pub loan_id: String,
+    pub callback_type: String,
+    pub target_contract: String,
+    pub function_name: String,
+    pub call_args: serde_json::Value,
+    pub status: String,
+    pub retry_count: i32,
+}
+
+impl PbtcfiQueries {
+    /// Create a callback for Starknet execution
+    pub async fn create_callback(
+        pool: &PgPool,
+        loan_id: &str,
+        callback_type: &str,
+        target_contract: &str,
+        function_name: &str,
+        call_args: &serde_json::Value,
+    ) -> Result<i64> {
+        let row: (i64,) = sqlx::query_as(
+            r#"
+            INSERT INTO pbtcfi_callbacks (
+                loan_id, callback_type, target_contract,
+                function_name, call_args, status
+            )
+            VALUES ($1, $2, $3, $4, $5, 'pending')
+            RETURNING id
+            "#,
+        )
+        .bind(loan_id)
+        .bind(callback_type)
+        .bind(target_contract)
+        .bind(function_name)
+        .bind(call_args)
+        .fetch_one(pool)
+        .await
+        .map_err(|e| anyhow!("Failed to create callback: {}", e))?;
+
+        log::info!("Created Starknet callback {} for loan {}", row.0, loan_id);
+        Ok(row.0)
+    }
+
+    /// Get pending callbacks for execution
+    pub async fn get_pending_callbacks(pool: &PgPool, limit: i64) -> Result<Vec<PendingCallback>> {
+        let callbacks = sqlx::query_as::<_, PendingCallback>(
+            r#"
+            SELECT id, loan_id, callback_type, target_contract,
+                   function_name, call_args, status, retry_count
+            FROM pbtcfi_callbacks
+            WHERE status = 'pending'
+            ORDER BY created_at ASC
+            LIMIT $1
+            "#,
+        )
+        .bind(limit)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| anyhow!("Failed to get pending callbacks: {}", e))?;
+
+        Ok(callbacks)
+    }
+
+    /// Mark callback as executed
+    pub async fn mark_callback_executed(
+        pool: &PgPool,
+        callback_id: i64,
+        tx_hash: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            r#"
+            UPDATE pbtcfi_callbacks
+            SET status = 'executed',
+                tx_hash = $2,
+                executed_at = NOW()
+            WHERE id = $1
+            "#,
+        )
+        .bind(callback_id)
+        .bind(tx_hash)
+        .execute(pool)
+        .await
+        .map_err(|e| anyhow!("Failed to mark callback executed: {}", e))?;
+
+        Ok(())
+    }
+
+    /// Mark callback as failed
+    pub async fn mark_callback_failed(
+        pool: &PgPool,
+        callback_id: i64,
+        error: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            r#"
+            UPDATE pbtcfi_callbacks
+            SET status = 'failed',
+                error_message = $2,
+                retry_count = retry_count + 1,
+                last_retry_at = NOW()
+            WHERE id = $1
+            "#,
+        )
+        .bind(callback_id)
+        .bind(error)
+        .execute(pool)
+        .await
+        .map_err(|e| anyhow!("Failed to mark callback failed: {}", e))?;
+
+        Ok(())
+    }
+
+    /// Mark a loan for FHE processing
+    pub async fn create_fhe_job(pool: &PgPool, loan_id: &str) -> Result<()> {
+        let result = sqlx::query(
+            r#"
+            UPDATE pbtcfi_loans
+            SET fhe_status = 'fhe_pending',
+                fhe_created_at = NOW()
+            WHERE loan_id = $1 AND fhe_status IS NULL
+            "#,
+        )
+        .bind(loan_id)
+        .execute(pool)
+        .await
+        .map_err(|e| anyhow!("Failed to create FHE job: {}", e))?;
+
+        if result.rows_affected() == 0 {
+            return Err(anyhow!("Loan not found or FHE job already exists: {}", loan_id));
+        }
+
+        log::info!("Created FHE job for loan {}", loan_id);
+        Ok(())
+    }
+
+    /// Get loans pending FHE processing
+    pub async fn get_pending_fhe_jobs(pool: &PgPool, limit: i64) -> Result<Vec<FhePendingLoan>> {
+        let loans = sqlx::query_as::<_, FhePendingLoan>(
+            r#"
+            SELECT loan_id, borrower, btc_encrypted_c1, btc_encrypted_c2,
+                   btc_commitment, created_at
+            FROM pbtcfi_loans
+            WHERE fhe_status = 'fhe_pending'
+            ORDER BY fhe_created_at ASC
+            LIMIT $1
+            "#,
+        )
+        .bind(limit)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| anyhow!("Failed to get pending FHE jobs: {}", e))?;
+
+        Ok(loans)
+    }
+
+    /// Claim a loan for FHE processing (atomic)
+    pub async fn claim_fhe_job(pool: &PgPool, loan_id: &str, prover_id: &str) -> Result<bool> {
+        let result = sqlx::query(
+            r#"
+            UPDATE pbtcfi_loans
+            SET fhe_status = 'fhe_processing',
+                fhe_prover_id = $2,
+                fhe_started_at = NOW()
+            WHERE loan_id = $1 AND fhe_status = 'fhe_pending'
+            "#,
+        )
+        .bind(loan_id)
+        .bind(prover_id)
+        .execute(pool)
+        .await
+        .map_err(|e| anyhow!("Failed to claim FHE job: {}", e))?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Complete FHE job with result
+    pub async fn complete_fhe_job(
+        pool: &PgPool,
+        loan_id: &str,
+        _collateral_value_c1: &str,
+        _collateral_value_c2: &str,
+        plst_amount_c1: &str,
+        plst_amount_c2: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            r#"
+            UPDATE pbtcfi_loans
+            SET fhe_status = 'fhe_completed',
+                fhe_completed_at = NOW(),
+                plst_encrypted_c1 = $2,
+                plst_encrypted_c2 = $3,
+                status = 'active'
+            WHERE loan_id = $1 AND fhe_status = 'fhe_processing'
+            "#,
+        )
+        .bind(loan_id)
+        .bind(plst_amount_c1)
+        .bind(plst_amount_c2)
+        .execute(pool)
+        .await
+        .map_err(|e| anyhow!("Failed to complete FHE job: {}", e))?;
+
+        log::info!("FHE job completed for loan {}", loan_id);
+        Ok(())
+    }
+
+    /// Fail FHE job
+    pub async fn fail_fhe_job(pool: &PgPool, loan_id: &str, error: &str) -> Result<()> {
+        sqlx::query(
+            r#"
+            UPDATE pbtcfi_loans
+            SET fhe_status = 'fhe_failed',
+                fhe_error = $2,
+                fhe_completed_at = NOW()
+            WHERE loan_id = $1 AND fhe_status = 'fhe_processing'
+            "#,
+        )
+        .bind(loan_id)
+        .bind(error)
+        .execute(pool)
+        .await
+        .map_err(|e| anyhow!("Failed to mark FHE job as failed: {}", e))?;
+
+        log::warn!("FHE job failed for loan {}: {}", loan_id, error);
+        Ok(())
+    }
 }

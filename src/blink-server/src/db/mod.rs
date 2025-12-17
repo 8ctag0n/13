@@ -9,6 +9,6 @@ pub mod zk_queries;
 pub use attestation_queries::AttestationQueries;
 pub use connection::{create_pool, run_migrations};
 pub use models::{InsertJobData, JobStatus};
-pub use pbtcfi_queries::PbtcfiQueries;
+pub use pbtcfi_queries::{FhePendingLoan, PbtcfiQueries};
 pub use queries::{FheResultQueries, JobQueries, NetworkMetricsQueries, NonceQueries, ServerKeyQueries, WitnessQueries};
 pub use zk_queries::{InsertZkJobData, ZkJobQueries, ZkJobStatus};

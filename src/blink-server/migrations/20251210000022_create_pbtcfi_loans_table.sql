@@ -3,8 +3,8 @@
 -- Privacy: commitments + ciphertexts stored, never raw values
 
 CREATE TABLE IF NOT EXISTS pbtcfi_loans (
-    -- Loan lifecycle identifier (u256 from Cairo as hex string)
-    loan_id VARCHAR(64) PRIMARY KEY,
+    -- Loan lifecycle identifier (u256 from Cairo as hex string, 0x + 64 hex = 66 chars)
+    loan_id VARCHAR(66) PRIMARY KEY,
 
     -- Borrower (Starknet ContractAddress)
     borrower VARCHAR(66) NOT NULL,
@@ -12,16 +12,16 @@ CREATE TABLE IF NOT EXISTS pbtcfi_loans (
     -- Status tracking
     status VARCHAR(30) NOT NULL DEFAULT 'pending',
 
-    -- PRIVATE STORAGE: Commitments (Pedersen hashes)
-    btc_commitment VARCHAR(64) NOT NULL,           -- Commitment of BTC amount
+    -- PRIVATE STORAGE: Commitments (Pedersen hashes, 0x + 64 hex = 66 chars)
+    btc_commitment VARCHAR(66) NOT NULL,           -- Commitment of BTC amount
     plst_commitment VARCHAR(64),                    -- Commitment of PLST borrowed (NULL until activated)
     ltv_commitment VARCHAR(64),                     -- Commitment of LTV ratio (NULL until activated)
 
-    -- PRIVATE STORAGE: Encrypted values (ElGamal ciphertext tuples)
-    btc_encrypted_c1 VARCHAR(64) NOT NULL,          -- ElGamal BTC amount part 1 (felt252)
-    btc_encrypted_c2 VARCHAR(64) NOT NULL,          -- ElGamal BTC amount part 2 (felt252)
-    plst_encrypted_c1 VARCHAR(64),                  -- ElGamal PLST borrowed part 1
-    plst_encrypted_c2 VARCHAR(64),                  -- ElGamal PLST borrowed part 2
+    -- PRIVATE STORAGE: Encrypted values (ElGamal ciphertext tuples, 0x + 64 hex = 66 chars)
+    btc_encrypted_c1 VARCHAR(66) NOT NULL,          -- ElGamal BTC amount part 1 (felt252)
+    btc_encrypted_c2 VARCHAR(66) NOT NULL,          -- ElGamal BTC amount part 2 (felt252)
+    plst_encrypted_c1 VARCHAR(66),                  -- ElGamal PLST borrowed part 1
+    plst_encrypted_c2 VARCHAR(66),                  -- ElGamal PLST borrowed part 2
 
     -- Collateral proof hash
     collateral_hash VARCHAR(64),                    -- Hash of UTXO proof (NULL until registered)

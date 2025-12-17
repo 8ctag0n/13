@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS pbtcfi_events (
 
     -- Event classification
     event_type VARCHAR(30) NOT NULL,               -- 'LoanCreated', 'LoanActivated', etc.
-    loan_id VARCHAR(64) NOT NULL,                  -- Reference to loan (not FK to allow out-of-order processing)
+    loan_id VARCHAR(66) NOT NULL,                  -- Reference to loan (0x + 64 hex, not FK for out-of-order processing)
 
     -- Block information
     block_number BIGINT NOT NULL,                  -- Starknet block number
