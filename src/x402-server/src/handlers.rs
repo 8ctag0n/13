@@ -10,7 +10,12 @@ use std::str::FromStr;
 use uuid::Uuid;
 
 use crate::db::X402Queries;
-use crate::models::*;
+use crate::models::{
+    BuildPaymentRequest, BuildPaymentResponse, Chain, ConfirmPaymentRequest, ConfirmPaymentResponse,
+    CreateJobRequest, CreateJobResponse, CreateLoanRequest, CreateLoanResponse, EstimateRequest,
+    EstimateResponse, HealthResponse, QuoteRequest, QuoteResponse, TokenStatusResponse,
+    ValidateTokenRequest, ValidateTokenResponse, WitnessUploadResponse,
+};
 use crate::AppState;
 
 // =============================================================================
@@ -536,6 +541,234 @@ async fn create_job_with_token(
 }
 
 // =============================================================================
+// pBTCFi Loan Creation (Multi-Chain)
+// =============================================================================
+
+/// POST /api/pbtcfi/create-loan
+///
+/// Create a pBTCFi loan with encrypted collateral.
+/// Validates the deposit TX according to the chain, stores ciphertext,
+/// and initiates the loan creation on the target chain.
+#[post("/api/pbtcfi/create-loan")]
+async fn create_pbtcfi_loan(
+    data: web::Data<AppState>,
+    req: web::Json<CreateLoanRequest>,
+) -> impl Responder {
+    log::info!(
+        "pBTCFi loan creation request - chain: {:?}, borrower: {}",
+        req.chain,
+        req.borrower
+    );
+
+    // Validate borrower address format based on chain
+    if let Err(e) = validate_address_for_chain(&req.borrower, &req.chain) {
+        return HttpResponse::BadRequest().json(json!({
+            "error": format!("Invalid borrower address: {}", e)
+        }));
+    }
+
+    // Decode ciphertext from base64
+    let ciphertext_bytes = match base64::Engine::decode(
+        &base64::engine::general_purpose::STANDARD,
+        &req.ciphertext,
+    ) {
+        Ok(b) => b,
+        Err(e) => {
+            return HttpResponse::BadRequest().json(json!({
+                "error": format!("Invalid ciphertext encoding: {}", e)
+            }));
+        }
+    };
+
+    log::info!("Ciphertext size: {} bytes", ciphertext_bytes.len());
+
+    // Compute witness commitment (Blake2s hash of ciphertext)
+    let mut hasher = Blake2s256::new();
+    hasher.update(&ciphertext_bytes);
+    let hash = hasher.finalize();
+    let commitment = hex::encode(hash);
+
+    log::info!("Witness commitment: {}", commitment);
+
+    // Validate signed deposit TX based on chain
+    let deposit_tx_hash = match validate_deposit_tx(&req.signed_deposit_tx, &req.chain).await {
+        Ok(hash) => hash,
+        Err(e) => {
+            return HttpResponse::BadRequest().json(json!({
+                "error": format!("Invalid deposit transaction: {}", e)
+            }));
+        }
+    };
+
+    log::info!("Deposit TX validated: {}", deposit_tx_hash);
+
+    // Store ciphertext in blink-server via internal API
+    match store_witness_in_blink(&data.blink_client, &commitment, &ciphertext_bytes).await {
+        Ok(_) => {
+            log::info!("Ciphertext stored successfully");
+        }
+        Err(e) => {
+            log::error!("Failed to store ciphertext: {}", e);
+            return HttpResponse::InternalServerError().json(json!({
+                "error": format!("Failed to store ciphertext: {}", e)
+            }));
+        }
+    }
+
+    // Create loan in blink-server (which will sync to Cairo/Starknet)
+    let loan_id = match create_loan_in_blink(
+        &data.blink_client,
+        &req.chain,
+        &req.borrower,
+        &commitment,
+        &deposit_tx_hash,
+    )
+    .await
+    {
+        Ok(id) => id,
+        Err(e) => {
+            log::error!("Failed to create loan: {}", e);
+            return HttpResponse::InternalServerError().json(json!({
+                "error": format!("Failed to create loan: {}", e)
+            }));
+        }
+    };
+
+    log::info!("pBTCFi loan created: {}", loan_id);
+
+    HttpResponse::Ok().json(CreateLoanResponse {
+        loan_id,
+        chain: req.chain.as_str().to_string(),
+        witness_commitment: commitment,
+        deposit_tx_hash,
+        status: "pending_fhe".to_string(),
+    })
+}
+
+/// Validate address format for a specific chain
+fn validate_address_for_chain(address: &str, chain: &Chain) -> Result<(), String> {
+    match chain {
+        Chain::Solana => {
+            // Solana addresses are base58 encoded, 32-44 chars
+            if address.len() < 32 || address.len() > 44 {
+                return Err("Solana address must be 32-44 characters".to_string());
+            }
+            // Try to parse as Pubkey
+            Pubkey::from_str(address)
+                .map_err(|e| format!("Invalid Solana address: {}", e))?;
+            Ok(())
+        }
+        Chain::Starknet => {
+            // Starknet addresses are 0x prefixed hex, 64+ chars
+            if !address.starts_with("0x") {
+                return Err("Starknet address must start with 0x".to_string());
+            }
+            let hex_part = address.trim_start_matches("0x");
+            if hex_part.len() < 60 || hex_part.len() > 66 {
+                return Err("Starknet address must be 64-66 hex chars after 0x".to_string());
+            }
+            // Validate hex
+            hex::decode(hex_part).map_err(|e| format!("Invalid hex: {}", e))?;
+            Ok(())
+        }
+        Chain::Aptos => {
+            // Aptos addresses are 0x prefixed hex, 64 chars
+            if !address.starts_with("0x") {
+                return Err("Aptos address must start with 0x".to_string());
+            }
+            let hex_part = address.trim_start_matches("0x");
+            if hex_part.len() != 64 {
+                return Err("Aptos address must be 64 hex chars after 0x".to_string());
+            }
+            hex::decode(hex_part).map_err(|e| format!("Invalid hex: {}", e))?;
+            Ok(())
+        }
+    }
+}
+
+/// Validate deposit transaction based on chain
+/// Returns the transaction hash if valid
+async fn validate_deposit_tx(signed_tx: &str, chain: &Chain) -> Result<String, String> {
+    match chain {
+        Chain::Solana => {
+            // For Solana, signed_tx is base64 encoded transaction
+            // In production: decode, verify signature, check accounts
+            // For MVP: just validate format and return a mock hash
+            let _tx_bytes = base64::Engine::decode(
+                &base64::engine::general_purpose::STANDARD,
+                signed_tx,
+            )
+            .map_err(|e| format!("Invalid base64: {}", e))?;
+
+            // TODO: Actually verify Solana transaction
+            // - Deserialize transaction
+            // - Verify signatures
+            // - Check it's a transfer to the pool
+
+            // Return mock hash for now
+            let mut hasher = Blake2s256::new();
+            hasher.update(signed_tx.as_bytes());
+            Ok(hex::encode(hasher.finalize()))
+        }
+        Chain::Starknet => {
+            // For Starknet, signed_tx is hex encoded
+            // In production: verify ECDSA/Pedersen signature
+            if !signed_tx.starts_with("0x") {
+                return Err("Starknet TX must start with 0x".to_string());
+            }
+
+            // TODO: Actually verify Starknet transaction
+            // - Parse invoke transaction
+            // - Verify signature
+            // - Check it calls the deposit function
+
+            // Return mock hash for now
+            let mut hasher = Blake2s256::new();
+            hasher.update(signed_tx.as_bytes());
+            Ok(format!("0x{}", hex::encode(hasher.finalize())))
+        }
+        Chain::Aptos => {
+            // For Aptos, similar to Starknet
+            if !signed_tx.starts_with("0x") {
+                return Err("Aptos TX must start with 0x".to_string());
+            }
+
+            // TODO: Actually verify Aptos transaction
+
+            let mut hasher = Blake2s256::new();
+            hasher.update(signed_tx.as_bytes());
+            Ok(format!("0x{}", hex::encode(hasher.finalize())))
+        }
+    }
+}
+
+/// Store witness/ciphertext in blink-server
+async fn store_witness_in_blink(
+    blink_client: &crate::blink_client::BlinkClient,
+    commitment: &str,
+    ciphertext: &[u8],
+) -> Result<(), String> {
+    blink_client
+        .store_witness(commitment, ciphertext)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Create loan in blink-server
+async fn create_loan_in_blink(
+    blink_client: &crate::blink_client::BlinkClient,
+    chain: &Chain,
+    borrower: &str,
+    commitment: &str,
+    deposit_tx_hash: &str,
+) -> Result<String, String> {
+    blink_client
+        .create_pbtcfi_loan(chain.as_str(), borrower, commitment, deposit_tx_hash)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+// =============================================================================
 // Route Configuration
 // =============================================================================
 
@@ -547,6 +780,7 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         .service(confirm_payment)
         .service(validate_token)
         .service(mark_token_used_endpoint)
-        .service(get_token_status);
-    // Note: upload_witness and create_job removed - will be proxied to blink in Fase 2
+        .service(get_token_status)
+        // pBTCFi endpoints
+        .service(create_pbtcfi_loan);
 }

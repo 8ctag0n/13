@@ -2059,6 +2059,73 @@ pub struct PbtcfiCompleteJobRequest {
     pub plst_amount_c2: String,
 }
 
+/// Request to create a loan from x402 gateway
+#[derive(Debug, Deserialize)]
+pub struct PbtcfiCreateLoanFromGatewayRequest {
+    pub chain: String,
+    pub borrower: String,
+    pub btc_commitment: String,
+    pub deposit_tx_hash: String,
+}
+
+/// POST /internal/pbtcfi/create-loan
+///
+/// Create a pBTCFi loan from x402 gateway.
+/// This is the entry point for new loans submitted via the gateway.
+/// Creates the loan record and marks it as pending FHE verification.
+#[post("/internal/pbtcfi/create-loan")]
+async fn pbtcfi_create_loan_from_gateway(
+    data: web::Data<AppState>,
+    req: web::Json<PbtcfiCreateLoanFromGatewayRequest>,
+) -> impl Responder {
+    log::info!(
+        "Creating pBTCFi loan from gateway - chain: {}, borrower: {}",
+        req.chain,
+        req.borrower
+    );
+
+    // Generate loan_id
+    let loan_id = format!("loan_{}", chrono::Utc::now().timestamp_millis());
+
+    // Create loan data
+    let loan_data = crate::db::pbtcfi_queries::LoanData {
+        loan_id: loan_id.clone(),
+        borrower: req.borrower.clone(),
+        btc_commitment: req.btc_commitment.clone(),
+        btc_encrypted_c1: req.btc_commitment.clone(), // Use commitment as placeholder
+        btc_encrypted_c2: "0x0".to_string(),
+        created_at: chrono::Utc::now().timestamp(),
+    };
+
+    // Insert loan
+    match crate::db::PbtcfiQueries::upsert_loan(&data.db_pool, &loan_data).await {
+        Ok(_) => {
+            log::info!("Loan {} created, marking as pending FHE", loan_id);
+
+            // Create FHE job
+            if let Err(e) = crate::db::PbtcfiQueries::create_fhe_job(&data.db_pool, &loan_id).await {
+                log::error!("Failed to create FHE job for loan {}: {}", loan_id, e);
+                return HttpResponse::InternalServerError().json(json!({
+                    "error": format!("Loan created but FHE job failed: {}", e)
+                }));
+            }
+
+            HttpResponse::Ok().json(json!({
+                "loan_id": loan_id,
+                "chain": req.chain,
+                "status": "pending_fhe",
+                "message": "Loan created and queued for FHE verification"
+            }))
+        }
+        Err(e) => {
+            log::error!("Failed to create loan: {}", e);
+            HttpResponse::InternalServerError().json(json!({
+                "error": format!("Failed to create loan: {}", e)
+            }))
+        }
+    }
+}
+
 /// POST /internal/pbtcfi/create-job
 ///
 /// Create an FHE verification job for a pBTCFi loan.
@@ -2262,6 +2329,7 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         // Prover verification endpoints (for x402-gateway)
         .service(get_prover_status) // GET /internal/prover/{pubkey}/status
         // pBTCFi FHE job endpoints
+        .service(pbtcfi_create_loan_from_gateway) // POST /internal/pbtcfi/create-loan (from x402)
         .service(pbtcfi_create_fhe_job) // POST /internal/pbtcfi/create-job
         .service(pbtcfi_get_pending_jobs) // GET /internal/pbtcfi/pending-jobs
         .service(pbtcfi_claim_job) // POST /internal/pbtcfi/claim-job
