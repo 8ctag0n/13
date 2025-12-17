@@ -5,21 +5,25 @@ use solana_sdk::{
     signature::{Keypair, Signer},
 };
 use std::sync::Arc;
-use zyberlink_sdk::{fetch_fhe_consensus, fetch_job, MarketplaceClient};
+use zyberlink_sdk::{fetch_fhe_consensus, fetch_job};
 use zyberlink_types::{CircuitType, FheOperation, JobStatus};
 
 use crate::circuits::{CensusCircuit, DemographicsCircuit, PassportCircuit, VotingCircuit};
 use crate::core::CircuitRegistry;
 use crate::gateway::GatewayClient;
 use crate::halo2_prover::{Halo2Prover, OrchardWitness};
+use crate::marketplace::SolanaMarketplace;
 use crate::tui;
 use crate::witness_encryption::WitnessEncryption;
 use crate::witness_fetcher::WitnessFetcher;
 use zyberlink_fhe::{deserialize_server_key, FheEngine};
 
 /// Job processor handles claiming, processing, and submitting proofs for jobs
+///
+/// Currently Solana-specific. Uses `SolanaMarketplace` for marketplace operations.
+/// Future versions may accept `Arc<dyn MarketplaceOperations>` for multi-chain support.
 pub struct JobProcessor {
-    client: Arc<MarketplaceClient>,
+    marketplace: Arc<SolanaMarketplace>,
     keypair: Arc<Keypair>,
     halo2_prover: Arc<Halo2Prover>,
     witness_encryption: Arc<WitnessEncryption>,
@@ -31,7 +35,7 @@ pub struct JobProcessor {
 impl JobProcessor {
     /// Create a new JobProcessor
     pub fn new(
-        client: Arc<MarketplaceClient>,
+        marketplace: Arc<SolanaMarketplace>,
         keypair: Arc<Keypair>,
         halo2_prover: Arc<Halo2Prover>,
         witness_encryption: Arc<WitnessEncryption>,
@@ -40,7 +44,7 @@ impl JobProcessor {
         fhe_engine: Option<Arc<FheEngine>>,
     ) -> Self {
         Self {
-            client,
+            marketplace,
             keypair,
             halo2_prover,
             witness_encryption,
@@ -48,6 +52,11 @@ impl JobProcessor {
             gateway_client,
             fhe_engine,
         }
+    }
+
+    /// Get reference to underlying MarketplaceClient for direct SDK operations
+    fn client(&self) -> &zyberlink_sdk::MarketplaceClient {
+        self.marketplace.inner()
     }
 
     /// Process a single job: claim -> prove -> submit
@@ -104,20 +113,20 @@ impl JobProcessor {
         let claim_ix = match circuit_type {
             CircuitType::FheComputation(_) => {
                 // FHE multi-prover jobs use claim_fhe_job_instruction
-                self.client
+                self.client()
                     .claim_fhe_job_instruction(&self.keypair.pubkey(), job_pda, job_id)
                     .context("Failed to build FHE claim instruction")?
             }
             _ => {
                 // ZK single-prover jobs use claim_job_instruction
-                self.client
+                self.client()
                     .claim_job_instruction(&self.keypair.pubkey(), job_pda)
                     .context("Failed to build claim instruction")?
             }
         };
 
         match self
-            .client
+            .client()
             .send_and_confirm_transaction(&[claim_ix], &[&*self.keypair])
         {
             Ok(sig) => {
@@ -142,7 +151,7 @@ impl JobProcessor {
         job_id: u64,
         circuit_type: &CircuitType,
     ) -> Result<()> {
-        let job = fetch_job(&self.client.rpc_client, job_pda)
+        let job = fetch_job(&self.client().rpc_client, job_pda)
             .context("Failed to fetch job after claim")?;
 
         // For ZK jobs: verify we claimed it exclusively
@@ -155,8 +164,8 @@ impl JobProcessor {
 
         // For FHE jobs: verify we're in the claimed_provers list
         if let CircuitType::FheComputation(_) = circuit_type {
-            let (fhe_pda, _) = self.client.get_fhe_consensus_pda(job_id);
-            let fhe_data = fetch_fhe_consensus(&self.client.rpc_client, &fhe_pda)
+            let (fhe_pda, _) = self.client().get_fhe_consensus_pda(job_id);
+            let fhe_data = fetch_fhe_consensus(&self.client().rpc_client, &fhe_pda)
                 .context("Failed to fetch FHE consensus data")?;
 
             let our_pubkey = self.keypair.pubkey();
@@ -389,7 +398,7 @@ impl JobProcessor {
         info!("[Job {}] Submitting ZK proof...", job_id);
 
         // Fetch job to get creator
-        let job = fetch_job(&self.client.rpc_client, job_pda)
+        let job = fetch_job(&self.client().rpc_client, job_pda)
             .context("Failed to fetch job before submit")?;
 
         // Generate proof commitment (hash of actual proof)
@@ -397,9 +406,9 @@ impl JobProcessor {
         let proof_size = proof_bytes.len() as u32;
 
         // Fetch config to get protocol fee recipient
-        let (config_pda, _) = self.client.get_config_pda();
+        let (config_pda, _) = self.client().get_config_pda();
         let config_account = self
-            .client
+            .client()
             .rpc_client
             .get_account(&config_pda)
             .context("Failed to fetch config account")?;
@@ -412,7 +421,7 @@ impl JobProcessor {
         };
 
         let submit_ix = self
-            .client
+            .client()
             .submit_proof_instruction_with_recipient(
                 &self.keypair.pubkey(),
                 job_pda,
@@ -424,7 +433,7 @@ impl JobProcessor {
             .context("Failed to build submit proof instruction")?;
 
         match self
-            .client
+            .client()
             .send_and_confirm_transaction(&[submit_ix], &[&*self.keypair])
         {
             Ok(sig) => {
@@ -469,12 +478,12 @@ impl JobProcessor {
 
         // Build SubmitFheResult instruction
         let submit_ix = self
-            .client
+            .client()
             .submit_fhe_result_instruction(&self.keypair.pubkey(), job_pda, job_id, result_hash)
             .context("Failed to build submit FHE result instruction")?;
 
         match self
-            .client
+            .client()
             .send_and_confirm_transaction(&[submit_ix], &[&*self.keypair])
         {
             Ok(sig) => {
