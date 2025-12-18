@@ -5,6 +5,7 @@ members = [
     "zk-generator",
     "fhe-generator",
     "threshold",
+    "futarchy-markets",
     "sdks/bedrock-sdk",
     "sdks/fhe-generator-sdk",
     "sdks/zk-generator-sdk",

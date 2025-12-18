@@ -19,6 +19,8 @@ exclude = [
     "src/job-creator",  # Standalone E2E testing tool
     "src/programs",     # Separate workspace for Solana BPF
     "tests/e2e",        # E2E tests use solana-program-test which requires BPF
+    "sdks/fhe-client-sdk",  # Standalone FHE SDK with heavy tfhe-rs dependency
+    "sdks/zk-prover-sdk",   # TypeScript/Bun SDK for ZK proof generation
 ]
 resolver = "2"
 

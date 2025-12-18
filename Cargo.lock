@@ -1476,17 +1476,41 @@ dependencies = [
 
 [[package]]
 name = "concrete-fft"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3144f883422ee22c65d4f408c11b3406513eadc0d50b3d65bfadcb97852817e0"
+dependencies = [
+ "aligned-vec",
+ "bytemuck",
+ "dyn-stack 0.9.1",
+ "num-complex 0.4.6",
+ "pulp",
+ "serde",
+]
+
+[[package]]
+name = "concrete-fft"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "86ff7397e00e903afb03f0adca6a5f3bec3a6e96a7cdb70bdc088e01b125e170"
 dependencies = [
  "aligned-vec",
  "bytemuck",
- "dyn-stack",
+ "dyn-stack 0.10.0",
  "js-sys",
  "num-complex 0.4.6",
  "pulp",
  "serde",
+]
+
+[[package]]
+name = "concrete-ntt"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b4f4643dbd5de069e099122ae6c2bbd3db70d69ffec348dfc228448d635f949e"
+dependencies = [
+ "aligned-vec",
+ "pulp",
 ]
 
 [[package]]
@@ -2083,6 +2107,16 @@ checksum = "1435fa1053d8b2fbbe9be7e97eca7f33d37b28409959813daefc1446a14247f1"
 
 [[package]]
 name = "dyn-stack"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7fe7f8d7bcc523381d3c437b82cf74805de3931de0da69309ae0fe1bdf7a256e"
+dependencies = [
+ "bytemuck",
+ "reborrow",
+]
+
+[[package]]
+name = "dyn-stack"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "56e53799688f5632f364f8fb387488dd05db9fe45db7011be066fc20e7027f8b"
@@ -2376,7 +2410,19 @@ dependencies = [
  "colored",
  "dirs 5.0.1",
  "serde_json",
- "tfhe",
+ "tfhe 0.10.0",
+]
+
+[[package]]
+name = "fhe-client-sdk"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "hex",
+ "serde",
+ "sha2 0.10.9",
+ "tfhe 0.7.2",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -9822,7 +9868,30 @@ dependencies = [
  "clap",
  "serde_json",
  "solana-sdk",
- "tfhe",
+ "tfhe 0.10.0",
+]
+
+[[package]]
+name = "tfhe"
+version = "0.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0623aaa0dc7836f4f7aa96602ef9c6a55f87cbcb962a94ed7a9e6d00daa32cfb"
+dependencies = [
+ "aligned-vec",
+ "bincode",
+ "bytemuck",
+ "concrete-csprng",
+ "concrete-fft 0.4.1",
+ "concrete-ntt 0.1.2",
+ "dyn-stack 0.9.1",
+ "itertools 0.11.0",
+ "paste",
+ "pulp",
+ "rand_core 0.6.4",
+ "rayon",
+ "serde",
+ "sha3",
+ "tfhe-versionable 0.2.1",
 ]
 
 [[package]]
@@ -9835,9 +9904,9 @@ dependencies = [
  "bincode",
  "bytemuck",
  "concrete-csprng",
- "concrete-fft",
- "concrete-ntt",
- "dyn-stack",
+ "concrete-fft 0.5.1",
+ "concrete-ntt 0.2.0",
+ "dyn-stack 0.10.0",
  "itertools 0.11.0",
  "paste",
  "pulp",
@@ -9845,7 +9914,19 @@ dependencies = [
  "rayon",
  "serde",
  "sha3",
- "tfhe-versionable",
+ "tfhe-versionable 0.3.2",
+]
+
+[[package]]
+name = "tfhe-versionable"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9c7f9c9ef59d138c8ee539da0e15daf73345f0969a718f48bfd78706e4948e92"
+dependencies = [
+ "aligned-vec",
+ "num-complex 0.4.6",
+ "serde",
+ "tfhe-versionable-derive 0.2.1",
 ]
 
 [[package]]
@@ -9857,7 +9938,18 @@ dependencies = [
  "aligned-vec",
  "num-complex 0.4.6",
  "serde",
- "tfhe-versionable-derive",
+ "tfhe-versionable-derive 0.3.2",
+]
+
+[[package]]
+name = "tfhe-versionable-derive"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4709d2c6e0a39b45ed752f4b1151e261cc43c9681cacad00be4ecfc5df655e5c"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.111",
 ]
 
 [[package]]
@@ -11374,7 +11466,7 @@ dependencies = [
  "shellexpand",
  "solana-client",
  "solana-sdk",
- "tfhe",
+ "tfhe 0.10.0",
  "thiserror 1.0.69",
  "tokio",
 ]
@@ -11422,7 +11514,7 @@ dependencies = [
  "solana-client",
  "solana-sdk",
  "sqlx",
- "tfhe",
+ "tfhe 0.10.0",
  "tokio",
  "uuid",
  "zyberlink-chain-client",
@@ -11470,7 +11562,7 @@ dependencies = [
  "bincode",
  "serde",
  "sha3",
- "tfhe",
+ "tfhe 0.10.0",
  "thiserror 1.0.69",
  "tokio",
  "zyberlink-types",
@@ -11491,6 +11583,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "base64 0.22.1",
  "bincode",
  "blake2",
  "blake2b_simd",
@@ -11504,6 +11597,7 @@ dependencies = [
  "dirs 5.0.1",
  "env_logger 0.11.8",
  "ff",
+ "fhe-client-sdk",
  "group",
  "halo2_proofs",
  "hex",
@@ -11563,7 +11657,7 @@ dependencies = [
  "solana-client",
  "solana-program-test",
  "solana-sdk",
- "tfhe",
+ "tfhe 0.10.0",
  "thiserror 1.0.69",
  "tokio",
  "x25519-dalek",

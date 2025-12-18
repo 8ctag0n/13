@@ -18,6 +18,10 @@ use crate::witness_encryption::WitnessEncryption;
 use crate::witness_fetcher::WitnessFetcher;
 use zyberlink_fhe::{deserialize_server_key, FheEngine};
 
+// Futarchy FHE imports
+use fhe_client_sdk::FutarchyFheClient;
+use crate::futarchy::{FutarchyPoolWorker, FutarchyPoolJob};
+
 /// Job processor handles claiming, processing, and submitting proofs for jobs
 ///
 /// Currently Solana-specific. Uses `SolanaMarketplace` for marketplace operations.
@@ -30,6 +34,10 @@ pub struct JobProcessor {
     witness_fetcher: Arc<WitnessFetcher>,
     gateway_client: Arc<GatewayClient>,
     fhe_engine: Option<Arc<FheEngine>>,
+    /// Futarchy FHE worker for encrypted pool updates
+    futarchy_worker: Option<Arc<FutarchyPoolWorker>>,
+    /// App server URL for fetching Futarchy ciphertexts
+    futarchy_app_server_url: Option<String>,
 }
 
 impl JobProcessor {
@@ -51,7 +59,29 @@ impl JobProcessor {
             witness_fetcher,
             gateway_client,
             fhe_engine,
+            futarchy_worker: None,
+            futarchy_app_server_url: None,
         }
+    }
+
+    /// Configure Futarchy FHE support
+    ///
+    /// # Arguments
+    /// * `app_server_url` - URL of the app server storing ciphertexts
+    pub fn with_futarchy_support(mut self, app_server_url: String) -> Self {
+        // Create FHE client for Futarchy (this generates keys, takes a few seconds)
+        match FutarchyFheClient::new() {
+            Ok(fhe_client) => {
+                let worker = FutarchyPoolWorker::with_client(fhe_client, &app_server_url);
+                self.futarchy_worker = Some(Arc::new(worker));
+                self.futarchy_app_server_url = Some(app_server_url);
+                info!("Futarchy FHE support enabled");
+            }
+            Err(e) => {
+                warn!("Failed to initialize Futarchy FHE client: {}. Futarchy jobs will fail.", e);
+            }
+        }
+        self
     }
 
     /// Get reference to underlying MarketplaceClient for direct SDK operations
@@ -287,6 +317,25 @@ impl JobProcessor {
         witness_bytes: &[u8],
         operation: &FheOperation,
     ) -> Result<Vec<u8>> {
+        // Handle Futarchy pool updates separately (different data source)
+        if let FheOperation::FutarchyPoolUpdate {
+            market_id,
+            side,
+            pool_ciphertext_hash,
+            bet_ciphertext_hash,
+        } = operation
+        {
+            return self
+                .execute_futarchy_pool_update(
+                    job_id,
+                    market_id,
+                    *side,
+                    pool_ciphertext_hash,
+                    bet_ciphertext_hash,
+                )
+                .await;
+        }
+
         info!("[Job {}] Executing FHE operation: {:?}", job_id, operation);
 
         // DEBUG: Hash the full witness to verify all provers get identical data
@@ -635,6 +684,12 @@ impl JobProcessor {
                     VotingCircuit::compute_histogram(input_refs, bins)
                         .context("Failed to compute histogram")
                 }
+
+                // FutarchyPoolUpdate is handled separately in generate_fhe_proof
+                // This branch should never be reached
+                FheOperation::FutarchyPoolUpdate { .. } => {
+                    anyhow::bail!("FutarchyPoolUpdate should be handled by execute_futarchy_pool_update")
+                }
             }
         })
         .await
@@ -646,6 +701,68 @@ impl JobProcessor {
         use solana_sdk::hash::hash;
         let hash_result = hash(proof);
         hash_result.to_bytes()
+    }
+
+    /// Execute Futarchy pool update (homomorphic addition)
+    ///
+    /// This is different from regular FHE operations because:
+    /// 1. Ciphertexts come from app server, not witness backend
+    /// 2. Uses FheUint64 (larger ciphertexts, ~500KB each)
+    /// 3. Returns result hash (result stored off-chain)
+    async fn execute_futarchy_pool_update(
+        &self,
+        job_id: u64,
+        market_id: &[u8; 32],
+        side: bool,
+        pool_ciphertext_hash: &[u8; 32],
+        bet_ciphertext_hash: &[u8; 32],
+    ) -> Result<Vec<u8>> {
+        info!(
+            "[Job {}] Executing Futarchy pool update (side: {})",
+            job_id,
+            if side { "YES" } else { "NO" }
+        );
+
+        // Verify Futarchy support is enabled
+        let worker = self.futarchy_worker.as_ref().ok_or_else(|| {
+            anyhow::anyhow!(
+                "Futarchy support not enabled. Call with_futarchy_support() on JobProcessor"
+            )
+        })?;
+
+        let app_server_url = self.futarchy_app_server_url.as_ref().ok_or_else(|| {
+            anyhow::anyhow!("Futarchy app server URL not configured")
+        })?;
+
+        // Convert market_id bytes to string (pubkey)
+        let market_id_str = solana_sdk::pubkey::Pubkey::from(*market_id).to_string();
+
+        // Create job data for the worker
+        let futarchy_job = FutarchyPoolJob {
+            job_id,
+            market_id: market_id_str,
+            side,
+            bet_ciphertext_hash: *bet_ciphertext_hash,
+            pool_ciphertext_hash: *pool_ciphertext_hash,
+        };
+
+        // Process job (CPU-intensive, run in blocking thread)
+        let worker_clone: Arc<FutarchyPoolWorker> = Arc::clone(worker);
+        let result = tokio::task::spawn_blocking(move || {
+            worker_clone.process_and_submit(&futarchy_job)
+        })
+        .await
+        .context("Futarchy pool update task panicked")??;
+
+        info!(
+            "[Job {}] Futarchy pool update completed. Result hash: {}",
+            job_id,
+            hex::encode(&result.result_hash[..8])
+        );
+
+        // Return the result hash as the "proof" bytes
+        // This will be submitted on-chain for consensus
+        Ok(result.result_hash.to_vec())
     }
 
     /// Update TUI stats on successful completion
