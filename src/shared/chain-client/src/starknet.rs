@@ -120,13 +120,30 @@ impl ChainClient for StarknetClient {
         }
     }
 
-    async fn get_balance(&self, _address: &str) -> Result<u64> {
-        // For Starknet, balance is typically stored in an ERC-20 contract (STRK token)
-        // For MVP, we'll return NotImplemented as this requires knowing the token contract
-        // In production, this would query the balance of STRK token at the address
-        Err(ChainClientError::NotImplemented(
-            "get_balance requires STRK token contract address - use call_contract instead".to_string(),
-        ))
+    async fn get_balance(&self, address: &str) -> Result<u64> {
+        // For Starknet, balance is native ETH balance
+        // Query using starknet_getBalance RPC method (available in newer RPC versions)
+        let params = serde_json::json!({
+            "block_id": "latest",
+            "contract_address": address
+        });
+
+        match self.rpc_call::<String>("starknet_getBalance", params).await {
+            Ok(balance_hex) => {
+                // Parse hex string to u64
+                let balance_str = balance_hex.trim_start_matches("0x");
+                u64::from_str_radix(balance_str, 16)
+                    .map_err(|e| ChainClientError::Generic(format!("Failed to parse balance: {}", e)))
+            }
+            Err(ChainClientError::Generic(msg)) if msg.contains("Method not found") => {
+                // Fallback: older RPC versions don't support starknet_getBalance
+                // Return NotImplemented with helpful message
+                Err(ChainClientError::NotImplemented(
+                    "starknet_getBalance not supported by RPC - use call_contract with ETH token address".to_string()
+                ))
+            }
+            Err(e) => Err(e),
+        }
     }
 
     async fn get_account_data(&self, _address: &str) -> Result<Vec<u8>> {
@@ -149,15 +166,40 @@ impl ChainClient for StarknetClient {
         }
     }
 
-    async fn send_transaction(&self, _transaction: &[u8]) -> Result<String> {
+    async fn send_transaction(&self, transaction: &[u8]) -> Result<String> {
+        // To implement: parse transaction bytes into Starknet invoke transaction format
+        // and send via starknet_addInvokeTransaction RPC method
+        //
+        // Expected transaction format (serialized JSON):
+        // {
+        //   "type": "INVOKE",
+        //   "sender_address": "0x...",
+        //   "calldata": ["0x...", ...],
+        //   "max_fee": "0x...",
+        //   "signature": ["0x...", ...],
+        //   "nonce": "0x..."
+        // }
         Err(ChainClientError::NotImplemented(
-            "Starknet client not yet implemented - awaiting Phase 2-6".to_string(),
+            format!(
+                "send_transaction not implemented - requires starknet_addInvokeTransaction integration (tx size: {} bytes)",
+                transaction.len()
+            )
         ))
     }
 
-    async fn confirm_transaction(&self, _signature: &str, _timeout_secs: u64) -> Result<bool> {
+    async fn confirm_transaction(&self, signature: &str, timeout_secs: u64) -> Result<bool> {
+        // To implement: poll get_transaction_status until confirmed or timeout
+        //
+        // Strategy:
+        // 1. Poll starknet_getTransactionReceipt every 1-2 seconds
+        // 2. Check for finality_status == "ACCEPTED_ON_L2" or "ACCEPTED_ON_L1"
+        // 3. Return true if confirmed, false if timeout reached
+        // 4. Return error if transaction reverted
         Err(ChainClientError::NotImplemented(
-            "Starknet client not yet implemented - awaiting Phase 2-6".to_string(),
+            format!(
+                "confirm_transaction not implemented - needs polling loop for tx {} with timeout {}s",
+                signature, timeout_secs
+            )
         ))
     }
 
@@ -244,14 +286,32 @@ impl ChainClient for StarknetClient {
     }
 
     async fn get_recent_blockhash(&self) -> Result<String> {
+        // Starknet doesn't use blockhash like Solana
+        // Could return block hash via starknet_getBlockWithTxHashes but not needed for marketplace
         Err(ChainClientError::NotImplemented(
-            "Starknet client not yet implemented - awaiting Phase 2-6".to_string(),
+            "get_recent_blockhash not applicable to Starknet - use get_block_height instead".to_string(),
         ))
     }
 
-    async fn estimate_fee(&self, _transaction: &[u8]) -> Result<u64> {
+    async fn estimate_fee(&self, transaction: &[u8]) -> Result<u64> {
+        // To implement: parse transaction and call starknet_estimateFee
+        //
+        // Expected transaction format (same as send_transaction):
+        // {
+        //   "type": "INVOKE",
+        //   "sender_address": "0x...",
+        //   "calldata": ["0x...", ...],
+        //   "signature": ["0x...", ...],
+        //   "nonce": "0x...",
+        //   "version": "0x1"
+        // }
+        //
+        // RPC returns: { "gas_consumed": "0x...", "gas_price": "0x...", "overall_fee": "0x..." }
         Err(ChainClientError::NotImplemented(
-            "Starknet client not yet implemented - awaiting Phase 2-6".to_string(),
+            format!(
+                "estimate_fee not implemented - requires starknet_estimateFee integration (tx size: {} bytes)",
+                transaction.len()
+            )
         ))
     }
 }
