@@ -79,7 +79,6 @@ solana-program-test = "2.3"
 
 # TODO: Re-enable for zkCompression integration (https://www.zkcompression.com/)
 # When adding back light-sdk, also add getrandom patch:
-# [patch.crates-io]
 # getrandom = { git = "https://github.com/solana-labs/getrandom", rev = "..." }
 # light-sdk = "0.13.0"
 

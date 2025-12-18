@@ -58,6 +58,9 @@ pub mod starknet;
 #[cfg(feature = "aptos")]
 pub mod aptos;
 
+#[cfg(feature = "aptos")]
+pub mod aptos_primitives;
+
 pub use error::{ChainClientError, Result};
 pub use mock::MockChainClient;
 pub use types::*;
@@ -74,6 +77,16 @@ pub use starknet::StarknetClient;
 
 #[cfg(feature = "aptos")]
 pub use aptos::AptosClient;
+
+#[cfg(feature = "aptos")]
+pub use aptos_primitives::{
+    AccountAddress as AptosAccountAddress,
+    AptosAccount,
+    RawTransaction as AptosRawTransaction,
+    SignedTransaction as AptosSignedTransaction,
+    EntryFunction as AptosEntryFunction,
+    TypeTag as AptosTypeTag,
+};
 
 use async_trait::async_trait;
 
