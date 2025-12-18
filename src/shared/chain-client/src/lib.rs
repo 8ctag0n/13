@@ -55,6 +55,9 @@ pub mod solana_extensions;
 #[cfg(feature = "starknet")]
 pub mod starknet;
 
+#[cfg(feature = "starknet")]
+pub mod starknet_extensions;
+
 #[cfg(feature = "aptos")]
 pub mod aptos;
 
@@ -74,6 +77,9 @@ pub use solana_extensions::SolanaSpecificOps;
 
 #[cfg(feature = "starknet")]
 pub use starknet::StarknetClient;
+
+#[cfg(feature = "starknet")]
+pub use starknet_extensions::{StarknetEvent, StarknetSpecificOps};
 
 #[cfg(feature = "aptos")]
 pub use aptos::AptosClient;

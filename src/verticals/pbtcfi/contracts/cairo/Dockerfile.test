@@ -1,0 +1,23 @@
+FROM alpine:latest
+
+# Install dependencies
+RUN apk add --no-cache \
+    curl \
+    bash \
+    gcc \
+    musl-dev
+
+# Install Scarb (Cairo package manager)
+RUN curl --proto '=https' --tlsv1.2 -sSf https://docs.swmansion.com/scarb/install.sh | sh -s -- -v 2.8.4
+
+# Add Scarb to PATH
+ENV PATH="/root/.local/bin:${PATH}"
+
+# Set working directory
+WORKDIR /workspace
+
+# Copy Cairo project
+COPY . .
+
+# Default command
+CMD ["scarb", "test"]

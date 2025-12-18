@@ -3,6 +3,30 @@
 use serde::{Deserialize, Serialize};
 
 // =============================================================================
+// Chain Identifier
+// =============================================================================
+
+/// Supported chains for x402 gateway
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Chain {
+    #[default]
+    Solana,
+    Starknet,
+    Aptos,
+}
+
+impl Chain {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Chain::Solana => "solana",
+            Chain::Starknet => "starknet",
+            Chain::Aptos => "aptos",
+        }
+    }
+}
+
+// =============================================================================
 // Request Types
 // =============================================================================
 
@@ -10,11 +34,15 @@ use serde::{Deserialize, Serialize};
 pub struct QuoteRequest {
     pub circuit_type: u8,
     pub payer: String,
+    #[serde(default)]
+    pub chain: Chain,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct EstimateRequest {
     pub circuit_type: u8,
+    #[serde(default)]
+    pub chain: Chain,
 }
 
 #[derive(Debug, Deserialize)]
@@ -44,6 +72,25 @@ pub struct CreateJobRequest {
     pub witness_size: u32,
     pub timeout_seconds: i64,
     pub payer: String,
+    #[serde(default)]
+    pub chain: Chain,
+}
+
+/// Request for creating a pBTCFi loan (multi-chain)
+/// Includes ciphertext + signed deposit TX
+#[derive(Debug, Deserialize)]
+pub struct CreateLoanRequest {
+    /// Target chain
+    #[serde(default)]
+    pub chain: Chain,
+    /// Borrower address (format depends on chain)
+    pub borrower: String,
+    /// TFHE encrypted BTC amount (base64 encoded)
+    pub ciphertext: String,
+    /// Signed transaction for wBTC deposit (hex or base64 depending on chain)
+    pub signed_deposit_tx: String,
+    /// Optional: server key hash if already uploaded
+    pub server_key_hash: Option<String>,
 }
 
 // =============================================================================
@@ -103,6 +150,16 @@ pub struct WitnessUploadResponse {
 pub struct CreateJobResponse {
     pub job_id: i64,
     pub unsigned_transaction: String,
+}
+
+/// Response for pBTCFi loan creation
+#[derive(Debug, Serialize)]
+pub struct CreateLoanResponse {
+    pub loan_id: String,
+    pub chain: String,
+    pub witness_commitment: String,
+    pub deposit_tx_hash: String,
+    pub status: String,
 }
 
 #[derive(Debug, Serialize)]
