@@ -32,6 +32,8 @@
 mod types;
 pub mod factory;
 pub mod solana;
+pub mod aptos;
+pub mod starknet;
 
 #[cfg(test)]
 pub mod mock;
@@ -39,6 +41,8 @@ pub mod mock;
 pub use types::*;
 pub use factory::{ChainType, MarketplaceConfig, MarketplaceFactory};
 pub use solana::SolanaMarketplace;
+pub use aptos::AptosMarketplace;
+pub use starknet::StarknetMarketplace;
 
 use async_trait::async_trait;
 
