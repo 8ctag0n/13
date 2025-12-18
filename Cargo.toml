@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "sdks/rust",
+    "sdks/futarchy-sdk",
     "src/prover-node",
     "src/witness-storage",
     "src/blink-server",
