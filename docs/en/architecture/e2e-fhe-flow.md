@@ -148,7 +148,7 @@ The witness format varies based on operation type:
 [encrypted_data_len: 4 bytes LE] [encrypted_data: N bytes] [server_key: M bytes]
 ```
 
-**Example in code (job-creator):**
+**Example in code (dev-job):**
 
 ```rust
 let mut encrypted_input = Vec::new();
@@ -611,4 +611,4 @@ engine.set_key_for_thread();
 - [Price Slider Integration Guide](../guides/price-slider-integration.md) - Frontend integration
 - [FHE Operations Specification](./fhe-operations.md) - Detailed operation specs
 - [Prover Node Setup](../guides/prover-setup.md) - Running a prover node
-- [Job Creator Guide](../guides/job-creator.md) - Creating and submitting jobs
+- Dev job runner: use `zyb dev-job` for creating and submitting jobs

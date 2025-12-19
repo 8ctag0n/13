@@ -13,7 +13,7 @@ pkill -f solana-test-validator && echo "  [OK] Validator stopped" || true
 pkill -f blink-server && echo "  [OK] Backend stopped" || true
 pkill -f zyberlink-prover && echo "  [OK] Provers stopped" || true
 pkill -f "vite" && echo "  [OK] Frontend stopped" || true
-pkill -f "job-creator" && echo "  [OK] Job creator stopped" || true
+pkill -f "zyb dev-job" && echo "  [OK] Dev job stopped" || true
 
 sleep 2
 

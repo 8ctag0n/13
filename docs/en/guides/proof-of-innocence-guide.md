@@ -106,11 +106,11 @@ def id_to_index(entity_id):
 Use the FHE CLI to encrypt your transaction indices:
 
 ```bash
-cd src/fhe-cli
+cd src/zyb-cli
 
 # Encrypt your transaction history
 # Format: comma-separated list of indices
-cargo run --release --bin fhe-cli encrypt \
+cargo run --release --bin zyb fhe encrypt \
   --values 10,25,50,75
 
 # Output:
@@ -395,8 +395,8 @@ sanctioned = [66, 77, 88, 99]
 #### 2. Encrypt Transaction Indices
 
 ```bash
-cd src/fhe-cli
-cargo run --release --bin fhe-cli encrypt --values 10,25,50,75
+cd src/zyb-cli
+cargo run --release --bin zyb fhe encrypt --values 10,25,50,75
 
 # Output:
 # ✅ Encrypted 4 transactions
@@ -748,7 +748,7 @@ app.post('/webhooks/zyberlink', async (req, res) => {
 Continue exploring ZyberLink:
 
 - **[Private Analytics Guide](analytics-guide.md)** - Statistical computations on encrypted data
-- **[FHE CLI Guide](fhe-cli.md)** - Master encryption workflows
+- **[Zyb CLI (FHE) Guide](fhe-cli.md)** - Master encryption workflows
 - **[Prover Setup Guide](prover-setup.md)** - Run your own verification node
 - **[SDK Integration](sdk-integration.md)** - Build PoI into your platform
 

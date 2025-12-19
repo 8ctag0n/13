@@ -17,7 +17,7 @@
 | Resource | Path | Description |
 |----------|------|-------------|
 | GitBook Docs | [/docs/book](docs/book) | Full documentation (EN/ES) |
-| FHE CLI | [/src/fhe-cli](src/fhe-cli) | Client-side encryption tool |
+| Zyb CLI (FHE) | [/src/zyb-cli](src/zyb-cli) | Client-side encryption tool |
 | Rust SDK | [/sdks/rust](sdks/rust) | Integration library for Rust apps |
 | API Reference | [/docs/book/en/guides/api-reference.md](docs/book/en/guides/api-reference.md) | Backend API endpoints |
 
@@ -103,24 +103,23 @@ Prove age >= 18 without revealing exact age:
 ```
 Threshold(encrypted_age, >= 18) → true/false
 ```
-## FHE CLI Tool
+## Zyb CLI (FHE)
 
-Encrypt data locally before sending to the marketplace. Full docs: [/src/fhe-cli](src/fhe-cli)
+Encrypt data locally before sending to the marketplace. Full docs: [/src/zyb-cli](src/zyb-cli)
 
 ```bash
 # Build
-cd src/fhe-cli
-cargo build --release
+cargo build --release -p zyb-cli
 
 # Encrypt values
-./target/release/fhe-cli encrypt --values 100,200,300,400,500
+./target/release/zyb fhe encrypt --values 100,200,300,400,500
 
 # Output files in ./fhe-output:
 # - client_key.bin (SECRET - keep local for decryption)
 # - witness.bin (upload this to marketplace)
 
 # Decrypt result after job completes
-./target/release/fhe-cli decrypt -p ./fhe-output -r "BASE64_RESULT"
+./target/release/zyb fhe decrypt -p ./fhe-output -r "BASE64_RESULT"
 ```
 
 ## SDK Integration
@@ -147,19 +146,19 @@ let result = client.wait_for_result(job_id).await?;
 
 See [SDK Integration Guide](docs/book/en/guides/sdk-integration.md) for full documentation.
 
-## Job Creator (Testing)
+## Dev Job Runner (Testing)
 
 Create and verify jobs programmatically.
 
 ```bash
-# Build
-cargo build --release --manifest-path src/job-creator/Cargo.toml
+# Build (zyb-cli)
+cargo build --release -p zyb-cli
 
 # Run PoI test (CountIf >= 18 on [15,20,25,17] → expects 2)
-./target/release/job-creator verify-poi
+./target/release/zyb dev-job verify --types count-if
 
 # Run Sum test (Sum [10,20,30] → expects 60)
-./target/release/job-creator verify-sum
+./target/release/zyb dev-job verify --types sum
 ```
 ## Tech Stack
 
@@ -181,7 +180,7 @@ src/
 ├── prover-node/     # Prover daemon
 ├── blink-server/    # Backend API
 ├── webapp/          # Frontend (Svelte)
-├── fhe-cli/         # CLI encryption tool
+├── zyb-cli/         # Unified CLI (FHE/ZK/dev-job)
 └── shared/          # Shared types
 ```
 

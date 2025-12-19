@@ -294,8 +294,8 @@ create-job: ## Create a single test job
 	@export $$(grep -v '^#' src/blink-server/.env | xargs) && \
 	cargo run --manifest-path sdks/rust/Cargo.toml --example create_test_job
 
-start-job-creator: ## Start job creator (creates jobs every 10 seconds)
-	@echo "$(BLUE) Starting job creator...$(NC)"
+start-job-creator: ## Start dev-job runner (creates jobs every 10 seconds)
+	@echo "$(BLUE) Starting dev-job...$(NC)"
 	@scripts/start-job-creator.sh
 
 list-jobs: ## List all jobs from API
@@ -416,14 +416,14 @@ airdrop: ## Airdrop SOL to prover wallets
 	done
 	@echo "$(GREEN) Airdrops complete!$(NC)"
 
-airdrop-job-creator: ## Airdrop 100 SOL to job creator
-	@echo "$(BLUE) Airdropping to job creator...$(NC)"
+airdrop-job-creator: ## Airdrop 100 SOL to dev-job wallet
+	@echo "$(BLUE) Airdropping to dev-job...$(NC)"
 	@if [ ! -f "/tmp/job-creator-keypair.json" ]; then \
-		echo "Creating job creator keypair..."; \
+		echo "Creating dev-job keypair..."; \
 		solana-keygen new --no-bip39-passphrase --force --outfile /tmp/job-creator-keypair.json >/dev/null 2>&1; \
 	fi
 	@ADDR=$$(solana address --keypair /tmp/job-creator-keypair.json); \
-	echo "  Job creator: $$ADDR"; \
+	echo "  Dev job: $$ADDR"; \
 	solana airdrop 100 $$ADDR --url http://localhost:8899
 	@echo "$(GREEN) Airdrop complete!$(NC)"
 
@@ -442,7 +442,7 @@ check-balances: ## Check balances of all wallets
 	@if [ -f "/tmp/job-creator-keypair.json" ]; then \
 		ADDR=$$(solana address --keypair /tmp/job-creator-keypair.json); \
 		BALANCE=$$(solana balance --keypair /tmp/job-creator-keypair.json --url http://localhost:8899 2>/dev/null || echo "0"); \
-		echo "Job Creator: $$BALANCE ($$ADDR)"; \
+		echo "Dev Job: $$BALANCE ($$ADDR)"; \
 	fi
 	@echo ""
 
@@ -529,38 +529,38 @@ localnet-init: ## [STEP 2] Initialize marketplace on-chain (run once after setup
 	@echo "$(BLUE)Initializing marketplace...$(NC)"
 	@scripts/init-marketplace.sh
 
-localnet-jobs: ## [STEP 3] Start job creator (auto-creates jobs every 10s)
-	@echo "$(BLUE)Starting job creator (auto-creating jobs)...$(NC)"
-	@# Kill any existing job-creator
-	@-pkill -f "job-creator" 2>/dev/null || true
+localnet-jobs: ## [STEP 3] Start dev-job runner (auto-creates jobs every 10s)
+	@echo "$(BLUE)Starting dev-job (auto-creating jobs)...$(NC)"
+	@# Kill any existing dev-job runner
+	@-pkill -f "zyb dev-job" 2>/dev/null || true
 	@# Create keypair if needed
 	@if [ ! -f "/tmp/job-creator-keypair.json" ]; then \
-		echo "Creating job creator keypair..."; \
+		echo "Creating dev-job keypair..."; \
 		solana-keygen new --no-bip39-passphrase --force --outfile /tmp/job-creator-keypair.json >/dev/null 2>&1; \
 	fi
 	@export $$(grep -v '^#' src/blink-server/.env | xargs) && \
 	ADDR=$$(solana address --keypair /tmp/job-creator-keypair.json); \
-	echo "  Job creator: $$ADDR"; \
+	echo "  Dev job: $$ADDR"; \
 	solana airdrop 100 $$ADDR --url $$SOLANA_RPC_URL 2>/dev/null || echo "  (airdrop may have failed)"; \
 	BALANCE=$$(solana balance --keypair /tmp/job-creator-keypair.json --url $$SOLANA_RPC_URL 2>/dev/null); \
 	echo "  Balance: $$BALANCE"
-	@# Build job-creator
-	@echo "  Building job-creator..."
-	@cargo build --release --manifest-path src/job-creator/Cargo.toml 2>&1 | tail -3
-	@# Start job-creator in background (pointing to public-api on 3000)
+	@# Build zyb-cli
+	@echo "  Building zyb-cli..."
+	@cargo build --release -p zyb-cli 2>&1 | tail -3
+	@# Start dev-job in background (pointing to public-api on 3000)
 	@export $$(grep -v '^#' src/blink-server/.env | xargs) && \
 	RUST_LOG=info \
 	BACKEND_URL=http://localhost:3000 \
 	SOLANA_RPC_URL=$$SOLANA_RPC_URL \
 	PROGRAM_ID=$$PROGRAM_ID \
 	USER_KEYPAIR=/tmp/job-creator-keypair.json \
-	./target/release/job-creator > /tmp/job-creator.log 2>&1 &
+	./target/release/zyb dev-job run > /tmp/dev-job.log 2>&1 &
 	@sleep 2
-	@if pgrep -f "job-creator" > /dev/null; then \
-		echo "$(GREEN)Job creator running! (creating jobs every 10s)$(NC)"; \
-		echo "  Logs: tail -f /tmp/job-creator.log"; \
+	@if pgrep -f "zyb dev-job" > /dev/null; then \
+		echo "$(GREEN)Dev job running! (creating jobs every 10s)$(NC)"; \
+		echo "  Logs: tail -f /tmp/dev-job.log"; \
 	else \
-		echo "$(RED)Job creator failed to start. Check /tmp/job-creator.log$(NC)"; \
+		echo "$(RED)Dev job failed to start. Check /tmp/dev-job.log$(NC)"; \
 	fi
 
 # ============================================================================
@@ -571,7 +571,7 @@ localnet-stop: stop ## Stop all localnet services
 
 l1: localnet-start ## Alias: make l1 = start localnet (validator + backend + provers)
 l2: localnet-init  ## Alias: make l2 = init marketplace
-l3: localnet-jobs  ## Alias: make l3 = start job creator
+l3: localnet-jobs  ## Alias: make l3 = start dev-job
 l4: start-frontend ## Alias: make l4 = start frontend (webapp)
 l0: localnet-stop db-clean-jobs clean-ledger ## Alias: make l0 = stop all + clean jobs + reset validator ledger
 	@echo "$(YELLOW)Resetting Solana validator ledger...$(NC)"
@@ -626,7 +626,7 @@ serve: dev-up ## Alias: make serve = start containerized dev
 
 c0: ## [CONTAINER] Reset: stop containers + clean volumes
 	@echo "$(BLUE)Resetting container environment...$(NC)"
-	@-pkill -f "job-creator" 2>/dev/null || true
+	@-pkill -f "zyb dev-job" 2>/dev/null || true
 	@-pkill -f "zyberlink-prover" 2>/dev/null || true
 	@podman-compose down -v 2>/dev/null || true
 	@podman system prune -f 2>/dev/null || true
@@ -668,15 +668,15 @@ c2: ## [CONTAINER] Initialize marketplace + register provers
 	done
 	@echo ""
 	@echo "$(GREEN)Marketplace ready with 3 provers!$(NC)"
-	@echo "$(YELLOW)Next: make c3 (start provers + job creator)$(NC)"
+	@echo "$(YELLOW)Next: make c3 (start provers + dev-job)$(NC)"
 
-c3: ## [CONTAINER] Start provers + job creator (local binaries)
-	@echo "$(BLUE)Starting provers and job creator...$(NC)"
+c3: ## [CONTAINER] Start provers + dev-job (local binaries)
+	@echo "$(BLUE)Starting provers and dev-job...$(NC)"
 	@if [ ! -f ".env.containers" ]; then \
 		echo "$(RED)ERROR: .env.containers not found. Run 'make c1' first$(NC)"; \
 		exit 1; \
 	fi
-	@-pkill -f "job-creator" 2>/dev/null || true
+	@-pkill -f "zyb dev-job" 2>/dev/null || true
 	@-pkill -f "zyberlink-prover" 2>/dev/null || true
 	@echo ""
 	@echo "Step 1/2: Starting 3 prover nodes..."
@@ -698,27 +698,27 @@ c3: ## [CONTAINER] Start provers + job creator (local binaries)
 	@RUNNING=$$(pgrep -c -f "zyberlink-prover" || echo 0); \
 	echo "$(GREEN)  $$RUNNING provers running$(NC)"
 	@echo ""
-	@echo "Step 2/2: Starting job creator..."
+	@echo "Step 2/2: Starting dev-job..."
 	@if [ ! -f "/tmp/job-creator-keypair.json" ]; then \
 		solana-keygen new --no-bip39-passphrase --force --outfile /tmp/job-creator-keypair.json >/dev/null 2>&1; \
 	fi
 	@ADDR=$$(solana address --keypair /tmp/job-creator-keypair.json); \
-	echo "  Job creator: $$ADDR"; \
+	echo "  Dev job: $$ADDR"; \
 	solana airdrop 100 $$ADDR --url http://localhost:8899 2>/dev/null || true; \
 	BALANCE=$$(solana balance --keypair /tmp/job-creator-keypair.json --url http://localhost:8899 2>/dev/null); \
 	echo "  Balance: $$BALANCE"
-	@cargo build --release --manifest-path src/job-creator/Cargo.toml 2>&1 | tail -2
+	@cargo build --release -p zyb-cli 2>&1 | tail -2
 	@export $$(grep -v '^#' .env.containers | xargs) && \
 	RUST_LOG=info \
 	BACKEND_URL=http://localhost:9000 \
 	SOLANA_RPC_URL=http://localhost:8899 \
 	USER_KEYPAIR=/tmp/job-creator-keypair.json \
-	./target/release/job-creator > /tmp/job-creator.log 2>&1 &
+	./target/release/zyb dev-job run > /tmp/dev-job.log 2>&1 &
 	@sleep 2
-	@if pgrep -f "job-creator" > /dev/null; then \
-		echo "$(GREEN)  Job creator running$(NC)"; \
+	@if pgrep -f "zyb dev-job" > /dev/null; then \
+		echo "$(GREEN)  Dev job running$(NC)"; \
 	else \
-		echo "$(RED)  Job creator failed. Check /tmp/job-creator.log$(NC)"; \
+		echo "$(RED)  Dev job failed. Check /tmp/dev-job.log$(NC)"; \
 	fi
 	@echo ""
 	@echo "$(GREEN)=== DEMO RUNNING ===$(NC)"
@@ -727,7 +727,7 @@ c3: ## [CONTAINER] Start provers + job creator (local binaries)
 	@echo ""
 	@echo "  Logs:"
 	@echo "    - Provers:    tail -f /tmp/prover-*.log"
-	@echo "    - Job creator: tail -f /tmp/job-creator.log"
+	@echo "    - Dev job:   tail -f /tmp/dev-job.log"
 	@echo "    - Backend:    podman logs -f zyberlink-demo_backend_1"
 	@echo ""
 	@echo "  Jobs created every 10s, provers claim and process them!"
@@ -781,8 +781,8 @@ e2e-poi: ## [E2E] Run PoI verification test: CountIf([15,20,25,17], >= 18) -> ex
 		exit 1; \
 	fi; \
 	echo "Using env: $$ENV_FILE, backend: $$BACKEND"; \
-	echo "Building job-creator..."; \
-	cargo build --release --manifest-path src/job-creator/Cargo.toml 2>&1 | tail -3; \
+	echo "Building zyb-cli..."; \
+	cargo build --release -p zyb-cli 2>&1 | tail -3; \
 	if [ ! -f "/tmp/job-creator-keypair.json" ]; then \
 		solana-keygen new --no-bip39-passphrase --force --outfile /tmp/job-creator-keypair.json >/dev/null 2>&1; \
 	fi; \
@@ -793,7 +793,7 @@ e2e-poi: ## [E2E] Run PoI verification test: CountIf([15,20,25,17], >= 18) -> ex
 	BACKEND_URL=$$BACKEND \
 	SOLANA_RPC_URL=http://localhost:8899 \
 	USER_KEYPAIR=/tmp/job-creator-keypair.json \
-	./src/job-creator/target/release/job-creator verify-poi
+	./target/release/zyb dev-job verify --types count-if
 
 e2e-sum: ## [E2E] Run Sum verification test: Sum([10,20,30]) -> expect 60
 	@echo "$(BLUE)Running Sum E2E Verification Test...$(NC)"
@@ -809,8 +809,8 @@ e2e-sum: ## [E2E] Run Sum verification test: Sum([10,20,30]) -> expect 60
 		exit 1; \
 	fi; \
 	echo "Using env: $$ENV_FILE, backend: $$BACKEND"; \
-	echo "Building job-creator..."; \
-	cargo build --release --manifest-path src/job-creator/Cargo.toml 2>&1 | tail -3; \
+	echo "Building zyb-cli..."; \
+	cargo build --release -p zyb-cli 2>&1 | tail -3; \
 	if [ ! -f "/tmp/job-creator-keypair.json" ]; then \
 		solana-keygen new --no-bip39-passphrase --force --outfile /tmp/job-creator-keypair.json >/dev/null 2>&1; \
 	fi; \
@@ -821,7 +821,7 @@ e2e-sum: ## [E2E] Run Sum verification test: Sum([10,20,30]) -> expect 60
 	BACKEND_URL=$$BACKEND \
 	SOLANA_RPC_URL=http://localhost:8899 \
 	USER_KEYPAIR=/tmp/job-creator-keypair.json \
-	./src/job-creator/target/release/job-creator verify-sum
+	./target/release/zyb dev-job verify --types sum
 
 e2e-all: ## [E2E] Run all verification tests (sequential)
 	@echo "$(BLUE)Running ALL E2E Verification Tests (sequential)...$(NC)"
@@ -842,15 +842,15 @@ e2e-poi-devnet: ## [DEVNET E2E] Run PoI verification test on devnet
 		echo "$(RED)ERROR: .env.devnet not found. Run './scripts/setup-devnet.sh' first$(NC)"; \
 		exit 1; \
 	fi
-	@echo "Building job-creator..."
-	@cargo build --release --manifest-path src/job-creator/Cargo.toml 2>&1 | tail -3
+	@echo "Building zyb-cli..."
+	@cargo build --release -p zyb-cli 2>&1 | tail -3
 	@if [ ! -f "keypairs/job-creator.json" ]; then \
-		echo "Creating job-creator keypair..."; \
+		echo "Creating dev-job keypair..."; \
 		solana-keygen new --no-bip39-passphrase --force --outfile keypairs/job-creator.json >/dev/null 2>&1; \
 	fi
 	@export $$(grep -v '^#' .env.devnet | xargs) && \
 	ADDR=$$(solana address --keypair keypairs/job-creator.json) && \
-	echo "Job creator: $$ADDR" && \
+	echo "Dev job: $$ADDR" && \
 	BALANCE=$$(solana balance keypairs/job-creator.json --url $$SOLANA_RPC_URL 2>/dev/null | cut -d' ' -f1) && \
 	echo "Balance: $$BALANCE SOL" && \
 	if [ "$$(echo "$$BALANCE < 0.1" | bc -l)" = "1" ]; then \
@@ -862,7 +862,7 @@ e2e-poi-devnet: ## [DEVNET E2E] Run PoI verification test on devnet
 	SOLANA_RPC_URL=$$SOLANA_RPC_URL \
 	PROGRAM_ID=$$PROGRAM_ID \
 	USER_KEYPAIR=keypairs/job-creator.json \
-	./src/job-creator/target/release/job-creator verify-poi
+	./target/release/zyb dev-job verify --types count-if
 
 e2e-sum-devnet: ## [DEVNET E2E] Run Sum verification test on devnet
 	@echo "$(BLUE)Running Sum E2E Verification Test on DEVNET...$(NC)"
@@ -870,15 +870,15 @@ e2e-sum-devnet: ## [DEVNET E2E] Run Sum verification test on devnet
 		echo "$(RED)ERROR: .env.devnet not found. Run './scripts/setup-devnet.sh' first$(NC)"; \
 		exit 1; \
 	fi
-	@echo "Building job-creator..."
-	@cargo build --release --manifest-path src/job-creator/Cargo.toml 2>&1 | tail -3
+	@echo "Building zyb-cli..."
+	@cargo build --release -p zyb-cli 2>&1 | tail -3
 	@if [ ! -f "keypairs/job-creator.json" ]; then \
-		echo "Creating job-creator keypair..."; \
+		echo "Creating dev-job keypair..."; \
 		solana-keygen new --no-bip39-passphrase --force --outfile keypairs/job-creator.json >/dev/null 2>&1; \
 	fi
 	@export $$(grep -v '^#' .env.devnet | xargs) && \
 	ADDR=$$(solana address --keypair keypairs/job-creator.json) && \
-	echo "Job creator: $$ADDR" && \
+	echo "Dev job: $$ADDR" && \
 	BALANCE=$$(solana balance keypairs/job-creator.json --url $$SOLANA_RPC_URL 2>/dev/null | cut -d' ' -f1) && \
 	echo "Balance: $$BALANCE SOL" && \
 	if [ "$$(echo "$$BALANCE < 0.1" | bc -l)" = "1" ]; then \
@@ -890,7 +890,7 @@ e2e-sum-devnet: ## [DEVNET E2E] Run Sum verification test on devnet
 	SOLANA_RPC_URL=$$SOLANA_RPC_URL \
 	PROGRAM_ID=$$PROGRAM_ID \
 	USER_KEYPAIR=keypairs/job-creator.json \
-	./src/job-creator/target/release/job-creator verify-sum
+	./target/release/zyb dev-job verify --types sum
 
 e2e-all-devnet: ## [DEVNET E2E] Run all verification tests on devnet
 	@echo "$(BLUE)Running ALL E2E Verification Tests on DEVNET...$(NC)"
@@ -907,7 +907,7 @@ e2e-all-devnet: ## [DEVNET E2E] Run all verification tests on devnet
 
 d0: ## [DEVNET] Reset: stop containers + clean volumes
 	@echo "$(BLUE)Resetting devnet environment...$(NC)"
-	@-pkill -f "job-creator" 2>/dev/null || true
+	@-pkill -f "zyb dev-job" 2>/dev/null || true
 	@-pkill -f "zyberlink-prover" 2>/dev/null || true
 	@podman-compose -f docker-compose.devnet.yml down -v 2>/dev/null || true
 	@echo "$(GREEN)Devnet environment reset. Ready for 'make d1'$(NC)"
@@ -1309,4 +1309,3 @@ e2e-real-all: e2e-real-check e2e-real ## Run all E2E real stack tests
 # Aliases for e2e
 e2e-r: e2e-real
 e2e-rz: e2e-real-zk
-

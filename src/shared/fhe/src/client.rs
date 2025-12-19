@@ -60,6 +60,7 @@ pub fn decrypt_result(encrypted_bytes: &[u8], client_key: &ClientKey) -> Result<
 /// ```ignore
 /// let results = decrypt_results(&encrypted_list, &client_key)?;
 /// ```
+#[allow(dead_code)]
 pub fn decrypt_results(encrypted_list: &[Vec<u8>], client_key: &ClientKey) -> Result<Vec<u8>> {
     encrypted_list
         .iter()
