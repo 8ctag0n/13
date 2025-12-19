@@ -62,6 +62,14 @@ pub struct ProverArgs {
     /// Path to ZK circuits directory
     #[arg(long, default_value = "./prover-circuits")]
     pub zk_circuits_path: String,
+
+    /// Enable Futarchy FHE job processing
+    #[arg(long)]
+    pub enable_futarchy: bool,
+
+    /// Futarchy blink-server URL (for FHE job polling)
+    #[arg(long, default_value = "http://localhost:8090")]
+    pub futarchy_server_url: String,
 }
 
 #[derive(Parser, Debug)]

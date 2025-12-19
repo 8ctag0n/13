@@ -37,8 +37,11 @@ hex = "0.4"
 
 solana-sdk.workspace = true
 solana-client.workspace = true
+solana-program.workspace = true
+solana-account-decoder.workspace = true
 
 zyberlink-sdk = { path = "../../sdks/rust" }
+futarchy-sdk = { path = "../../sdks/futarchy-sdk" }
 zyberlink-types = { path = "../shared/types" }
 zyberlink-chain-client = { path = "../shared/chain-client", features = ["aptos", "starknet"] }
 

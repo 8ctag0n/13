@@ -44,6 +44,16 @@ impl CircuitRegistry {
         circuit_type >= 4 && circuit_type <= 11
     }
 
+    /// Check if CircuitType enum is FHE type
+    pub fn is_fhe_circuit_from_enum(circuit_type: &CircuitType) -> bool {
+        matches!(circuit_type, CircuitType::FheComputation(_))
+    }
+
+    /// Convert CircuitType enum directly (no FHE data needed)
+    pub fn get_circuit_type_from_enum(circuit_type: &CircuitType) -> CircuitType {
+        circuit_type.clone()
+    }
+
     /// Check if circuit is ZK type (Snarkjs Groth16)
     pub fn is_zk_circuit(circuit_type: u8) -> bool {
         circuit_type >= 10 && circuit_type <= 49

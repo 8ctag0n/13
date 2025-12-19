@@ -22,9 +22,13 @@ pub struct FutarchyPoolJob {
     pub market_id: String,
     /// Side of the bet (true = YES, false = NO)
     pub side: bool,
-    /// Hash of the bet ciphertext (32 bytes)
+    /// The encrypted bet amount (from Position account)
+    pub bet_ciphertext: Vec<u8>,
+    /// The encrypted pool amount (from Market account)
+    pub pool_ciphertext: Vec<u8>,
+    /// Hash of the bet ciphertext (32 bytes) - for verification
     pub bet_ciphertext_hash: [u8; 32],
-    /// Hash of the current pool ciphertext (32 bytes)
+    /// Hash of the current pool ciphertext (32 bytes) - for verification
     pub pool_ciphertext_hash: [u8; 32],
 }
 
@@ -82,11 +86,9 @@ impl FutarchyPoolWorker {
     /// Process a single pool update job
     ///
     /// Flow:
-    /// 1. Fetch current pool ciphertext from app server
-    /// 2. Fetch bet ciphertext from app server
-    /// 3. Verify hashes match what's on-chain
-    /// 4. Perform homomorphic addition: new_pool = pool + bet
-    /// 5. Return result with hash for consensus
+    /// 1. Verify hashes match what's expected (from on-chain data)
+    /// 2. Perform homomorphic addition: new_pool = pool + bet
+    /// 3. Return result with hash for consensus
     pub fn process_job(&self, job: &FutarchyPoolJob) -> Result<FutarchyPoolResult> {
         log::info!(
             "Processing Futarchy pool job {} for market {} (side: {})",
@@ -95,42 +97,38 @@ impl FutarchyPoolWorker {
             if job.side { "YES" } else { "NO" }
         );
 
-        // 1. Fetch current pool
-        let pool_ciphertext = self
-            .ciphertext_fetcher
-            .fetch_by_hash(&job.pool_ciphertext_hash)
-            .context("Failed to fetch pool ciphertext")?;
-
-        // 2. Fetch bet
-        let bet_ciphertext = self
-            .ciphertext_fetcher
-            .fetch_by_hash(&job.bet_ciphertext_hash)
-            .context("Failed to fetch bet ciphertext")?;
-
-        // 3. Verify hashes (already done in fetcher, but double-check)
-        let pool_hash = FutarchyFheClient::hash_ciphertext(&pool_ciphertext);
-        let bet_hash = FutarchyFheClient::hash_ciphertext(&bet_ciphertext);
+        // 1. Verify hashes match what's provided
+        let pool_hash = FutarchyFheClient::hash_ciphertext(&job.pool_ciphertext);
+        let bet_hash = FutarchyFheClient::hash_ciphertext(&job.bet_ciphertext);
 
         if pool_hash != job.pool_ciphertext_hash {
-            return Err(anyhow!("Pool ciphertext hash mismatch"));
+            return Err(anyhow!(
+                "Pool ciphertext hash mismatch. Expected: {}, Got: {}",
+                hex::encode(job.pool_ciphertext_hash),
+                hex::encode(pool_hash)
+            ));
         }
         if bet_hash != job.bet_ciphertext_hash {
-            return Err(anyhow!("Bet ciphertext hash mismatch"));
+            return Err(anyhow!(
+                "Bet ciphertext hash mismatch. Expected: {}, Got: {}",
+                hex::encode(job.bet_ciphertext_hash),
+                hex::encode(bet_hash)
+            ));
         }
 
         log::debug!(
             "Ciphertexts verified. Pool: {} bytes, Bet: {} bytes",
-            pool_ciphertext.len(),
-            bet_ciphertext.len()
+            job.pool_ciphertext.len(),
+            job.bet_ciphertext.len()
         );
 
-        // 4. Perform homomorphic addition
+        // 2. Perform homomorphic addition
         log::info!("Performing homomorphic addition...");
         let start = std::time::Instant::now();
 
         let new_pool_ciphertext = self
             .fhe_client
-            .homomorphic_add(&pool_ciphertext, &bet_ciphertext)
+            .homomorphic_add(&job.pool_ciphertext, &job.bet_ciphertext)
             .map_err(|e| anyhow!("Homomorphic addition failed: {}", e))?;
 
         let elapsed = start.elapsed();
@@ -140,7 +138,7 @@ impl FutarchyPoolWorker {
             new_pool_ciphertext.len()
         );
 
-        // 5. Compute result hash
+        // 3. Compute result hash
         let result_hash = FutarchyFheClient::hash_ciphertext(&new_pool_ciphertext);
 
         log::info!(
