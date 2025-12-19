@@ -3,6 +3,7 @@ mod api_handlers;
 mod chain_sync;
 mod cleanup;
 mod db;
+mod futarchy_handlers;
 mod job_finalizer;
 mod pbtcfi_handlers;
 mod pbtcfi_prover;
@@ -286,6 +287,19 @@ async fn main() -> std::io::Result<()> {
     log::info!("  GET    /internal/zk/{{job_id}}/status");
     log::info!("  POST   /internal/zk/{{job_id}}/confirm");
     log::info!("");
+    log::info!("Futarchy API:");
+    log::info!("  GET    /api/futarchy/health");
+    log::info!("  POST   /api/futarchy/bet/prepare          (E2E: build unsigned TX)");
+    log::info!("  POST   /api/futarchy/bet/submit           (E2E: submit signed TX)");
+    log::info!("  GET    /api/futarchy/markets");
+    log::info!("  POST   /api/futarchy/markets");
+    log::info!("  GET    /api/futarchy/markets/{{id}}");
+    log::info!("  POST   /api/futarchy/markets/{{id}}/bet");
+    log::info!("  POST   /api/futarchy/markets/{{id}}/settle");
+    log::info!("  GET    /api/fhe/ciphertext/{{hash}}");
+    log::info!("  GET    /api/fhe/markets/{{id}}/pool/{{side}}");
+    log::info!("  POST   /api/fhe/markets/{{id}}/pool/{{side}}/update");
+    log::info!("");
     log::info!("NOTE: This is an INTERNAL service (port {})", port);
     log::info!("      Should only be accessed via public-api gateway");
     log::info!("");
@@ -320,7 +334,9 @@ async fn main() -> std::io::Result<()> {
             // ZK Jobs API
             .configure(zk_handlers::configure_routes)
             // pBTCFi API
-            .configure(pbtcfi_handlers::configure_routes);
+            .configure(pbtcfi_handlers::configure_routes)
+            // Futarchy API
+            .configure(futarchy_handlers::configure_routes);
 
         // Add AttestationService if available
         if let Some(service) = attestation_service.clone() {

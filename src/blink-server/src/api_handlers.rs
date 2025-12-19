@@ -1935,7 +1935,7 @@ async fn get_job_result(data: web::Data<AppState>, job_id: web::Path<i64>) -> im
                 *job_id,
                 result_data.len()
             );
-            // Return as base64-encoded JSON for job-creator compatibility
+            // Return as base64-encoded JSON for dev-job compatibility
             HttpResponse::Ok().json(json!({
                 "job_id": *job_id,
                 "encrypted_result": STANDARD.encode(&result_data)

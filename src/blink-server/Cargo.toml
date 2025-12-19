@@ -61,6 +61,7 @@ uuid = { version = "1.10", features = ["v4"] }
 zyberlink-sdk = { path = "../../sdks/rust" }
 zyberlink-types = { path = "../shared/types" }
 zyberlink-chain-client = { workspace = true, features = ["solana", "starknet"] }
+futarchy-sdk = { path = "../../sdks/futarchy-sdk" }
 borsh = { workspace = true }
 
 # HTTP client for x402-server communication
