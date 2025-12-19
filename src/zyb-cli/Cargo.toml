@@ -10,6 +10,11 @@ name = "zyb"
 path = "src/main.rs"
 
 [dependencies]
+# ZyberLink
+zyberlink-sdk = { path = "../../sdks/rust" }
+zyberlink-types = { path = "../shared/types" }
+zyberlink-fhe = { path = "../shared/fhe" }
+
 # FHE
 tfhe = { version = "0.10", features = ["integer", "x86_64-unix"] }
 
@@ -21,6 +26,7 @@ serde = { version = "1.0", features = ["derive"] }
 
 # Crypto
 sha3 = "0.10"
+blake2 = "0.10"
 hex = "0.4"
 
 # Error handling
@@ -34,6 +40,10 @@ clap = { version = "4.4", features = ["derive"] }
 chrono = { version = "0.4", features = ["serde"] }
 dialoguer = "0.11"
 console = "0.15"
+log = "0.4"
+env_logger = "0.11"
+rand = "0.8"
+bs58 = "0.5"
 
 # File I/O
 dirs = "5.0"
