@@ -12,12 +12,11 @@ members = [
     "src/shared/fhe",
     "src/shared/jobs",
     "src/shared/chain-client",
-    "src/fhe-cli",
     "src/zyb-cli",
     "src/test-utils",
 ]
 exclude = [
-    "src/job-creator",  # Standalone E2E testing tool
+    "src/___dump/job-creator",  # Deprecated E2E testing tool (moved to dump)
     "src/programs",     # Separate workspace for Solana BPF
     "tests/e2e",        # E2E tests use solana-program-test which requires BPF
     "sdks/fhe-client-sdk",  # Standalone FHE SDK with heavy tfhe-rs dependency
@@ -94,4 +93,3 @@ codegen-units = 1
 opt-level = 3
 incremental = false
 codegen-units = 1
-

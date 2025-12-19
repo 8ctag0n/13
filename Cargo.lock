@@ -2408,22 +2408,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fhe-cli"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "atty",
- "base64 0.22.1",
- "bincode",
- "chrono",
- "clap",
- "colored",
- "dirs 5.0.1",
- "serde_json",
- "tfhe 0.10.0",
-]
-
-[[package]]
 name = "fhe-client-sdk"
 version = "0.1.0"
 dependencies = [
@@ -2580,6 +2564,8 @@ name = "futarchy-sdk"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64 0.21.7",
+ "bincode",
  "borsh 1.6.0",
  "serde",
  "solana-account-decoder",
@@ -11476,6 +11462,8 @@ dependencies = [
  "atty",
  "base64 0.22.1",
  "bincode",
+ "blake2",
+ "bs58",
  "chrono",
  "clap",
  "colored",
@@ -11483,8 +11471,11 @@ dependencies = [
  "console",
  "dialoguer",
  "dirs 5.0.1",
+ "env_logger 0.11.8",
  "hex",
  "indicatif",
+ "log",
+ "rand 0.8.5",
  "reqwest 0.11.27",
  "serde",
  "serde_json",
@@ -11495,6 +11486,9 @@ dependencies = [
  "tfhe 0.10.0",
  "thiserror 1.0.69",
  "tokio",
+ "zyberlink-fhe",
+ "zyberlink-sdk",
+ "zyberlink-types",
 ]
 
 [[package]]
@@ -11529,6 +11523,7 @@ dependencies = [
  "bs58",
  "chrono",
  "env_logger 0.11.8",
+ "futarchy-sdk",
  "hex",
  "log",
  "num-bigint 0.4.6",
@@ -11627,6 +11622,7 @@ dependencies = [
  "env_logger 0.11.8",
  "ff",
  "fhe-client-sdk",
+ "futarchy-sdk",
  "group",
  "halo2_proofs",
  "hex",
@@ -11642,7 +11638,9 @@ dependencies = [
  "serde-big-array",
  "serde_json",
  "shellexpand",
+ "solana-account-decoder",
  "solana-client",
+ "solana-program",
  "solana-sdk",
  "thiserror 1.0.69",
  "tokio",
