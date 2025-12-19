@@ -52,6 +52,7 @@ pub fn process_place_bet(
     public_inputs: Vec<u8>,
     amount: u64,
     circuit_type: u8,
+    _ciphertext_hash: Option<[u8; 32]>,
     encrypted_bet_amount: Option<Vec<u8>>,
     side: Option<bool>,
 ) -> ProgramResult {

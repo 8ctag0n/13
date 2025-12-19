@@ -65,7 +65,8 @@ pub fn build_place_bet_ix(
 ) -> Result<Instruction> {
     let market_pda = find_market_pda(program_id, market_id);
     let position_pda = find_position_pda(program_id, market_id, bettor);
-    let escrow_pda = find_escrow_pda(program_id, market_id);
+    let user_escrow_pda = find_user_escrow_pda(program_id, bettor, market_id);
+    let market_escrow_pda = find_escrow_pda(program_id, market_id);
 
     let instruction_data = FutarchyInstruction::PlaceBet {
         market_id,
@@ -83,7 +84,8 @@ pub fn build_place_bet_ix(
         AccountMeta::new(*bettor, true),
         AccountMeta::new(market_pda.address, false),
         AccountMeta::new(position_pda.address, false),
-        AccountMeta::new(escrow_pda.address, false),
+        AccountMeta::new(user_escrow_pda.address, false),
+        AccountMeta::new(market_escrow_pda.address, false),
         AccountMeta::new_readonly(*zk_generator_program, false),
         AccountMeta::new_readonly(system_program::id(), false),
         AccountMeta::new_readonly(sysvar::clock::id(), false),

@@ -91,6 +91,16 @@ async fn main() -> std::io::Result<()> {
     log::info!("  GET  /api/stats/network           (network statistics)");
     log::info!("  GET  /api/metrics                 (prometheus metrics)");
     log::info!("");
+    log::info!("  Futarchy:");
+    log::info!("  GET  /api/futarchy/markets");
+    log::info!("  GET  /api/futarchy/markets/{id}");
+    log::info!("  GET  /api/futarchy/markets/{id}/positions");
+    log::info!("  GET  /api/futarchy/positions/{bettor}");
+    log::info!("  POST /api/futarchy/markets/validate-and-build");
+    log::info!("  POST /api/futarchy/markets/{id}/bet/validate-and-build");
+    log::info!("  POST /api/futarchy/markets/{id}/settle/validate-and-build");
+    log::info!("  POST /api/futarchy/markets/{id}/claim/validate-and-build");
+    log::info!("");
     log::info!("Starting server at http://{}:{}...", host, port);
 
     HttpServer::new(move || {

@@ -59,6 +59,7 @@ pub fn process(
             public_inputs,
             amount,
             circuit_type,
+            ciphertext_hash,
             encrypted_bet_amount,
             side,
         } => {
@@ -72,6 +73,7 @@ pub fn process(
                 public_inputs,
                 amount,
                 circuit_type,
+                ciphertext_hash,
                 encrypted_bet_amount,
                 side,
             )

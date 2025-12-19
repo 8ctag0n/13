@@ -8,11 +8,36 @@
   import UseCases from '../components/UseCases.svelte';
   import Footer from '../components/Footer.svelte';
   import GlobalNavigation from '../components/GlobalNavigation.svelte';
+  import TerminalBox from '../components/futarchy/terminal/TerminalBox.svelte';
+  import TerminalButton from '../components/futarchy/terminal/TerminalButton.svelte';
+  import TerminalInput from '../components/futarchy/terminal/TerminalInput.svelte';
+  import { walletStore } from '../stores/wallet';
   import { navigateTo } from '../stores/router';
 
   // API config - use relative path for nginx proxy
   const API_BASE = import.meta.env.VITE_API_URL || '';
   let activeProvers = 0;
+  let commandInput = '';
+  let commandLog = [];
+  let suggestionIndex = -1;
+  let history = [];
+  let historyIndex = -1;
+  const historyStorageKey = 'zyber_terminal_history';
+  const historyLimit = 30;
+
+  $: promptPrefix = `zyber@terminal${$walletStore.connected ? '(✓)' : '( )'}:~$`;
+
+  const availableCommands = [
+    { command: '/futarchy', description: 'Open Futarchy terminal' },
+    { command: '/job', description: 'Open job marketplace' },
+    { command: '/create-job', description: 'Create a new job' },
+    { command: '/submit-job', description: 'Submit a job' },
+    { command: '/connect', description: 'Connect Solana wallet' },
+    { command: '/disconnect', description: 'Disconnect wallet' },
+    { command: '/help', description: 'Show help' },
+    { command: '/pbtcfi', description: 'Coming soon' },
+    { command: '/ploans', description: 'Coming soon' }
+  ];
 
   onMount(async () => {
     try {
@@ -24,10 +49,172 @@
     } catch (error) {
       console.error('Failed to load network stats:', error);
     }
+
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = JSON.parse(window.localStorage.getItem(historyStorageKey) || '[]');
+        if (Array.isArray(stored)) {
+          history = stored.slice(0, historyLimit);
+        }
+      } catch (error) {
+        console.warn('Failed to load command history:', error);
+      }
+    }
   });
 
   function skipToDemo() {
     navigateTo('dashboard');
+  }
+
+  function openFutarchyTerminal() {
+    navigateTo('futarchy');
+  }
+
+  function pushLog(message, type = 'info') {
+    commandLog = [{ message, type, at: new Date().toISOString() }, ...commandLog].slice(0, 10);
+  }
+
+  function pushLogBatch(lines) {
+    const entries = lines.map((message) => ({
+      message,
+      type: 'info',
+      at: new Date().toISOString()
+    }));
+    commandLog = [...entries.reverse(), ...commandLog].slice(0, 10);
+  }
+
+  function formatTimestamp(iso) {
+    return new Date(iso).toISOString().slice(11, 19);
+  }
+
+  async function handleCommandSubmit() {
+    const command = commandInput.trim().toLowerCase();
+    if (!command) return;
+
+    history = [command, ...history.filter(item => item !== command)].slice(0, historyLimit);
+    historyIndex = -1;
+
+    pushLog(`${promptPrefix} ${command}`);
+
+    if (command === '/futarchy') {
+      navigateTo('futarchy');
+    } else if (command === '/job' || command === '/jobs') {
+      navigateTo('dashboard');
+    } else if (command === '/create-job' || command === '/submit-job') {
+      navigateTo('create-job');
+    } else if (command === '/connect') {
+      if ($walletStore.connected) {
+        pushLog('Wallet already connected.');
+      } else {
+        try {
+          const result = await walletStore.connect('solana');
+          pushLog(`Wallet connected: ${result.publicKey.slice(0, 4)}...${result.publicKey.slice(-4)}`);
+        } catch (error) {
+          pushLog(`Wallet connection failed: ${error.message || 'unknown error'}`, 'error');
+        }
+      }
+    } else if (command === '/disconnect') {
+      if ($walletStore.connected) {
+        walletStore.disconnect();
+        pushLog('Wallet disconnected.');
+      } else {
+        pushLog('No wallet connected.');
+      }
+    } else if (command === '/help') {
+      pushLogBatch([
+        'Available commands:',
+        '/futarchy   → open Futarchy terminal',
+        '/job        → open job marketplace',
+        '/create-job → open job creation flow',
+        '/submit-job → open job creation flow',
+        '/connect    → connect Solana wallet',
+        '/disconnect → disconnect wallet',
+        '/pbtcfi     → coming soon',
+        '/ploans     → coming soon'
+      ]);
+    } else if (command === '/pbtcfi') {
+      pushLog('PBTCFI is coming soon.');
+    } else if (command === '/ploans') {
+      pushLog('PLOANS is coming soon.');
+    } else {
+      pushLog(`Unknown command: ${command}`);
+    }
+
+    commandInput = '';
+    suggestionIndex = -1;
+    historyIndex = -1;
+  }
+
+  function handleCommandKeydown(event) {
+    const nativeEvent = event.detail || event;
+    if (nativeEvent.key === 'Enter') {
+      handleCommandSubmit();
+    } else if (nativeEvent.key === 'Tab') {
+      nativeEvent.preventDefault();
+      if (filteredSuggestions.length > 0) {
+        const nextIndex = (suggestionIndex + 1) % filteredSuggestions.length;
+        const selected = filteredSuggestions[nextIndex];
+        commandInput = selected.command;
+        suggestionIndex = nextIndex;
+      }
+    } else if (nativeEvent.key === 'ArrowDown') {
+      nativeEvent.preventDefault();
+      if (filteredSuggestions.length > 0 && commandInput.trim()) {
+        suggestionIndex = (suggestionIndex + 1) % filteredSuggestions.length;
+      } else if (history.length > 0) {
+        if (historyIndex > 0) {
+          historyIndex -= 1;
+          commandInput = history[historyIndex];
+        } else {
+          historyIndex = -1;
+          commandInput = '';
+        }
+      }
+    } else if (nativeEvent.key === 'ArrowUp') {
+      nativeEvent.preventDefault();
+      if (filteredSuggestions.length > 0 && commandInput.trim()) {
+        suggestionIndex = suggestionIndex <= 0 ? filteredSuggestions.length - 1 : suggestionIndex - 1;
+      } else if (history.length > 0) {
+        if (historyIndex < history.length - 1) {
+          historyIndex += 1;
+          commandInput = history[historyIndex];
+        } else if (historyIndex === -1) {
+          historyIndex = 0;
+          commandInput = history[historyIndex];
+        }
+      }
+    } else if (nativeEvent.key === 'Escape') {
+      suggestionIndex = -1;
+    }
+  }
+
+  function handleCommandInput() {
+    historyIndex = -1;
+    suggestionIndex = -1;
+  }
+
+  function selectSuggestion(index) {
+    const selected = filteredSuggestions[index];
+    if (selected) {
+      commandInput = selected.command;
+      suggestionIndex = index;
+    }
+  }
+
+  $: filteredSuggestions = availableCommands.filter((item) =>
+    item.command.includes(commandInput.trim().toLowerCase())
+  );
+
+  $: if (!commandInput) {
+    suggestionIndex = -1;
+  }
+
+  $: if (typeof window !== 'undefined') {
+    try {
+      window.localStorage.setItem(historyStorageKey, JSON.stringify(history.slice(0, historyLimit)));
+    } catch (error) {
+      console.warn('Failed to save command history:', error);
+    }
   }
 
   function exploreDocs() {
@@ -118,6 +305,9 @@
           <!-- CTA Section -->
           <div class="cta-section">
             <div class="cta-buttons">
+              <button class="btn btn-primary" on:click={openFutarchyTerminal}>
+                <span class="text-mono">[ENTER_FUTARCHY_TERMINAL]</span>
+              </button>
               <button class="btn btn-secondary" on:click={skipToDemo}>
                 <span class="text-mono">[EXPLORE_JOBS →]</span>
               </button>
@@ -129,6 +319,46 @@
             <div class="text-xs text-muted text-center mt-4">
               <span class="text-mono">&gt;</span> NO_WALLET_REQUIRED_FOR_EXPLORATION
             </div>
+
+            <TerminalBox tone="muted" dense>
+              <div class="command-bar">
+                <TerminalInput
+                  label="command"
+                  bind:value={commandInput}
+                  placeholder="/futarchy | /job | /connect"
+                  prefix={promptPrefix}
+                  on:input={handleCommandInput}
+                  on:keydown={handleCommandKeydown}
+                />
+                <TerminalButton label="EXECUTE" tone="cyan" size="sm" on:click={handleCommandSubmit} />
+              </div>
+              <div class="command-hint text-mono text-xs text-muted">
+                Tip: /help for full list. Tab completes. ↑/↓ cycles suggestions or history.
+              </div>
+              {#if commandInput && filteredSuggestions.length}
+                <div class="command-suggestions">
+                  {#each filteredSuggestions as suggestion, index}
+                    <button
+                      type="button"
+                      class="suggestion {index === suggestionIndex ? 'active' : ''}"
+                      on:click={() => selectSuggestion(index)}
+                    >
+                      <span class="text-mono">{suggestion.command}</span>
+                      <span class="text-mono text-xs text-muted">{suggestion.description}</span>
+                    </button>
+                  {/each}
+                </div>
+              {/if}
+              {#if commandLog.length}
+                <div class="command-log">
+                  {#each commandLog as entry}
+                    <div class="log-line text-mono text-xs">
+                      [{formatTimestamp(entry.at)}] {entry.message}
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+            </TerminalBox>
           </div>
         </div>
       </div>
@@ -345,6 +575,53 @@
 
   .cta-section {
     width: 100%;
+  }
+
+  .command-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    align-items: flex-end;
+  }
+
+  .command-suggestions {
+    margin-top: var(--space-3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .suggestion {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid var(--zyber-border-muted);
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .suggestion.active {
+    border-color: var(--zyber-cyber-cyan);
+    box-shadow: var(--zyber-glow-cyan);
+  }
+
+  .command-log {
+    margin-top: var(--space-3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .command-hint {
+    margin-top: var(--space-2);
+    letter-spacing: 0.04em;
+  }
+
+  .log-line {
+    color: var(--zyber-text-secondary);
   }
 
   .cta-buttons {

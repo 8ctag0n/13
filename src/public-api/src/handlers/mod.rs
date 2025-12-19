@@ -2,6 +2,7 @@ mod health;
 mod quote;
 mod jobs;
 mod stats;
+mod futarchy;
 
 use actix_web::web;
 
@@ -23,4 +24,23 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     // Stats
     cfg.service(stats::get_network_stats);
     cfg.service(stats::get_metrics);
+
+    // Futarchy
+    cfg.service(futarchy::futarchy_health);
+    cfg.service(futarchy::list_markets);
+    cfg.service(futarchy::get_market);
+    cfg.service(futarchy::get_market_positions);
+    cfg.service(futarchy::get_bettor_positions);
+    cfg.service(futarchy::get_pending_fhe_jobs);
+    cfg.service(futarchy::create_market);
+    cfg.service(futarchy::place_bet);
+    cfg.service(futarchy::settle_market);
+    cfg.service(futarchy::prepare_bet);
+    cfg.service(futarchy::submit_bet);
+    cfg.service(futarchy::complete_fhe_job);
+    cfg.service(futarchy::fail_fhe_job);
+    cfg.service(futarchy::validate_market);
+    cfg.service(futarchy::validate_bet);
+    cfg.service(futarchy::validate_settle);
+    cfg.service(futarchy::validate_claim);
 }

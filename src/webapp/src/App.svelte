@@ -9,6 +9,7 @@
   import JobDetails from './lib/pages/JobDetails.svelte';
   import Analytics from './lib/pages/Analytics.svelte';
   import ProofOfInnocence from './lib/pages/ProofOfInnocence.svelte';
+  import FutarchyTerminal from './lib/pages/FutarchyTerminal.svelte';
   import Toast from './lib/components/Toast.svelte';
   import { toastStore } from './lib/stores/toast';
   import './styles/tui-system.css';
@@ -33,6 +34,8 @@
     <Analytics />
   {:else if $currentRoute === 'proof-of-innocence'}
     <ProofOfInnocence />
+  {:else if $currentRoute === 'futarchy'}
+    <FutarchyTerminal />
   {:else if isPatternRoute($currentRoute, 'job-details')}
     <JobDetails jobId={jobParams.jobId} />
   {/if}

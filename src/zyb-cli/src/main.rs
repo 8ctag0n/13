@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use zyb_cli::commands::compliance::ComplianceCommands;
 use zyb_cli::commands::dev_job::DevJobCommands;
 use zyb_cli::commands::market::MarketCommands;
+use zyb_cli::commands::profile::ProfileCommands;
 use zyb_cli::commands::vote::VoteCommands;
 
 #[derive(Parser, Debug)]
@@ -40,6 +41,10 @@ enum Commands {
     /// Compliance operations (portfolio verification)
     #[command(subcommand)]
     Compliance(ComplianceCommands),
+
+    /// Manage dev-job profiles
+    #[command(subcommand)]
+    Profile(ProfileCommands),
 
     /// Developer job runner (testing/demo)
     #[command(subcommand)]
@@ -189,6 +194,10 @@ fn main() -> Result<()> {
 
         Commands::Compliance(compliance_cmd) => {
             zyb_cli::commands::compliance::handle_compliance_command(compliance_cmd)
+        }
+
+        Commands::Profile(profile_cmd) => {
+            zyb_cli::commands::profile::handle_profile_command(profile_cmd)
         }
 
         Commands::DevJob(dev_job_cmd) => {

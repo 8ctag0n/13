@@ -54,6 +54,8 @@ pub enum FutarchyInstruction {
         amount: u64,
         /// Circuit type (30 = MarketBet, 31 = MarketBetWithPoI)
         circuit_type: u8,
+        /// Ciphertext hash for FHE verification (optional)
+        ciphertext_hash: Option<[u8; 32]>,
         /// Encrypted bet amount (FHE ciphertext, optional)
         /// If provided, will create FHE job to add to pool
         encrypted_bet_amount: Option<Vec<u8>>,

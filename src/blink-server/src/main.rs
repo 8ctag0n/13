@@ -293,9 +293,13 @@ async fn main() -> std::io::Result<()> {
     log::info!("  POST   /api/futarchy/bet/submit           (E2E: submit signed TX)");
     log::info!("  GET    /api/futarchy/markets");
     log::info!("  POST   /api/futarchy/markets");
+    log::info!("  POST   /api/futarchy/markets/validate-and-build");
     log::info!("  GET    /api/futarchy/markets/{{id}}");
     log::info!("  POST   /api/futarchy/markets/{{id}}/bet");
+    log::info!("  POST   /api/futarchy/markets/{{id}}/bet/validate-and-build");
     log::info!("  POST   /api/futarchy/markets/{{id}}/settle");
+    log::info!("  POST   /api/futarchy/markets/{{id}}/settle/validate-and-build");
+    log::info!("  POST   /api/futarchy/markets/{{id}}/claim/validate-and-build");
     log::info!("  GET    /api/fhe/ciphertext/{{hash}}");
     log::info!("  GET    /api/fhe/markets/{{id}}/pool/{{side}}");
     log::info!("  POST   /api/fhe/markets/{{id}}/pool/{{side}}/update");

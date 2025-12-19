@@ -10,6 +10,7 @@ use solana_sdk::{
     signature::{Keypair, Signer},
     transaction::Transaction,
 };
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
 use zyberlink_fhe::{generate_keys, prelude::*, ClientKey, FheUint8};
@@ -22,6 +23,8 @@ pub enum DevJobCommands {
     Run(DevJobRunArgs),
     /// Verify jobs end-to-end (submit -> wait -> decrypt)
     Verify(DevJobVerifyArgs),
+    /// Plan jobs without submitting (dry run)
+    Plan(DevJobPlanArgs),
     /// Simulate webapp flow (validate-and-build)
     WebappFlow(DevJobWebappArgs),
     /// Simulate webapp Proof of Innocence flow
@@ -30,6 +33,14 @@ pub enum DevJobCommands {
 
 #[derive(Args, Debug, Clone)]
 pub struct DevJobCommonArgs {
+    /// Config file path (default: dev-job.toml in current directory)
+    #[arg(long)]
+    pub config: Option<PathBuf>,
+
+    /// Profile name from config (overrides common.profile)
+    #[arg(long)]
+    pub profile: Option<String>,
+
     /// Program ID (overrides PROGRAM_ID env var)
     #[arg(long)]
     pub program_id: Option<String>,
@@ -49,6 +60,10 @@ pub struct DevJobCommonArgs {
     /// Disable auto-airdrop on low balance
     #[arg(long)]
     pub no_airdrop: bool,
+
+    /// Emit JSON events in addition to human logs
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug)]
@@ -65,8 +80,8 @@ pub struct DevJobRunArgs {
     pub cases: Option<Vec<DevJobCase>>,
 
     /// Seconds between jobs
-    #[arg(long, default_value_t = 10)]
-    pub interval_secs: u64,
+    #[arg(long)]
+    pub interval_secs: Option<u64>,
 
     /// Run a single cycle and exit
     #[arg(long)]
@@ -92,6 +107,20 @@ pub struct DevJobVerifyArgs {
 }
 
 #[derive(Args, Debug)]
+pub struct DevJobPlanArgs {
+    #[command(flatten)]
+    pub common: DevJobCommonArgs,
+
+    /// Comma-separated list of job types to plan (overrides --cases)
+    #[arg(long, value_delimiter = ',')]
+    pub types: Option<Vec<DevJobType>>,
+
+    /// Comma-separated list of cases to plan (poi, futarchy, analytics, mix)
+    #[arg(long, value_delimiter = ',')]
+    pub cases: Option<Vec<DevJobCase>>,
+}
+
+#[derive(Args, Debug)]
 pub struct DevJobWebappArgs {
     #[command(flatten)]
     pub common: DevJobCommonArgs,
@@ -101,7 +130,8 @@ pub struct DevJobWebappArgs {
     pub verify: bool,
 }
 
-#[derive(Clone, Copy, Debug, ValueEnum)]
+#[derive(Clone, Copy, Debug, ValueEnum, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum DevJobType {
     Add,
     Multiply,
@@ -114,7 +144,8 @@ pub enum DevJobType {
     Histogram,
 }
 
-#[derive(Clone, Copy, Debug, ValueEnum)]
+#[derive(Clone, Copy, Debug, ValueEnum, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum DevJobCase {
     Poi,
     Futarchy,
@@ -146,6 +177,32 @@ impl JobSpec {
     }
 }
 
+#[derive(Default)]
+struct RunStats {
+    total: u64,
+    submitted: u64,
+    failed: u64,
+    total_price: u64,
+}
+
+struct JobRunOutcome {
+    total_price: u64,
+}
+
+struct VerifyOutcome {
+    status: &'static str,
+}
+
+impl VerifyOutcome {
+    fn passed() -> Self {
+        Self { status: "passed" }
+    }
+
+    fn failed() -> Self {
+        Self { status: "failed" }
+    }
+}
+
 #[derive(Debug)]
 struct DevJobConfig {
     rpc_url: String,
@@ -153,6 +210,7 @@ struct DevJobConfig {
     backend_url: String,
     keypair_path: PathBuf,
     no_airdrop: bool,
+    json: bool,
 }
 
 struct DevJobContext {
@@ -161,6 +219,57 @@ struct DevJobContext {
     http_client: reqwest::Client,
     user_keypair: Keypair,
     backend_url: String,
+    json: bool,
+}
+
+#[derive(Default, Deserialize)]
+struct DevJobFileConfig {
+    common: Option<DevJobCommonFileConfig>,
+    profiles: Option<HashMap<String, DevJobProfileConfig>>,
+    run: Option<DevJobRunFileConfig>,
+    verify: Option<DevJobVerifyFileConfig>,
+    webapp: Option<DevJobWebappFileConfig>,
+}
+
+#[derive(Default, Deserialize)]
+struct DevJobCommonFileConfig {
+    profile: Option<String>,
+    program_id: Option<String>,
+    rpc_url: Option<String>,
+    backend_url: Option<String>,
+    keypair: Option<PathBuf>,
+    no_airdrop: Option<bool>,
+    json: Option<bool>,
+}
+
+#[derive(Clone, Default, Deserialize)]
+struct DevJobProfileConfig {
+    program_id: Option<String>,
+    rpc_url: Option<String>,
+    backend_url: Option<String>,
+    keypair: Option<PathBuf>,
+    no_airdrop: Option<bool>,
+    json: Option<bool>,
+}
+
+#[derive(Default, Deserialize)]
+struct DevJobRunFileConfig {
+    types: Option<Vec<DevJobType>>,
+    cases: Option<Vec<DevJobCase>>,
+    interval_secs: Option<u64>,
+    once: Option<bool>,
+    shuffle: Option<bool>,
+}
+
+#[derive(Default, Deserialize)]
+struct DevJobVerifyFileConfig {
+    types: Option<Vec<DevJobType>>,
+    all: Option<bool>,
+}
+
+#[derive(Default, Deserialize)]
+struct DevJobWebappFileConfig {
+    verify: Option<bool>,
 }
 
 pub fn handle_dev_job_command(command: DevJobCommands) -> Result<()> {
@@ -173,39 +282,53 @@ async fn handle_dev_job_command_async(command: DevJobCommands) -> Result<()> {
 
     match command {
         DevJobCommands::Run(args) => {
-            let context = build_context(&args.common).await?;
-            run_dev_job_sequence(context, args).await
+            let (args, file_config) = apply_run_config(args)?;
+            let context = build_context(&args.common, file_config.as_ref()).await?;
+            run_dev_job_sequence(context, args, file_config.as_ref()).await
         }
         DevJobCommands::Verify(args) => {
-            let context = build_context(&args.common).await?;
-            run_verify_sequence(context, args).await
+            let (args, file_config) = apply_verify_config(args)?;
+            let context = build_context(&args.common, file_config.as_ref()).await?;
+            run_verify_sequence(context, args, file_config.as_ref()).await
+        }
+        DevJobCommands::Plan(args) => {
+            let (args, file_config) = apply_plan_config(args)?;
+            let context = build_context(&args.common, file_config.as_ref()).await?;
+            run_plan_sequence(context, args, file_config.as_ref()).await
         }
         DevJobCommands::WebappFlow(args) => {
-            let context = build_context(&args.common).await?;
+            let (args, file_config) = apply_webapp_config(args)?;
+            let context = build_context(&args.common, file_config.as_ref()).await?;
             run_webapp_flow(
                 &context.rpc_client,
                 &context.http_client,
                 &context.user_keypair,
                 &context.backend_url,
                 args.verify,
+                context.json,
             )
             .await
         }
         DevJobCommands::WebappFlowPoi(args) => {
-            let context = build_context(&args).await?;
+            let file_config = load_file_config(&args.config)?;
+            let context = build_context(&args, file_config.as_ref()).await?;
             run_webapp_flow_poi(
                 &context.rpc_client,
                 &context.http_client,
                 &context.user_keypair,
                 &context.backend_url,
+                context.json,
             )
             .await
         }
     }
 }
 
-async fn build_context(args: &DevJobCommonArgs) -> Result<DevJobContext> {
-    let config = load_config(args)?;
+async fn build_context(
+    args: &DevJobCommonArgs,
+    file_config: Option<&DevJobFileConfig>,
+) -> Result<DevJobContext> {
+    let config = load_config(args, file_config)?;
 
     let user_keypair = if config.keypair_path.exists() {
         log::info!("Loading keypair from {}", config.keypair_path.display());
@@ -238,19 +361,46 @@ async fn build_context(args: &DevJobCommonArgs) -> Result<DevJobContext> {
         http_client,
         user_keypair,
         backend_url: config.backend_url,
+        json: config.json,
     })
 }
 
-fn load_config(args: &DevJobCommonArgs) -> Result<DevJobConfig> {
+fn load_config(
+    args: &DevJobCommonArgs,
+    file_config: Option<&DevJobFileConfig>,
+) -> Result<DevJobConfig> {
+    let common = file_config.and_then(|cfg| cfg.common.as_ref());
+    let profile_name = args
+        .profile
+        .clone()
+        .or_else(|| common.and_then(|cfg| cfg.profile.clone()));
+
+    let profile = match (profile_name, file_config.and_then(|cfg| cfg.profiles.as_ref())) {
+        (Some(name), Some(profiles)) => Some(
+            profiles
+                .get(&name)
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("Profile not found in config: {}", name))?,
+        ),
+        (Some(name), None) => {
+            return Err(anyhow::anyhow!("Profile not found in config: {}", name))
+        }
+        (None, _) => None,
+    };
+
     let rpc_url = args
         .rpc_url
         .clone()
+        .or_else(|| profile.as_ref().and_then(|cfg| cfg.rpc_url.clone()))
+        .or_else(|| common.and_then(|cfg| cfg.rpc_url.clone()))
         .or_else(|| std::env::var("SOLANA_RPC_URL").ok())
         .unwrap_or_else(|| "http://localhost:8899".to_string());
 
     let program_id_str = args
         .program_id
         .clone()
+        .or_else(|| profile.as_ref().and_then(|cfg| cfg.program_id.clone()))
+        .or_else(|| common.and_then(|cfg| cfg.program_id.clone()))
         .or_else(|| std::env::var("PROGRAM_ID").ok())
         .context("PROGRAM_ID env var required (or use --program-id)")?;
 
@@ -261,38 +411,64 @@ fn load_config(args: &DevJobCommonArgs) -> Result<DevJobConfig> {
     let backend_url = args
         .backend_url
         .clone()
+        .or_else(|| profile.as_ref().and_then(|cfg| cfg.backend_url.clone()))
+        .or_else(|| common.and_then(|cfg| cfg.backend_url.clone()))
         .or_else(|| std::env::var("BACKEND_URL").ok())
         .unwrap_or_else(|| "http://localhost:8080".to_string());
 
     let keypair_path = args
         .keypair
         .clone()
+        .or_else(|| profile.as_ref().and_then(|cfg| cfg.keypair.clone()))
+        .or_else(|| common.and_then(|cfg| cfg.keypair.clone()))
         .or_else(|| std::env::var("USER_KEYPAIR").ok().map(PathBuf::from))
         .unwrap_or_else(|| PathBuf::from("/tmp/job-creator-keypair.json"));
+
+    let no_airdrop = args.no_airdrop
+        || profile.as_ref().and_then(|cfg| cfg.no_airdrop).unwrap_or(false)
+        || common.and_then(|cfg| cfg.no_airdrop).unwrap_or(false);
+    let json = args.json
+        || profile.as_ref().and_then(|cfg| cfg.json).unwrap_or(false)
+        || common.and_then(|cfg| cfg.json).unwrap_or(false);
 
     Ok(DevJobConfig {
         rpc_url,
         program_id,
         backend_url,
         keypair_path,
-        no_airdrop: args.no_airdrop,
+        no_airdrop,
+        json,
     })
 }
 
-async fn run_dev_job_sequence(context: DevJobContext, args: DevJobRunArgs) -> Result<()> {
+async fn run_dev_job_sequence(
+    context: DevJobContext,
+    args: DevJobRunArgs,
+    file_config: Option<&DevJobFileConfig>,
+) -> Result<()> {
     log::info!("");
     log::info!("===========================================");
     log::info!("  Dev Job - Run Mode");
     log::info!("===========================================");
     log::info!("");
 
-    let base_specs = build_specs_for_run(args.types.as_deref(), args.cases.as_deref())?;
+    let run_config = file_config.and_then(|cfg| cfg.run.as_ref());
+    let types = args.types.as_deref().or(run_config.and_then(|cfg| cfg.types.as_deref()));
+    let cases = args.cases.as_deref().or(run_config.and_then(|cfg| cfg.cases.as_deref()));
+    let interval_secs = args
+        .interval_secs
+        .or(run_config.and_then(|cfg| cfg.interval_secs))
+        .unwrap_or(10);
+    let once = args.once || run_config.and_then(|cfg| cfg.once).unwrap_or(false);
+    let shuffle = args.shuffle || run_config.and_then(|cfg| cfg.shuffle).unwrap_or(false);
+
+    let base_specs = build_specs_for_run(types, cases)?;
     if base_specs.is_empty() {
         anyhow::bail!("No job specs resolved from --types or --cases");
     }
 
     let mut cycle = 0u64;
-    let interval = Duration::from_secs(args.interval_secs);
+    let interval = Duration::from_secs(interval_secs);
     let mut rng = rand::thread_rng();
 
     loop {
@@ -300,13 +476,30 @@ async fn run_dev_job_sequence(context: DevJobContext, args: DevJobRunArgs) -> Re
         log::info!("--- Cycle {} ---", cycle);
 
         let mut cycle_specs = base_specs.clone();
-        if args.shuffle {
+        if shuffle {
             cycle_specs.shuffle(&mut rng);
         }
 
+        let mut stats = RunStats::default();
         for spec in cycle_specs {
-            if let Err(e) = create_and_submit_job(&context, &spec).await {
-                log::error!("Failed to create job {}: {}", spec.name, e);
+            stats.total += 1;
+            match create_and_submit_job(&context, &spec).await {
+                Ok(outcome) => {
+                    stats.submitted += 1;
+                    stats.total_price += outcome.total_price;
+                }
+                Err(e) => {
+                    stats.failed += 1;
+                    log::error!("Failed to create job {}: {}", spec.name, e);
+                    emit_json(
+                        context.json,
+                        serde_json::json!({
+                            "event": "job_failed",
+                            "job": spec.name,
+                            "error": e.to_string(),
+                        }),
+                    );
+                }
             }
 
             if interval.as_secs() > 0 {
@@ -314,7 +507,25 @@ async fn run_dev_job_sequence(context: DevJobContext, args: DevJobRunArgs) -> Re
             }
         }
 
-        if args.once {
+        log::info!(
+            "Cycle {} summary: submitted {}, failed {}, total_price {} lamports",
+            cycle,
+            stats.submitted,
+            stats.failed,
+            stats.total_price
+        );
+        emit_json(
+            context.json,
+            serde_json::json!({
+                "event": "run_summary",
+                "cycle": cycle,
+                "submitted": stats.submitted,
+                "failed": stats.failed,
+                "total_price_lamports": stats.total_price,
+            }),
+        );
+
+        if once {
             break;
         }
     }
@@ -322,14 +533,20 @@ async fn run_dev_job_sequence(context: DevJobContext, args: DevJobRunArgs) -> Re
     Ok(())
 }
 
-async fn run_verify_sequence(context: DevJobContext, args: DevJobVerifyArgs) -> Result<()> {
+async fn run_verify_sequence(
+    context: DevJobContext,
+    args: DevJobVerifyArgs,
+    file_config: Option<&DevJobFileConfig>,
+) -> Result<()> {
     log::info!("");
     log::info!("===========================================");
     log::info!("  Dev Job - Verify Mode");
     log::info!("===========================================");
     log::info!("");
 
-    let types = if args.all {
+    let verify_config = file_config.and_then(|cfg| cfg.verify.as_ref());
+    let all = args.all || verify_config.and_then(|cfg| cfg.all).unwrap_or(false);
+    let types = if all {
         vec![
             DevJobType::Add,
             DevJobType::Multiply,
@@ -339,17 +556,23 @@ async fn run_verify_sequence(context: DevJobContext, args: DevJobVerifyArgs) -> 
             DevJobType::Average,
             DevJobType::CountIf,
         ]
-    } else if let Some(types) = args.types {
+    } else if let Some(types) = args
+        .types
+        .clone()
+        .or_else(|| verify_config.and_then(|cfg| cfg.types.clone()))
+    {
         types
     } else {
         anyhow::bail!("Use --types or --all to select what to verify");
     };
 
+    let mut passed = 0u64;
+    let mut failed = 0u64;
     for job_type in types {
         let spec = spec_from_type(job_type)?;
         let expected = spec.expected.context("Selected type does not support verify")?;
 
-        run_verified_job(
+        let outcome = run_verified_job(
             &context.sdk,
             &context.rpc_client,
             &context.http_client,
@@ -359,9 +582,141 @@ async fn run_verify_sequence(context: DevJobContext, args: DevJobVerifyArgs) -> 
             &spec.values,
             expected,
             spec.name,
+            context.json,
         )
         .await?;
+
+        if outcome.status == "passed" {
+            passed += 1;
+        } else {
+            failed += 1;
+        }
     }
+
+    log::info!("Verify summary: {} passed, {} failed", passed, failed);
+    emit_json(
+        context.json,
+        serde_json::json!({
+            "event": "verify_summary",
+            "passed": passed,
+            "failed": failed,
+        }),
+    );
+
+    Ok(())
+}
+
+fn apply_run_config(args: DevJobRunArgs) -> Result<(DevJobRunArgs, Option<DevJobFileConfig>)> {
+    let file_config = load_file_config(&args.common.config)?;
+    Ok((args, file_config))
+}
+
+fn apply_verify_config(
+    args: DevJobVerifyArgs,
+) -> Result<(DevJobVerifyArgs, Option<DevJobFileConfig>)> {
+    let file_config = load_file_config(&args.common.config)?;
+    Ok((args, file_config))
+}
+
+fn apply_webapp_config(
+    args: DevJobWebappArgs,
+) -> Result<(DevJobWebappArgs, Option<DevJobFileConfig>)> {
+    let file_config = load_file_config(&args.common.config)?;
+    let mut args = args;
+    if !args.verify {
+        if let Some(verify) = file_config
+            .as_ref()
+            .and_then(|cfg| cfg.webapp.as_ref())
+            .and_then(|cfg| cfg.verify)
+        {
+            args.verify = verify;
+        }
+    }
+    Ok((args, file_config))
+}
+
+fn apply_plan_config(args: DevJobPlanArgs) -> Result<(DevJobPlanArgs, Option<DevJobFileConfig>)> {
+    let file_config = load_file_config(&args.common.config)?;
+    Ok((args, file_config))
+}
+
+fn load_file_config(path: &Option<PathBuf>) -> Result<Option<DevJobFileConfig>> {
+    let config_path = path.clone().unwrap_or_else(|| PathBuf::from("dev-job.toml"));
+    if !config_path.exists() {
+        if path.is_some() {
+            anyhow::bail!("Config file not found: {}", config_path.display());
+        }
+        return Ok(None);
+    }
+
+    let contents = std::fs::read_to_string(&config_path)
+        .with_context(|| format!("Failed to read config file {}", config_path.display()))?;
+    let config: DevJobFileConfig =
+        toml::from_str(&contents).context("Failed to parse dev-job.toml")?;
+    Ok(Some(config))
+}
+
+async fn run_plan_sequence(
+    context: DevJobContext,
+    args: DevJobPlanArgs,
+    file_config: Option<&DevJobFileConfig>,
+) -> Result<()> {
+    log::info!("");
+    log::info!("===========================================");
+    log::info!("  Dev Job - Plan Mode");
+    log::info!("===========================================");
+    log::info!("");
+
+    let run_config = file_config.and_then(|cfg| cfg.run.as_ref());
+    let types = args.types.as_deref().or(run_config.and_then(|cfg| cfg.types.as_deref()));
+    let cases = args.cases.as_deref().or(run_config.and_then(|cfg| cfg.cases.as_deref()));
+
+    let specs = build_specs_for_run(types, cases)?;
+    if specs.is_empty() {
+        anyhow::bail!("No job specs resolved from --types or --cases");
+    }
+
+    let required_provers = 3u8;
+    let mut total_price = 0u64;
+
+    for spec in &specs {
+        let cost_config = spec.operation.get_cost_config();
+        let price = cost_config.min_payment_lamports * 2 * (required_provers as u64);
+        total_price += price;
+        log::info!(
+            "- {} | op={} | values={} | expected={} | price={} | timeout={}s",
+            spec.name,
+            spec.operation.name(),
+            spec.values.len(),
+            spec.expected
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "-".to_string()),
+            price,
+            cost_config.timeout_seconds
+        );
+        emit_json(
+            context.json,
+            serde_json::json!({
+                "event": "plan_job",
+                "job": spec.name,
+                "operation": spec.operation.name(),
+                "values": spec.values.len(),
+                "expected": spec.expected,
+                "price_lamports": price,
+                "timeout_seconds": cost_config.timeout_seconds,
+            }),
+        );
+    }
+
+    log::info!("Plan summary: {} jobs, total_price {} lamports", specs.len(), total_price);
+    emit_json(
+        context.json,
+        serde_json::json!({
+            "event": "plan_summary",
+            "jobs": specs.len(),
+            "total_price_lamports": total_price,
+        }),
+    );
 
     Ok(())
 }
@@ -561,7 +916,7 @@ fn default_histogram_bins() -> Vec<HistogramBin> {
     ]
 }
 
-async fn create_and_submit_job(context: &DevJobContext, spec: &JobSpec) -> Result<()> {
+async fn create_and_submit_job(context: &DevJobContext, spec: &JobSpec) -> Result<JobRunOutcome> {
     log::info!("Creating job: {}", spec.name);
 
     let (encrypted_data, server_key, _client_key) =
@@ -609,9 +964,20 @@ async fn create_and_submit_job(context: &DevJobContext, spec: &JobSpec) -> Resul
 
     let signature = context.rpc_client.send_and_confirm_transaction(&tx)?;
     log::info!("Job {} created, signature: {}", job_id, signature);
+    emit_json(
+        context.json,
+        serde_json::json!({
+            "event": "job_submitted",
+            "job": spec.name,
+            "job_id": job_id,
+            "signature": signature.to_string(),
+            "operation": spec.operation.name(),
+            "price_lamports": total_price,
+        }),
+    );
     log::info!("");
 
-    Ok(())
+    Ok(JobRunOutcome { total_price })
 }
 
 #[derive(Debug, Deserialize)]
@@ -652,7 +1018,8 @@ async fn run_verified_job(
     test_values: &[u8],
     expected_result: u8,
     test_name: &str,
-) -> Result<()> {
+    emit_json_events: bool,
+) -> Result<VerifyOutcome> {
     log::info!("[1/6] Generating FHE keys and encrypting data...");
     let (encrypted_data, server_key, client_key) =
         create_fhe_data_with_values(test_values, &operation)?;
@@ -702,6 +1069,16 @@ async fn run_verified_job(
 
     let signature = rpc_client.send_and_confirm_transaction(&tx)?;
     log::info!("  Job {} created, signature: {}", job_id, signature);
+    emit_json(
+        emit_json_events,
+        serde_json::json!({
+            "event": "job_submitted",
+            "job": test_name,
+            "job_id": job_id,
+            "signature": signature.to_string(),
+            "operation": operation.name(),
+        }),
+    );
 
     log::info!(
         "[4/6] Waiting for job completion (timeout: {}s)...",
@@ -717,9 +1094,18 @@ async fn run_verified_job(
         log::error!("===========================================");
         log::error!("  {} Test: FAILED (job status: {})", test_name, final_status);
         log::error!("===========================================");
-        return Ok(());
+        return Ok(VerifyOutcome::failed());
     }
     log::info!("  Job completed!");
+    emit_json(
+        emit_json_events,
+        serde_json::json!({
+            "event": "job_completed",
+            "job": test_name,
+            "job_id": job_id,
+            "status": final_status,
+        }),
+    );
 
     log::info!("[5/6] Fetching encrypted result...");
     let encrypted_result = fetch_result(http_client, backend_url, job_id).await?;
@@ -735,14 +1121,36 @@ async fn run_verified_job(
         log::info!("===========================================");
         log::info!("  {} Test: PASSED", test_name);
         log::info!("===========================================");
+        emit_json(
+            emit_json_events,
+            serde_json::json!({
+                "event": "job_verified",
+                "job": test_name,
+                "job_id": job_id,
+                "status": "passed",
+                "result": decrypted,
+                "expected": expected_result,
+            }),
+        );
+        return Ok(VerifyOutcome::passed());
     } else {
         log::error!("===========================================");
         log::error!("  {} Test: FAILED", test_name);
         log::error!("  Expected: {}, Got: {}", expected_result, decrypted);
         log::error!("===========================================");
+        emit_json(
+            emit_json_events,
+            serde_json::json!({
+                "event": "job_verified",
+                "job": test_name,
+                "job_id": job_id,
+                "status": "failed",
+                "result": decrypted,
+                "expected": expected_result,
+            }),
+        );
+        return Ok(VerifyOutcome::failed());
     }
-
-    Ok(())
 }
 
 fn create_fhe_data_with_values(
@@ -935,6 +1343,7 @@ async fn run_webapp_flow(
     user_keypair: &Keypair,
     backend_url: &str,
     verify_result: bool,
+    emit_json_events: bool,
 ) -> Result<()> {
     let total_steps = if verify_result { 8 } else { 6 };
 
@@ -1082,6 +1491,14 @@ async fn run_webapp_flow(
         log::info!("  Job ID: {}", validate_result.job_id);
         log::info!("===========================================");
         log::info!("");
+        emit_json(
+            emit_json_events,
+            serde_json::json!({
+                "event": "webapp_flow_complete",
+                "job_id": validate_result.job_id,
+                "status": "submitted",
+            }),
+        );
         return Ok(());
     }
 
@@ -1130,11 +1547,31 @@ async fn run_webapp_flow(
         log::info!("  Operation: Sum");
         log::info!("  Result: {} (correct!)", decrypted);
         log::info!("===========================================");
+        emit_json(
+            emit_json_events,
+            serde_json::json!({
+                "event": "webapp_flow_verified",
+                "job_id": validate_result.job_id,
+                "status": "passed",
+                "result": decrypted,
+                "expected": expected_result,
+            }),
+        );
     } else {
         log::error!("===========================================");
         log::error!("  FAILED! Result mismatch");
         log::error!("  Expected: {}, Got: {}", expected_result, decrypted);
         log::error!("===========================================");
+        emit_json(
+            emit_json_events,
+            serde_json::json!({
+                "event": "webapp_flow_verified",
+                "job_id": validate_result.job_id,
+                "status": "failed",
+                "result": decrypted,
+                "expected": expected_result,
+            }),
+        );
         anyhow::bail!("Result verification failed");
     }
     log::info!("");
@@ -1147,6 +1584,7 @@ async fn run_webapp_flow_poi(
     http_client: &reqwest::Client,
     user_keypair: &Keypair,
     backend_url: &str,
+    emit_json_events: bool,
 ) -> Result<()> {
     log::info!("");
     log::info!("===========================================");
@@ -1321,14 +1759,40 @@ async fn run_webapp_flow_poi(
         log::info!("  Sanctioned index checked: {}", sanctioned_index);
         log::info!("  Count of matches: {} (0 = INNOCENT)", decrypted);
         log::info!("===========================================");
+        emit_json(
+            emit_json_events,
+            serde_json::json!({
+                "event": "webapp_flow_poi_verified",
+                "job_id": validate_result.job_id,
+                "status": "passed",
+                "result": decrypted,
+                "expected": expected_result,
+            }),
+        );
     } else {
         log::error!("===========================================");
         log::error!("  RESULT MISMATCH");
         log::error!("  Expected: {}, Got: {}", expected_result, decrypted);
         log::error!("===========================================");
+        emit_json(
+            emit_json_events,
+            serde_json::json!({
+                "event": "webapp_flow_poi_verified",
+                "job_id": validate_result.job_id,
+                "status": "failed",
+                "result": decrypted,
+                "expected": expected_result,
+            }),
+        );
         anyhow::bail!("Result verification failed");
     }
     log::info!("");
 
     Ok(())
+}
+
+fn emit_json(enabled: bool, value: serde_json::Value) {
+    if enabled {
+        println!("{}", value);
+    }
 }

@@ -15,6 +15,7 @@ use solana_sdk::{
 };
 use solana_client::rpc_client::RpcClient;
 use std::str::FromStr;
+use futarchy_sdk::{find_market_pda, find_escrow_pda, FheAccounts};
 
 use crate::db::futarchy_queries::{
     CreateCiphertextData, CreateMarketData, CreatePositionData, FutarchyQueries,
@@ -27,6 +28,26 @@ use crate::AppState;
 
 #[derive(Debug, Deserialize)]
 pub struct CreateMarketRequest {
+    /// The question/proposal for the market
+    pub question: String,
+    /// Creator's Solana pubkey
+    pub creator: String,
+    /// Oracle pubkey (who can settle)
+    pub oracle: String,
+    /// Resolution window in seconds (default: 86400 = 1 day)
+    #[serde(default = "default_resolution_window")]
+    pub resolution_window_secs: i64,
+    /// Max bet amount in lamports (default: 1 SOL)
+    #[serde(default = "default_max_bet")]
+    pub max_bet_lamports: i64,
+    /// Optional: when the market ends (ISO 8601)
+    pub ends_at: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ValidateCreateMarketRequest {
+    /// Unique market ID (u64) used for PDA derivation
+    pub market_id: u64,
     /// The question/proposal for the market
     pub question: String,
     /// Creator's Solana pubkey
@@ -135,6 +156,127 @@ pub struct SubmitBetRequest {
     pub signed_tx: String,
     pub ciphertext: String,
     pub server_key: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum SideInput {
+    Bool(bool),
+    String(String),
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ValidateBetRequest {
+    pub bettor: String,
+    pub side: SideInput,
+    pub amount_lamports: u64,
+    pub ciphertext_hash: Option<String>,
+    pub bet_commitment: Option<String>,
+    pub encrypted_amount: Option<String>,
+    pub proof: String,
+    pub public_inputs: String,
+    pub circuit_type: u8,
+    pub fhe_job_id: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ValidateClaimRequest {
+    pub user: String,
+    pub claim_nullifier: String,
+    pub proof: String,
+    pub public_inputs: String,
+    pub payout_amount: u64,
+    pub include_position: Option<bool>,
+}
+
+fn get_futarchy_program_id() -> Result<Pubkey, HttpResponse> {
+    let futarchy_program_id_str = std::env::var("FUTARCHY_PROGRAM_ID")
+        .unwrap_or_else(|_| "AQUUuRSwDhB1eeC2Caa8GPVGV4YzZkJ1YiSvZd3BBPij".to_string());
+    Pubkey::from_str(&futarchy_program_id_str).map_err(|_| {
+        HttpResponse::InternalServerError().json(json!({
+            "error": format!("Invalid FUTARCHY_PROGRAM_ID: {}", futarchy_program_id_str),
+        }))
+    })
+}
+
+fn get_zk_generator_program_id() -> Result<Pubkey, HttpResponse> {
+    let zk_generator_id = std::env::var("ZK_GENERATOR_PROGRAM_ID")
+        .unwrap_or_else(|_| "Dzvy1pzCBgtMw5Fte2GybpeN2PsLPW8t7zDvLfKpxnSS".to_string());
+    Pubkey::from_str(&zk_generator_id).map_err(|_| {
+        HttpResponse::InternalServerError().json(json!({
+            "error": format!("Invalid ZK_GENERATOR_PROGRAM_ID: {}", zk_generator_id),
+        }))
+    })
+}
+
+fn get_fhe_generator_program_id() -> Result<Pubkey, HttpResponse> {
+    let fhe_generator_id = std::env::var("FHE_GENERATOR_PROGRAM_ID")
+        .unwrap_or_else(|_| "C8PpHFCKZ4F2Szbir2EMS4S4H3mwQqHNWUXK1N21nfAB".to_string());
+    Pubkey::from_str(&fhe_generator_id).map_err(|_| {
+        HttpResponse::InternalServerError().json(json!({
+            "error": format!("Invalid FHE_GENERATOR_PROGRAM_ID: {}", fhe_generator_id),
+        }))
+    })
+}
+
+fn parse_side(input: &SideInput) -> Result<bool, HttpResponse> {
+    match input {
+        SideInput::Bool(value) => Ok(*value),
+        SideInput::String(value) => match value.to_lowercase().as_str() {
+            "yes" | "true" | "1" => Ok(true),
+            "no" | "false" | "0" => Ok(false),
+            _ => Err(HttpResponse::BadRequest().json(json!({
+                "error": "Invalid side. Use 'yes' or 'no'",
+            }))),
+        },
+    }
+}
+
+fn hex_to_32_bytes(value: &str, field: &str) -> Result<[u8; 32], HttpResponse> {
+    let bytes = hex::decode(value).map_err(|e| {
+        HttpResponse::BadRequest().json(json!({
+            "error": format!("Invalid {} hex: {}", field, e),
+        }))
+    })?;
+    if bytes.len() != 32 {
+        return Err(HttpResponse::BadRequest().json(json!({
+            "error": format!("{} must be 32 bytes (64 hex chars)", field),
+        })));
+    }
+    let mut arr = [0u8; 32];
+    arr.copy_from_slice(&bytes);
+    Ok(arr)
+}
+
+fn derive_fhe_accounts(
+    fhe_program_id: &Pubkey,
+    market_pda: &Pubkey,
+    job_id: u64,
+) -> FheAccounts {
+    let job_id_bytes = job_id.to_le_bytes();
+    let (fhe_job, _) = Pubkey::find_program_address(
+        &[b"fhe_job", market_pda.as_ref(), &job_id_bytes],
+        fhe_program_id,
+    );
+    let (fhe_consensus, _) =
+        Pubkey::find_program_address(&[b"fhe_consensus", &job_id_bytes], fhe_program_id);
+    let (fhe_escrow, _) =
+        Pubkey::find_program_address(&[b"fhe_escrow", fhe_job.as_ref()], fhe_program_id);
+
+    FheAccounts {
+        fhe_job,
+        fhe_consensus,
+        fhe_escrow,
+        fhe_generator_program: *fhe_program_id,
+    }
+}
+
+fn parse_market_id(value: &str) -> Result<u64, HttpResponse> {
+    value.parse::<u64>().map_err(|_| {
+        HttpResponse::BadRequest().json(json!({
+            "error": "market_id must be a valid u64",
+        }))
+    })
 }
 
 // =============================================================================
@@ -314,6 +456,84 @@ pub async fn create_market(
     }
 }
 
+/// POST /api/futarchy/markets/validate-and-build
+/// Build unsigned transaction for CreateMarket
+#[post("/api/futarchy/markets/validate-and-build")]
+pub async fn validate_create_market(
+    body: web::Json<ValidateCreateMarketRequest>,
+) -> impl Responder {
+    let creator = match Pubkey::from_str(&body.creator) {
+        Ok(pk) => pk,
+        Err(e) => {
+            return HttpResponse::BadRequest().json(json!({
+                "error": format!("Invalid creator pubkey: {}", e),
+            }));
+        }
+    };
+
+    let oracle = match Pubkey::from_str(&body.oracle) {
+        Ok(pk) => pk,
+        Err(e) => {
+            return HttpResponse::BadRequest().json(json!({
+                "error": format!("Invalid oracle pubkey: {}", e),
+            }));
+        }
+    };
+
+    let question_hash_bytes = {
+        let mut hasher = Keccak256::new();
+        hasher.update(body.question.as_bytes());
+        let hash = hasher.finalize();
+        let mut arr = [0u8; 32];
+        arr.copy_from_slice(&hash);
+        arr
+    };
+
+    let end_time = body
+        .ends_at
+        .as_ref()
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|dt| dt.timestamp())
+        .unwrap_or_else(|| (Utc::now() + Duration::seconds(body.resolution_window_secs)).timestamp());
+
+    let futarchy_program_id = match get_futarchy_program_id() {
+        Ok(pk) => pk,
+        Err(resp) => return resp,
+    };
+
+    let instruction = match futarchy_sdk::build_create_market_ix(
+        &futarchy_program_id,
+        &creator,
+        body.market_id,
+        question_hash_bytes,
+        &oracle,
+        end_time,
+        body.max_bet_lamports as u64,
+    ) {
+        Ok(ix) => ix,
+        Err(e) => {
+            return HttpResponse::InternalServerError().json(json!({
+                "error": format!("Failed to build instruction: {}", e),
+            }));
+        }
+    };
+
+    let unsigned_tx = match futarchy_sdk::prepare_unsigned_transaction(&[instruction], &creator) {
+        Ok(tx) => tx,
+        Err(e) => {
+            return HttpResponse::InternalServerError().json(json!({
+                "error": format!("Failed to prepare transaction: {}", e),
+            }));
+        }
+    };
+
+    HttpResponse::Ok().json(json!({
+        "unsigned_transaction": unsigned_tx,
+        "market_id": body.market_id,
+        "signers": vec![body.creator.clone()],
+    }))
+}
+
 /// POST /api/futarchy/markets/{id}/bet
 /// Place a bet on a market
 #[post("/api/futarchy/markets/{id}/bet")]
@@ -476,6 +696,167 @@ pub async fn place_bet(
     }
 }
 
+/// POST /api/futarchy/markets/{id}/bet/validate-and-build
+/// Build unsigned transaction for PlaceBet
+#[post("/api/futarchy/markets/{id}/bet/validate-and-build")]
+pub async fn validate_place_bet(
+    path: web::Path<String>,
+    body: web::Json<ValidateBetRequest>,
+) -> impl Responder {
+    let market_ok = parse_market_id(&path.into_inner());
+    let market_id = match market_ok {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+
+    let bettor = match Pubkey::from_str(&body.bettor) {
+        Ok(pk) => pk,
+        Err(e) => {
+            return HttpResponse::BadRequest().json(json!({
+                "error": format!("Invalid bettor pubkey: {}", e),
+            }));
+        }
+    };
+
+    let side = match parse_side(&body.side) {
+        Ok(value) => value,
+        Err(resp) => return resp,
+    };
+
+    let proof_bytes = match BASE64.decode(&body.proof) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            return HttpResponse::BadRequest().json(json!({
+                "error": format!("Invalid proof base64: {}", e),
+            }));
+        }
+    };
+
+    let public_inputs_bytes = match BASE64.decode(&body.public_inputs) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            return HttpResponse::BadRequest().json(json!({
+                "error": format!("Invalid public_inputs base64: {}", e),
+            }));
+        }
+    };
+
+    let encrypted_bet_amount = match &body.encrypted_amount {
+        Some(value) => match BASE64.decode(value) {
+            Ok(bytes) => Some(bytes),
+            Err(e) => {
+                return HttpResponse::BadRequest().json(json!({
+                    "error": format!("Invalid encrypted_amount base64: {}", e),
+                }));
+            }
+        },
+        None => None,
+    };
+
+    let ciphertext_hash_bytes = if let Some(hash) = &body.ciphertext_hash {
+        match hex_to_32_bytes(hash, "ciphertext_hash") {
+            Ok(arr) => Some(arr),
+            Err(resp) => return resp,
+        }
+    } else if let Some(ref encrypted) = encrypted_bet_amount {
+        let mut hasher = Keccak256::new();
+        hasher.update(encrypted);
+        let hash = hasher.finalize();
+        let mut arr = [0u8; 32];
+        arr.copy_from_slice(&hash);
+        Some(arr)
+    } else {
+        None
+    };
+
+    let bet_commitment = if let Some(commitment) = &body.bet_commitment {
+        match hex_to_32_bytes(commitment, "bet_commitment") {
+            Ok(arr) => arr,
+            Err(resp) => return resp,
+        }
+    } else if let Some(cipher_hash) = ciphertext_hash_bytes {
+        let mut hasher = Keccak256::new();
+        hasher.update(&cipher_hash);
+        hasher.update(&body.amount_lamports.to_le_bytes());
+        hasher.update(&[side as u8]);
+        let hash = hasher.finalize();
+        let mut arr = [0u8; 32];
+        arr.copy_from_slice(&hash);
+        arr
+    } else {
+        return HttpResponse::BadRequest().json(json!({
+            "error": "bet_commitment or ciphertext_hash is required",
+        }));
+    };
+
+    let futarchy_program_id = match get_futarchy_program_id() {
+        Ok(pk) => pk,
+        Err(resp) => return resp,
+    };
+
+    let zk_generator_program = match get_zk_generator_program_id() {
+        Ok(pk) => pk,
+        Err(resp) => return resp,
+    };
+
+    let fhe_accounts = if encrypted_bet_amount.is_some() {
+        let job_id = match body.fhe_job_id {
+            Some(id) => id,
+            None => {
+                return HttpResponse::BadRequest().json(json!({
+                    "error": "fhe_job_id is required when encrypted_amount is provided",
+                }));
+            }
+        };
+        let market_pda = find_market_pda(&futarchy_program_id, market_id);
+        let fhe_program_id = match get_fhe_generator_program_id() {
+            Ok(pk) => pk,
+            Err(resp) => return resp,
+        };
+        Some(derive_fhe_accounts(&fhe_program_id, &market_pda.address, job_id))
+    } else {
+        None
+    };
+
+    let instruction = match futarchy_sdk::build_place_bet_ix(
+        &futarchy_program_id,
+        &bettor,
+        market_id,
+        bet_commitment,
+        proof_bytes,
+        public_inputs_bytes,
+        body.amount_lamports,
+        body.circuit_type,
+        ciphertext_hash_bytes,
+        encrypted_bet_amount,
+        Some(side),
+        &zk_generator_program,
+        fhe_accounts,
+    ) {
+        Ok(ix) => ix,
+        Err(e) => {
+            return HttpResponse::InternalServerError().json(json!({
+                "error": format!("Failed to build instruction: {}", e),
+            }));
+        }
+    };
+
+    let unsigned_tx = match futarchy_sdk::prepare_unsigned_transaction(&[instruction], &bettor) {
+        Ok(tx) => tx,
+        Err(e) => {
+            return HttpResponse::InternalServerError().json(json!({
+                "error": format!("Failed to prepare transaction: {}", e),
+            }));
+        }
+    };
+
+    HttpResponse::Ok().json(json!({
+        "unsigned_transaction": unsigned_tx,
+        "market_id": market_id,
+        "signers": vec![body.bettor.clone()],
+    }))
+}
+
 /// POST /api/futarchy/markets/{id}/settle
 /// Settle a market (oracle only)
 #[post("/api/futarchy/markets/{id}/settle")]
@@ -534,6 +915,63 @@ pub async fn settle_market(
             }))
         }
     }
+}
+
+/// POST /api/futarchy/markets/{id}/settle/validate-and-build
+/// Build unsigned transaction for SettleMarket
+#[post("/api/futarchy/markets/{id}/settle/validate-and-build")]
+pub async fn validate_settle_market(
+    path: web::Path<String>,
+    body: web::Json<SettleMarketRequest>,
+) -> impl Responder {
+    let market_ok = parse_market_id(&path.into_inner());
+    let market_id = match market_ok {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+
+    let oracle = match Pubkey::from_str(&body.oracle) {
+        Ok(pk) => pk,
+        Err(e) => {
+            return HttpResponse::BadRequest().json(json!({
+                "error": format!("Invalid oracle pubkey: {}", e),
+            }));
+        }
+    };
+
+    let futarchy_program_id = match get_futarchy_program_id() {
+        Ok(pk) => pk,
+        Err(resp) => return resp,
+    };
+
+    let instruction = match futarchy_sdk::build_settle_market_ix(
+        &futarchy_program_id,
+        &oracle,
+        market_id,
+        body.outcome,
+    ) {
+        Ok(ix) => ix,
+        Err(e) => {
+            return HttpResponse::InternalServerError().json(json!({
+                "error": format!("Failed to build instruction: {}", e),
+            }));
+        }
+    };
+
+    let unsigned_tx = match futarchy_sdk::prepare_unsigned_transaction(&[instruction], &oracle) {
+        Ok(tx) => tx,
+        Err(e) => {
+            return HttpResponse::InternalServerError().json(json!({
+                "error": format!("Failed to prepare transaction: {}", e),
+            }));
+        }
+    };
+
+    HttpResponse::Ok().json(json!({
+        "unsigned_transaction": unsigned_tx,
+        "market_id": market_id,
+        "signers": vec![body.oracle.clone()],
+    }))
 }
 
 // =============================================================================
@@ -791,6 +1229,96 @@ pub async fn get_bettor_positions(
     }
 }
 
+/// POST /api/futarchy/markets/{id}/claim/validate-and-build
+/// Build unsigned transaction for ClaimPayout
+#[post("/api/futarchy/markets/{id}/claim/validate-and-build")]
+pub async fn validate_claim_payout(
+    path: web::Path<String>,
+    body: web::Json<ValidateClaimRequest>,
+) -> impl Responder {
+    let market_ok = parse_market_id(&path.into_inner());
+    let market_id = match market_ok {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+
+    let user = match Pubkey::from_str(&body.user) {
+        Ok(pk) => pk,
+        Err(e) => {
+            return HttpResponse::BadRequest().json(json!({
+                "error": format!("Invalid user pubkey: {}", e),
+            }));
+        }
+    };
+
+    let claim_nullifier = match hex_to_32_bytes(&body.claim_nullifier, "claim_nullifier") {
+        Ok(arr) => arr,
+        Err(resp) => return resp,
+    };
+
+    let proof_bytes = match BASE64.decode(&body.proof) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            return HttpResponse::BadRequest().json(json!({
+                "error": format!("Invalid proof base64: {}", e),
+            }));
+        }
+    };
+
+    let public_inputs_bytes = match BASE64.decode(&body.public_inputs) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            return HttpResponse::BadRequest().json(json!({
+                "error": format!("Invalid public_inputs base64: {}", e),
+            }));
+        }
+    };
+
+    let futarchy_program_id = match get_futarchy_program_id() {
+        Ok(pk) => pk,
+        Err(resp) => return resp,
+    };
+
+    let zk_generator_program = match get_zk_generator_program_id() {
+        Ok(pk) => pk,
+        Err(resp) => return resp,
+    };
+
+    let instruction = match futarchy_sdk::build_claim_payout_ix(
+        &futarchy_program_id,
+        &user,
+        market_id,
+        claim_nullifier,
+        proof_bytes,
+        public_inputs_bytes,
+        body.payout_amount,
+        &zk_generator_program,
+        body.include_position.unwrap_or(true),
+    ) {
+        Ok(ix) => ix,
+        Err(e) => {
+            return HttpResponse::InternalServerError().json(json!({
+                "error": format!("Failed to build instruction: {}", e),
+            }));
+        }
+    };
+
+    let unsigned_tx = match futarchy_sdk::prepare_unsigned_transaction(&[instruction], &user) {
+        Ok(tx) => tx,
+        Err(e) => {
+            return HttpResponse::InternalServerError().json(json!({
+                "error": format!("Failed to prepare transaction: {}", e),
+            }));
+        }
+    };
+
+    HttpResponse::Ok().json(json!({
+        "unsigned_transaction": unsigned_tx,
+        "market_id": market_id,
+        "signers": vec![body.user.clone()],
+    }))
+}
+
 // =============================================================================
 // FHE Job Endpoints (for prover polling)
 // =============================================================================
@@ -986,8 +1514,20 @@ pub async fn prepare_bet(
         }
     };
 
+    // Use FUTARCHY_PROGRAM_ID for futarchy handlers, NOT the bedrock program_id
+    let futarchy_program_id_str = std::env::var("FUTARCHY_PROGRAM_ID")
+        .unwrap_or_else(|_| "AQUUuRSwDhB1eeC2Caa8GPVGV4YzZkJ1YiSvZd3BBPij".to_string());
+    let futarchy_program_id = match Pubkey::from_str(&futarchy_program_id_str) {
+        Ok(pk) => pk,
+        Err(_) => {
+            return HttpResponse::InternalServerError().json(json!({
+                "error": format!("Invalid FUTARCHY_PROGRAM_ID: {}", futarchy_program_id_str),
+            }));
+        }
+    };
+
     let instruction = match futarchy_sdk::build_place_bet_ix(
-        &app_state.program_id,
+        &futarchy_program_id,
         &bettor,
         body.market_id,
         bet_commitment,
@@ -1050,12 +1590,31 @@ pub async fn submit_bet(
         }
     };
 
-    let transaction: Transaction = match bincode::deserialize(&signed_tx_bytes) {
+    // Deserialize transaction - try bincode first (legacy), then versioned wire format
+    let transaction: Transaction = match bincode::deserialize::<Transaction>(&signed_tx_bytes) {
         Ok(tx) => tx,
-        Err(e) => {
-            return HttpResponse::BadRequest().json(json!({
-                "error": format!("Invalid transaction format: {}", e),
-            }));
+        Err(bincode_err) => {
+            // Try as VersionedTransaction (wire format from @solana/web3.js)
+            match bincode::deserialize::<solana_sdk::transaction::VersionedTransaction>(&signed_tx_bytes) {
+                Ok(versioned_tx) => {
+                    // Convert VersionedTransaction to legacy Transaction
+                    match versioned_tx.into_legacy_transaction() {
+                        Some(tx) => tx,
+                        None => {
+                            return HttpResponse::BadRequest().json(json!({
+                                "error": "VersionedTransaction cannot be converted to legacy Transaction",
+                            }));
+                        }
+                    }
+                }
+                Err(versioned_err) => {
+                    log::error!("Failed to deserialize transaction. Legacy bincode: {}, Versioned: {}. Bytes len: {}",
+                        bincode_err, versioned_err, signed_tx_bytes.len());
+                    return HttpResponse::BadRequest().json(json!({
+                        "error": format!("Invalid transaction format"),
+                    }));
+                }
+            }
         }
     };
 
@@ -1099,14 +1658,21 @@ pub async fn submit_bet(
         }));
     };
 
-    let rpc_client = RpcClient::new(&app_state.rpc_url);
+    let rpc_url = app_state.rpc_url.clone();
 
-    let tx_signature = match rpc_client.send_and_confirm_transaction(&transaction) {
-        Ok(sig) => {
+    // Use spawn_blocking for the synchronous RPC call
+    let tx_result = tokio::task::spawn_blocking(move || {
+        let rpc_client = RpcClient::new(&rpc_url);
+        rpc_client.send_and_confirm_transaction(&transaction)
+    })
+    .await;
+
+    let tx_signature = match tx_result {
+        Ok(Ok(sig)) => {
             log::info!("Transaction confirmed: {}", sig);
             sig.to_string()
         }
-        Err(e) => {
+        Ok(Err(e)) => {
             log::error!("Transaction failed: {}", e);
 
             if let Err(cleanup_err) = FutarchyQueries::mark_failed_and_cleanup(
@@ -1121,6 +1687,12 @@ pub async fn submit_bet(
             return HttpResponse::BadRequest().json(json!({
                 "error": format!("Transaction failed: {}", e),
                 "status": "failed",
+            }));
+        }
+        Err(e) => {
+            log::error!("Task join error: {}", e);
+            return HttpResponse::InternalServerError().json(json!({
+                "error": "Internal server error during transaction submission",
             }));
         }
     };
@@ -1208,8 +1780,11 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         .service(list_markets)
         .service(get_market)
         .service(create_market)
+        .service(validate_create_market)
         .service(place_bet)
+        .service(validate_place_bet)
         .service(settle_market)
+        .service(validate_settle_market)
         .service(get_market_positions)
         // FHE ciphertexts
         .service(get_ciphertext)
@@ -1220,5 +1795,6 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         .service(complete_fhe_job)
         .service(fail_fhe_job)
         // Positions
-        .service(get_bettor_positions);
+        .service(get_bettor_positions)
+        .service(validate_claim_payout);
 }

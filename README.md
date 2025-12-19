@@ -42,6 +42,7 @@ ZyberLink enables computations on encrypted data using Fully Homomorphic Encrypt
 make c1   # Start containers (validator + postgres + backend + nginx)
 make c2   # Initialize marketplace + register provers
 make c3   # Start provers
+zyb dev-job plan   # Dry-run (uses dev-job.toml)
 
 # Run tests
 make e2e-poi   # Proof of Innocence test
@@ -60,6 +61,42 @@ make d2   # Initialize marketplace
 make d3   # Start provers
 
 make d0   # Stop all
+```
+
+### dev-job.toml (Config)
+
+Create `dev-job.toml` in the repo root to set defaults for `zyb dev-job`:
+
+```toml
+[common]
+profile = "local"
+rpc_url = "http://localhost:8899"
+program_id = "HnRTpCx7Xs3f1BKkVhkeZwcqRfPmSDpVQ6QxgN7Vm8Rt"
+backend_url = "http://localhost:3000"
+keypair = "/tmp/job-creator-keypair.json"
+no_airdrop = false
+json = true
+
+[run]
+cases = ["mix"]          # or types = ["add","sum","average"]
+interval_secs = 10
+once = false
+shuffle = false
+
+[verify]
+types = ["sum", "count-if"]
+all = false
+
+[webapp]
+verify = false
+
+[profiles.local]
+rpc_url = "http://localhost:8899"
+backend_url = "http://localhost:3000"
+
+[profiles.devnet]
+rpc_url = "https://api.devnet.solana.com"
+backend_url = "https://demo.zyberlink.fun"
 ```
 
 ## Architecture
