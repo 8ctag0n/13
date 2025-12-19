@@ -57,6 +57,7 @@ pub fn build_place_bet_ix(
     public_inputs: Vec<u8>,
     amount: u64,
     circuit_type: u8,
+    ciphertext_hash: Option<[u8; 32]>,
     encrypted_bet_amount: Option<Vec<u8>>,
     side: Option<bool>,
     zk_generator_program: &Pubkey,
@@ -73,6 +74,7 @@ pub fn build_place_bet_ix(
         public_inputs,
         amount,
         circuit_type,
+        ciphertext_hash,
         encrypted_bet_amount,
         side,
     };
@@ -348,6 +350,25 @@ pub fn build_withdraw_from_escrow_ix(
         accounts,
         data: instruction_data.pack()?,
     })
+}
+
+pub fn prepare_unsigned_transaction(
+    instructions: &[Instruction],
+    payer: &Pubkey,
+) -> Result<String> {
+    use solana_sdk::{
+        message::Message,
+        transaction::Transaction,
+    };
+    use base64::{Engine as _, engine::general_purpose};
+
+    let message = Message::new(instructions, Some(payer));
+    let transaction = Transaction::new_unsigned(message);
+
+    let serialized = bincode::serialize(&transaction)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+
+    Ok(general_purpose::STANDARD.encode(&serialized))
 }
 
 #[derive(Debug, Clone)]

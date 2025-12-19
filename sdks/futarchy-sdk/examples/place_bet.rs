@@ -30,6 +30,7 @@ fn main() -> anyhow::Result<()> {
         circuit_type,
         None,
         None,
+        None,
         &zk_generator_program,
         None,
     )?;
@@ -49,6 +50,7 @@ fn main() -> anyhow::Result<()> {
     println!("\n--- With FHE encrypted bet ---");
 
     let encrypted_bet_amount = vec![3u8; 128];
+    let ciphertext_hash = Some([5u8; 32]);
     let side = Some(true);
 
     let fhe_accounts = FheAccounts {
@@ -66,6 +68,7 @@ fn main() -> anyhow::Result<()> {
         vec![1u8; 80],
         amount,
         31,
+        ciphertext_hash,
         Some(encrypted_bet_amount),
         side,
         &zk_generator_program,

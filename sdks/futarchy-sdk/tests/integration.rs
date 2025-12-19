@@ -25,6 +25,7 @@ fn test_place_bet_serialization() {
         public_inputs: vec![1u8; 80],
         amount: 500_000_000,
         circuit_type: 30,
+        ciphertext_hash: None,
         encrypted_bet_amount: None,
         side: None,
     };
@@ -44,6 +45,7 @@ fn test_place_bet_with_fhe_serialization() {
         public_inputs: vec![1u8; 80],
         amount: 500_000_000,
         circuit_type: 31,
+        ciphertext_hash: Some([5u8; 32]),
         encrypted_bet_amount: Some(vec![3u8; 128]),
         side: Some(true),
     };
@@ -259,4 +261,58 @@ fn test_executable_action_variants() {
         instruction_data: vec![1, 2, 3],
     };
     assert!(!action_custom.is_none());
+}
+
+#[test]
+fn test_prepare_unsigned_transaction() {
+    let program_id = Pubkey::new_unique();
+    let authority = Pubkey::new_unique();
+    let oracle = Pubkey::new_unique();
+    let payer = Pubkey::new_unique();
+
+    let ix = build_create_market_ix(
+        &program_id,
+        &authority,
+        1,
+        [0u8; 32],
+        &oracle,
+        1234567890,
+        1_000_000_000,
+    )
+    .unwrap();
+
+    let unsigned_tx = prepare_unsigned_transaction(&[ix], &payer).unwrap();
+
+    assert!(!unsigned_tx.is_empty());
+    assert!(unsigned_tx.len() > 100);
+}
+
+#[test]
+fn test_prepare_unsigned_transaction_with_place_bet() {
+    let program_id = Pubkey::new_unique();
+    let bettor = Pubkey::new_unique();
+    let zk_program = Pubkey::new_unique();
+    let payer = Pubkey::new_unique();
+
+    let ix = build_place_bet_ix(
+        &program_id,
+        &bettor,
+        1,
+        [2u8; 32],
+        vec![0u8; 256],
+        vec![1u8; 80],
+        500_000_000,
+        30,
+        Some([5u8; 32]),
+        None,
+        None,
+        &zk_program,
+        None,
+    )
+    .unwrap();
+
+    let unsigned_tx = prepare_unsigned_transaction(&[ix], &payer).unwrap();
+
+    assert!(!unsigned_tx.is_empty());
+    assert!(unsigned_tx.len() > 100);
 }

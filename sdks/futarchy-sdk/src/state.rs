@@ -115,6 +115,7 @@ pub struct Position {
     pub bet_commitment: [u8; 32],
     pub placed_at: i64,
     pub claimed: bool,
+    pub encrypted_amount: Option<Vec<u8>>,
     pub bump: u8,
 }
 
