@@ -13,6 +13,7 @@ fn test_position_serialization() {
         placed_at: 1600000000,
         claimed: false,
         bump: 255,
+        encrypted_amount: None,
     };
 
     // Serialize
@@ -31,6 +32,7 @@ fn test_position_serialization() {
     assert_eq!(position.placed_at, deserialized.placed_at);
     assert_eq!(position.claimed, deserialized.claimed);
     assert_eq!(position.bump, deserialized.bump);
+    assert_eq!(position.encrypted_amount, deserialized.encrypted_amount);
 }
 
 #[test]
@@ -42,17 +44,18 @@ fn test_position_space_constant() {
         placed_at: 1600000000,
         claimed: false,
         bump: 255,
+        encrypted_amount: None,
     };
 
     let serialized = borsh::to_vec(&position).unwrap();
 
-    // Verify SPACE constant is sufficient
-    assert!(serialized.len() <= Position::SPACE);
+    // Verify SPACE constant is sufficient (without encrypted_amount)
+    assert!(serialized.len() <= Position::SPACE + 1);
 
-    // Verify SPACE is accurate (106 bytes)
+    // Verify SPACE is accurate (106 bytes base)
     assert_eq!(Position::SPACE, 106);
 
-    // Size should be close to constant (within a few bytes)
+    // Size should be close to constant (within a few bytes, +1 for Option discriminant)
     assert!(serialized.len() >= 100);
 }
 
@@ -65,6 +68,7 @@ fn test_position_is_claimed() {
         placed_at: 1600000000,
         claimed: false,
         bump: 255,
+        encrypted_amount: None,
     };
 
     assert!(!position.is_claimed());
@@ -84,6 +88,7 @@ fn test_position_mark_claimed() {
         placed_at: 1600000000,
         claimed: false,
         bump: 255,
+        encrypted_amount: None,
     };
 
     // Initially not claimed
@@ -120,6 +125,7 @@ fn test_position_with_different_commitments() {
             placed_at: 1600000000,
             claimed: false,
             bump: 255,
+            encrypted_amount: None,
         };
 
         let serialized = borsh::to_vec(&position).unwrap();
@@ -146,6 +152,7 @@ fn test_position_unique_per_user_and_commitment() {
         placed_at: 1600000000,
         claimed: false,
         bump: 255,
+        encrypted_amount: None,
     };
 
     let pos2 = Position {
@@ -155,6 +162,7 @@ fn test_position_unique_per_user_and_commitment() {
         placed_at: 1600000000,
         claimed: false,
         bump: 255,
+        encrypted_amount: None,
     };
 
     assert_ne!(pos1.bet_commitment, pos2.bet_commitment);
@@ -167,6 +175,7 @@ fn test_position_unique_per_user_and_commitment() {
         placed_at: 1600000000,
         claimed: false,
         bump: 255,
+        encrypted_amount: None,
     };
 
     assert_ne!(pos1.user, pos3.user);
@@ -184,6 +193,7 @@ fn test_position_with_different_timestamps() {
             placed_at: timestamp,
             claimed: false,
             bump: 255,
+            encrypted_amount: None,
         };
 
         let serialized = borsh::to_vec(&position).unwrap();
@@ -191,4 +201,31 @@ fn test_position_with_different_timestamps() {
 
         assert_eq!(position.placed_at, deserialized.placed_at);
     }
+}
+
+#[test]
+fn test_position_with_encrypted_amount() {
+    let encrypted_data = vec![1u8, 2, 3, 4, 5, 6, 7, 8];
+    let position = Position {
+        user: Pubkey::new_unique(),
+        market: Pubkey::new_unique(),
+        bet_commitment: [42u8; 32],
+        placed_at: 1600000000,
+        claimed: false,
+        bump: 255,
+        encrypted_amount: Some(encrypted_data.clone()),
+    };
+
+    let serialized = borsh::to_vec(&position).unwrap();
+    let deserialized: Position = borsh::from_slice(&serialized).unwrap();
+
+    assert_eq!(position.encrypted_amount, deserialized.encrypted_amount);
+    assert_eq!(deserialized.encrypted_amount, Some(encrypted_data));
+}
+
+#[test]
+fn test_position_space_function() {
+    assert_eq!(Position::space(0), 111);
+    assert_eq!(Position::space(100), 211);
+    assert_eq!(Position::space(2048), 2159);
 }

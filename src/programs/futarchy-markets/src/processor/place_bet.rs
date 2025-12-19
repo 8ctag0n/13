@@ -191,7 +191,11 @@ pub fn process_place_bet(
 
     // Create position account (PDA requires invoke_signed)
     let rent = Rent::get()?;
-    let position_space = Position::SPACE;
+    let position_space = if let Some(ref encrypted_bet) = encrypted_bet_amount {
+        Position::space(encrypted_bet.len())
+    } else {
+        Position::SPACE
+    };
     let position_lamports = rent.minimum_balance(position_space);
 
     msg!("Creating position account");
@@ -228,6 +232,7 @@ pub fn process_place_bet(
         placed_at: current_time,
         claimed: false,
         bump: position_bump,
+        encrypted_amount: encrypted_bet_amount.clone(),
     };
 
     // Serialize position
