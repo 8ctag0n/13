@@ -935,6 +935,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "bedrock"
+version = "0.1.0"
+dependencies = [
+ "borsh 1.6.0",
+ "solana-program",
+ "thiserror 1.0.69",
+ "zyberlink-jobs",
+ "zyberlink-types",
+]
+
+[[package]]
+name = "bedrock-sdk"
+version = "0.1.0"
+dependencies = [
+ "bedrock",
+ "borsh 1.6.0",
+ "solana-program",
+ "solana-sdk",
+]
+
+[[package]]
 name = "bincode"
 version = "1.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2417,6 +2438,29 @@ dependencies = [
  "sha2 0.10.9",
  "tfhe 0.7.2",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "fhe-generator"
+version = "0.1.0"
+dependencies = [
+ "bedrock",
+ "borsh 1.6.0",
+ "solana-program",
+ "thiserror 1.0.69",
+ "zyberlink-jobs",
+ "zyberlink-types",
+]
+
+[[package]]
+name = "fhe-generator-sdk"
+version = "0.1.0"
+dependencies = [
+ "bedrock-sdk",
+ "borsh 1.6.0",
+ "fhe-generator",
+ "solana-program",
+ "solana-sdk",
 ]
 
 [[package]]
@@ -11511,8 +11555,10 @@ dependencies = [
  "anyhow",
  "atty",
  "base64 0.22.1",
+ "bedrock-sdk",
  "bincode",
  "blake2",
+ "borsh 1.6.0",
  "bs58",
  "chrono",
  "clap",
@@ -11522,6 +11568,8 @@ dependencies = [
  "dialoguer",
  "dirs 5.0.1",
  "env_logger 0.11.8",
+ "fhe-generator-sdk",
+ "futarchy-sdk",
  "hex",
  "indicatif",
  "log",
@@ -11703,6 +11751,7 @@ dependencies = [
  "zyberlink-fhe",
  "zyberlink-sdk",
  "zyberlink-types",
+ "zyberlink-unified-sdk",
 ]
 
 [[package]]
@@ -11754,6 +11803,28 @@ dependencies = [
  "serde_json",
  "solana-program",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "zyberlink-unified-sdk"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "borsh 1.6.0",
+ "chrono",
+ "env_logger 0.11.8",
+ "hex",
+ "log",
+ "reqwest 0.11.27",
+ "serde",
+ "serde_json",
+ "solana-account-decoder",
+ "solana-client",
+ "solana-sdk",
+ "thiserror 1.0.69",
+ "tokio",
+ "zyberlink-jobs",
+ "zyberlink-types",
 ]
 
 [[package]]

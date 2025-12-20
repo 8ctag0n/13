@@ -2,6 +2,7 @@
 members = [
     "sdks/rust",
     "sdks/futarchy-sdk",
+    "sdks/unified",
     "src/prover-node",
     "src/witness-storage",
     "src/blink-server",
