@@ -8,6 +8,17 @@
 [![Tests](https://img.shields.io/badge/tests-55%2F56%20passing-green)]()
 [![Season](https://img.shields.io/badge/season-S0%20Solana%20SZN-purple)]()
 
+## Devnet Programs
+
+| Program | Address | Explorer |
+|---------|---------|----------|
+| zyberlink | `GVCw9MYL6YywDPwsQkqC3xsvw5ETRH7KGkgxCDpeYfeu` | [View](https://explorer.solana.com/address/GVCw9MYL6YywDPwsQkqC3xsvw5ETRH7KGkgxCDpeYfeu?cluster=devnet) |
+| bedrock | `Di2Tu6aNpJpPyxbMAasoLQU2yLqYMFWvUoV7cq7sXfvx` | [View](https://explorer.solana.com/address/Di2Tu6aNpJpPyxbMAasoLQU2yLqYMFWvUoV7cq7sXfvx?cluster=devnet) |
+| futarchy_markets | `AQUUuRSwDhB1eeC2Caa8GPVGV4YzZkJ1YiSvZd3BBPij` | [View](https://explorer.solana.com/address/AQUUuRSwDhB1eeC2Caa8GPVGV4YzZkJ1YiSvZd3BBPij?cluster=devnet) |
+| fhe_generator | `C8PpHFCKZ4F2Szbir2EMS4S4H3mwQqHNWUXK1N21nfAB` | [View](https://explorer.solana.com/address/C8PpHFCKZ4F2Szbir2EMS4S4H3mwQqHNWUXK1N21nfAB?cluster=devnet) |
+| zk_generator | `Dzvy1pzCBgtMw5Fte2GybpeN2PsLPW8t7zDvLfKpxnSS` | [View](https://explorer.solana.com/address/Dzvy1pzCBgtMw5Fte2GybpeN2PsLPW8t7zDvLfKpxnSS?cluster=devnet) |
+| threshold | `Apstq5JFS67Gzb5Yc2cMDuwx8JQoMJ9h2KvDYyCZA9Wh` | [View](https://explorer.solana.com/address/Apstq5JFS67Gzb5Yc2cMDuwx8JQoMJ9h2KvDYyCZA9Wh?cluster=devnet) |
+
 ## Live Demo
 
 **https://demo.zyberlink.fun**
