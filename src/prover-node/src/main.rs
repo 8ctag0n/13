@@ -67,6 +67,19 @@ fn config_from_args(args: &ProverArgs) -> Result<ProverConfig> {
         .parse()
         .context("Invalid program ID format")?;
 
+    // Parse optional generator program IDs
+    let zk_generator_program = args.zk_generator_program
+        .as_ref()
+        .map(|s| s.parse())
+        .transpose()
+        .context("Invalid ZK Generator program ID format")?;
+
+    let fhe_generator_program = args.fhe_generator_program
+        .as_ref()
+        .map(|s| s.parse())
+        .transpose()
+        .context("Invalid FHE Generator program ID format")?;
+
     Ok(ProverConfig::new(
         args.rpc_url.clone(),
         program_id,
@@ -84,6 +97,8 @@ fn config_from_args(args: &ProverArgs) -> Result<ProverConfig> {
         args.fhe_server_key_path
             .clone()
             .map(|p| p.replace("~", &std::env::var("HOME").unwrap_or_default())),
+        zk_generator_program,
+        fhe_generator_program,
     ))
 }
 
@@ -110,12 +125,26 @@ impl ProverNode {
             .map_err(|e| anyhow::anyhow!("Failed to read keypair file: {}", e))?;
         let keypair_arc = Arc::new(keypair);
 
-        // Create SolanaMarketplace using factory
-        let marketplace = MarketplaceFactory::create_solana(
-            &config.rpc_url,
-            config.program_id,
-            keypair_arc.clone(),
-        )?;
+        // Create SolanaMarketplace - use generators if configured
+        let marketplace = if config.zk_generator_program.is_some() || config.fhe_generator_program.is_some() {
+            info!(
+                "Creating marketplace with generators: ZK={:?}, FHE={:?}",
+                config.zk_generator_program, config.fhe_generator_program
+            );
+            Arc::new(SolanaMarketplace::new_with_generators(
+                &config.rpc_url,
+                config.program_id,
+                keypair_arc.clone(),
+                config.zk_generator_program,
+                config.fhe_generator_program,
+            ).map_err(|e| anyhow::anyhow!("Failed to create SolanaMarketplace: {}", e))?)
+        } else {
+            MarketplaceFactory::create_solana(
+                &config.rpc_url,
+                config.program_id,
+                keypair_arc.clone(),
+            )?
+        };
 
         // Initialize Halo2 prover
         info!("Initializing Halo2 proving system...");
@@ -359,14 +388,12 @@ impl ProverNode {
             let active_jobs = self.active_jobs.clone();
             let job_processor = self.job_processor.clone();
             let tui_state = self.tui_state.clone();
-            let job_price = job.price;
             let job_id = job.id;
-            let witness_hash = job.witness_hash;
-            let creator = job.creator.clone();
+            let job_clone = job.clone();
 
             tokio::spawn(async move {
                 if let Err(e) = job_processor
-                    .process_job(job_pda, job_id, creator, circuit_type, witness_hash, job_price, tui_state.clone())
+                    .process_job(&job_clone, tui_state.clone())
                     .await
                 {
                     error!("Failed to process job {}: {}", job_id, e);

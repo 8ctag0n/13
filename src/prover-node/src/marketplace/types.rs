@@ -5,6 +5,17 @@
 
 use zyberlink_types::{CircuitType, JobStatus};
 
+/// Source program for a job
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum JobSource {
+    /// Legacy zyberlink program
+    Legacy,
+    /// New ZK-Generator program
+    ZkGenerator,
+    /// New FHE-Generator program
+    FheGenerator,
+}
+
 /// Generic job data structure (chain-agnostic)
 #[derive(Debug, Clone)]
 pub struct JobData {
@@ -30,6 +41,10 @@ pub struct JobData {
     pub is_fhe: bool,
     /// Job PDA/address as string (for chain-specific operations)
     pub address: String,
+    /// Source program for this job
+    pub source: JobSource,
+    /// Program ID that owns this job (for new generators)
+    pub program_id: Option<String>,
 }
 
 /// Generic prover data structure

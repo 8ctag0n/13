@@ -70,6 +70,14 @@ pub struct ProverArgs {
     /// Futarchy blink-server URL (for FHE job polling)
     #[arg(long, default_value = "http://localhost:8090")]
     pub futarchy_server_url: String,
+
+    /// ZK Generator program ID (for new architecture)
+    #[arg(long, env = "ZK_GENERATOR_PROGRAM_ID")]
+    pub zk_generator_program: Option<String>,
+
+    /// FHE Generator program ID (for new architecture)
+    #[arg(long, env = "FHE_GENERATOR_PROGRAM_ID")]
+    pub fhe_generator_program: Option<String>,
 }
 
 #[derive(Parser, Debug)]

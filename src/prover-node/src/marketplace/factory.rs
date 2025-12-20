@@ -52,10 +52,14 @@ pub struct MarketplaceConfig {
     pub rpc_url: String,
     /// Network name (mainnet, devnet, testnet, localnet)
     pub network: String,
-    /// Program/contract address
+    /// Program/contract address (legacy zyberlink program)
     pub program_address: String,
     /// Prover address (chain-specific format)
     pub prover_address: Option<String>,
+    /// ZK Generator program ID (optional, for new architecture)
+    pub zk_generator_program: Option<String>,
+    /// FHE Generator program ID (optional, for new architecture)
+    pub fhe_generator_program: Option<String>,
 }
 
 impl MarketplaceConfig {
@@ -77,7 +81,16 @@ impl MarketplaceConfig {
             network: network.to_string(),
             program_address: program_id.to_string(),
             prover_address: None, // Will be derived from keypair
+            zk_generator_program: None,
+            fhe_generator_program: None,
         }
+    }
+
+    /// Set ZK and FHE generator program IDs (builder pattern)
+    pub fn with_generators(mut self, zk_program: Option<&str>, fhe_program: Option<&str>) -> Self {
+        self.zk_generator_program = zk_program.map(|s| s.to_string());
+        self.fhe_generator_program = fhe_program.map(|s| s.to_string());
+        self
     }
 
     /// Create config for Aptos
@@ -96,6 +109,8 @@ impl MarketplaceConfig {
             network: network.to_string(),
             program_address: module_address.to_string(),
             prover_address: Some(prover_address.to_string()),
+            zk_generator_program: None,
+            fhe_generator_program: None,
         }
     }
 
@@ -115,6 +130,8 @@ impl MarketplaceConfig {
             network: network.to_string(),
             program_address: contract_address.to_string(),
             prover_address: Some(prover_address.to_string()),
+            zk_generator_program: None,
+            fhe_generator_program: None,
         }
     }
 }
@@ -148,9 +165,31 @@ impl MarketplaceFactory {
                     .parse()
                     .context("Invalid Solana program ID")?;
 
-                let marketplace =
+                // Parse optional generator program IDs
+                let zk_generator = config.zk_generator_program
+                    .as_ref()
+                    .map(|s| s.parse::<Pubkey>())
+                    .transpose()
+                    .context("Invalid ZK Generator program ID")?;
+
+                let fhe_generator = config.fhe_generator_program
+                    .as_ref()
+                    .map(|s| s.parse::<Pubkey>())
+                    .transpose()
+                    .context("Invalid FHE Generator program ID")?;
+
+                // Use new_with_generators if generators are configured
+                let marketplace = if zk_generator.is_some() || fhe_generator.is_some() {
+                    log::info!(
+                        "Creating SolanaMarketplace with generators: ZK={:?}, FHE={:?}",
+                        zk_generator, fhe_generator
+                    );
+                    SolanaMarketplace::new_with_generators(
+                        &config.rpc_url, program_id, keypair, zk_generator, fhe_generator
+                    )
+                } else {
                     SolanaMarketplace::new(&config.rpc_url, program_id, keypair)
-                        .map_err(|e| anyhow::anyhow!("Failed to create SolanaMarketplace: {}", e))?;
+                }.map_err(|e| anyhow::anyhow!("Failed to create SolanaMarketplace: {}", e))?;
 
                 Ok(Arc::new(marketplace))
             }

@@ -45,6 +45,8 @@ zyberlink-unified-sdk = { path = "../../sdks/unified" }
 futarchy-sdk = { path = "../../sdks/futarchy-sdk" }
 zyberlink-types = { path = "../shared/types" }
 zyberlink-chain-client = { path = "../shared/chain-client", features = ["aptos", "starknet"] }
+bedrock-sdk = { path = "../programs/sdks/bedrock-sdk" }
+fhe-generator-sdk = { path = "../programs/sdks/fhe-generator-sdk" }
 
 # Halo2 and Zcash Orchard dependencies
 halo2_proofs = "0.3"

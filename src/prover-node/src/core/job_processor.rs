@@ -11,7 +11,7 @@ use crate::circuits::{CensusCircuit, DemographicsCircuit, PassportCircuit, Votin
 use crate::core::CircuitRegistry;
 use crate::gateway::GatewayClient;
 use crate::halo2_prover::{Halo2Prover, OrchardWitness};
-use crate::marketplace::MarketplaceOperations;
+use crate::marketplace::{JobData, JobSource, MarketplaceOperations};
 use crate::tui;
 use crate::witness_encryption::WitnessEncryption;
 use crate::witness_fetcher::WitnessFetcher;
@@ -87,43 +87,35 @@ impl JobProcessor {
     /// Process a single job: claim -> prove -> submit
     pub async fn process_job(
         &self,
-        job_pda: Pubkey,
-        job_id: u64,
-        creator: String,
-        circuit_type: CircuitType,
-        witness_hash: [u8; 32],
-        job_price: u64,
+        job: &JobData,
         tui_state: Option<Arc<tui::TUIState>>,
     ) -> Result<()> {
         let start_time = std::time::Instant::now();
+        let job_id = job.id;
         info!("[Job {}] Starting processing", job_id);
 
+        // Parse job address
+        let job_pda: Pubkey = job.address.parse()
+            .context("Invalid job address")?;
+
         // Step 1: Claim the job
-        self.claim_job(&job_pda, job_id, &creator, &circuit_type).await?;
+        self.claim_job(&job_pda, job).await?;
 
         // Step 2: Download witness from backend
-        let witness_bytes = self.download_witness(&witness_hash, job_id).await?;
+        let witness_bytes = self.download_witness(&job.witness_hash, job_id).await?;
 
         // Step 3: Generate proof based on circuit type
         let proof_bytes = self
-            .generate_proof(job_id, &circuit_type, &witness_bytes)
+            .generate_proof(job_id, &job.circuit_type, &witness_bytes)
             .await?;
 
         // Step 4: Submit result based on job type
-        self.submit_result(
-            &job_pda,
-            job_id,
-            &creator,
-            &circuit_type,
-            &proof_bytes,
-            &witness_hash,
-        )
-        .await?;
+        self.submit_result(&job_pda, job, &proof_bytes).await?;
 
         info!("[Job {}] Completed!", job_id);
 
         // Update TUI stats on successful completion
-        self.update_tui_stats(tui_state, start_time, job_id, job_price, &circuit_type);
+        self.update_tui_stats(tui_state, start_time, job_id, job.price, &job.circuit_type);
 
         Ok(())
     }
@@ -132,34 +124,29 @@ impl JobProcessor {
     async fn claim_job(
         &self,
         job_pda: &Pubkey,
-        job_id: u64,
-        creator: &str,
-        circuit_type: &CircuitType,
+        job: &JobData,
     ) -> Result<()> {
-        info!("[Job {}] Claiming job...", job_id);
+        info!("[Job {}] Claiming job...", job.id);
 
-        // Use trait method instead of direct instruction building
-        let result = match circuit_type {
-            CircuitType::FheComputation(_) => {
-                // FHE multi-prover jobs
-                self.marketplace
-                    .claim_fhe_job(job_id, creator)
-                    .await
-                    .context("Failed to claim FHE job")?
-            }
-            _ => {
-                // ZK single-prover jobs
-                self.marketplace
-                    .claim_job(job_id, creator)
-                    .await
-                    .context("Failed to claim job")?
-            }
+        // Use trait method - prefer v2 for FHE jobs (supports new generators)
+        let result = if job.is_fhe || matches!(job.circuit_type, CircuitType::FheComputation(_)) {
+            // FHE multi-prover jobs - use v2 which handles new FHE-Generator
+            self.marketplace
+                .claim_fhe_job_v2(job)
+                .await
+                .context("Failed to claim FHE job")?
+        } else {
+            // ZK single-prover jobs
+            self.marketplace
+                .claim_job(job.id, &job.creator)
+                .await
+                .context("Failed to claim job")?
         };
 
-        info!("[Job {}] Claimed successfully (sig: {})", job_id, result.signature);
+        info!("[Job {}] Claimed successfully (sig: {})", job.id, result.signature);
 
         // Verify claim succeeded
-        self.verify_claim(job_pda, job_id, creator, circuit_type).await?;
+        self.verify_claim(job_pda, job.id, &job.creator, &job.circuit_type, &job.source).await?;
 
         Ok(())
     }
@@ -167,11 +154,18 @@ impl JobProcessor {
     /// Verify that the job was successfully claimed
     async fn verify_claim(
         &self,
-        job_pda: &Pubkey,
+        _job_pda: &Pubkey,
         job_id: u64,
         creator: &str,
         circuit_type: &CircuitType,
+        job_source: &JobSource,
     ) -> Result<()> {
+        // For new FHE-Generator jobs, skip verification - the claim tx succeeded
+        if matches!(job_source, JobSource::FheGenerator | JobSource::ZkGenerator) {
+            info!("[Job {}] Claim verified (new generator tx succeeded)", job_id);
+            return Ok(());
+        }
+
         let job = self.marketplace.get_job(job_id, creator).await?
             .ok_or_else(|| anyhow::anyhow!("Job not found after claim"))?;
 
@@ -390,24 +384,20 @@ impl JobProcessor {
     async fn submit_result(
         &self,
         job_pda: &Pubkey,
-        job_id: u64,
-        creator: &str,
-        circuit_type: &CircuitType,
+        job: &JobData,
         proof_bytes: &[u8],
-        witness_hash: &[u8; 32],
     ) -> Result<()> {
-        match circuit_type {
+        match &job.circuit_type {
             CircuitType::ZcashOrchard => {
-                self.submit_zk_proof(job_pda, job_id, creator, proof_bytes).await?;
+                self.submit_zk_proof(job_pda, job.id, &job.creator, proof_bytes).await?;
             }
             CircuitType::FheComputation(ref op) => {
-                self.submit_fhe_result(job_pda, job_id, creator, proof_bytes, witness_hash, op)
-                    .await?;
+                self.submit_fhe_result(job_pda, job, proof_bytes, op).await?;
             }
             _ => {
                 return Err(anyhow::anyhow!(
                     "Unsupported circuit type: {:?}",
-                    circuit_type
+                    job.circuit_type
                 ));
             }
         }
@@ -446,38 +436,36 @@ impl JobProcessor {
     /// Submit FHE result
     async fn submit_fhe_result(
         &self,
-        job_pda: &Pubkey,
-        job_id: u64,
-        creator: &str,
+        _job_pda: &Pubkey,
+        job: &JobData,
         proof_bytes: &[u8],
-        witness_hash: &[u8; 32],
         operation: &FheOperation,
     ) -> Result<()> {
-        info!("[Job {}] Submitting FHE result...", job_id);
+        info!("[Job {}] Submitting FHE result...", job.id);
 
         // Use deterministic commitment for consensus
         let result_hash =
-            FheEngine::deterministic_commitment(witness_hash, operation.name(), job_id);
+            FheEngine::deterministic_commitment(&job.witness_hash, operation.name(), job.id);
 
         info!(
             "[Job {}] FHE deterministic commitment: {} (op: {})",
-            job_id,
+            job.id,
             hex::encode(&result_hash[..8]),
             operation.name()
         );
 
         // Store encrypted result in witness backend
-        self.upload_fhe_result(job_id, proof_bytes).await?;
+        self.upload_fhe_result(job.id, proof_bytes).await?;
 
-        // Use trait method to submit FHE result
+        // Use trait method to submit FHE result - v2 supports new FHE-Generator
         match self.marketplace
-            .submit_fhe_result(job_id, creator, result_hash)
+            .submit_fhe_result_v2(job, result_hash)
             .await
         {
             Ok(result) => {
                 info!(
                     "[Job {}] FHE result submitted successfully (sig: {})",
-                    job_id, result.signature
+                    job.id, result.signature
                 );
             }
             Err(e) => {
@@ -489,10 +477,10 @@ impl JobProcessor {
                 {
                     info!(
                         "[Job {}] Job already completed by other provers, skipping submit",
-                        job_id
+                        job.id
                     );
                 } else {
-                    error!("[Job {}] Failed to submit FHE result: {}", job_id, e);
+                    error!("[Job {}] Failed to submit FHE result: {}", job.id, e);
                     return Err(anyhow::anyhow!("Failed to submit FHE result: {}", e));
                 }
             }

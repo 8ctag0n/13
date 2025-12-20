@@ -135,7 +135,7 @@ pub trait MarketplaceOperations: Send + Sync {
     /// - `JobExpired` if job timeout has passed
     async fn claim_job(&self, job_id: u64, creator: &str) -> Result<TransactionResult>;
 
-    /// Claim an FHE job for processing
+    /// Claim an FHE job for processing (legacy signature)
     ///
     /// # Arguments
     /// * `job_id` - Job to claim
@@ -143,7 +143,25 @@ pub trait MarketplaceOperations: Send + Sync {
     ///
     /// # Returns
     /// Transaction result with claim signature
+    ///
+    /// # Note
+    /// Prefer using `claim_fhe_job_v2` when you have the full JobData
     async fn claim_fhe_job(&self, job_id: u64, creator: &str) -> Result<TransactionResult>;
+
+    /// Claim an FHE job for processing (v2 - uses full JobData for new generators)
+    ///
+    /// This method supports both legacy zyberlink and new FHE-Generator programs.
+    /// The job's `source` and `program_id` fields determine which program to use.
+    ///
+    /// # Arguments
+    /// * `job` - Full job data including source and program_id
+    ///
+    /// # Returns
+    /// Transaction result with claim signature
+    async fn claim_fhe_job_v2(&self, job: &JobData) -> Result<TransactionResult> {
+        // Default implementation falls back to legacy method
+        self.claim_fhe_job(job.id, &job.creator).await
+    }
 
     /// Submit a ZK proof result
     ///
@@ -165,7 +183,7 @@ pub trait MarketplaceOperations: Send + Sync {
         fee_recipient: Option<&str>,
     ) -> Result<TransactionResult>;
 
-    /// Submit an FHE computation result
+    /// Submit an FHE computation result (legacy signature)
     ///
     /// # Arguments
     /// * `job_id` - Job being completed
@@ -174,12 +192,34 @@ pub trait MarketplaceOperations: Send + Sync {
     ///
     /// # Returns
     /// Transaction result with submission signature
+    ///
+    /// # Note
+    /// Prefer using `submit_fhe_result_v2` when you have the full JobData
     async fn submit_fhe_result(
         &self,
         job_id: u64,
         creator: &str,
         result_hash: [u8; 32],
     ) -> Result<TransactionResult>;
+
+    /// Submit an FHE computation result (v2 - uses full JobData for new generators)
+    ///
+    /// This method supports both legacy zyberlink and new FHE-Generator programs.
+    ///
+    /// # Arguments
+    /// * `job` - Full job data including source and program_id
+    /// * `result_hash` - Hash of the FHE computation result
+    ///
+    /// # Returns
+    /// Transaction result with submission signature
+    async fn submit_fhe_result_v2(
+        &self,
+        job: &JobData,
+        result_hash: [u8; 32],
+    ) -> Result<TransactionResult> {
+        // Default implementation falls back to legacy method
+        self.submit_fhe_result(job.id, &job.creator, result_hash).await
+    }
 
     // ========== FHE Consensus ==========
 
