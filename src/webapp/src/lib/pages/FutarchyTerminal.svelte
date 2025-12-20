@@ -7,10 +7,12 @@
   import FutarchyMarketList from '../components/futarchy/FutarchyMarketList.svelte';
   import FutarchyPositionsList from '../components/futarchy/FutarchyPositionsList.svelte';
   import FutarchyPlaceBetModal from '../components/futarchy/FutarchyPlaceBetModal.svelte';
+  import FutarchyBetWizard from '../components/futarchy/FutarchyBetWizard.svelte';
   import TerminalBox from '../components/futarchy/terminal/TerminalBox.svelte';
   import TerminalButton from '../components/futarchy/terminal/TerminalButton.svelte';
   import TerminalInput from '../components/futarchy/terminal/TerminalInput.svelte';
   import TerminalRadio from '../components/futarchy/terminal/TerminalRadio.svelte';
+  import { getFutarchyStats } from '../utils/futarchy_api';
 
   const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -24,6 +26,14 @@
   const historyStorageKey = 'zyber_futarchy_history';
   const historyLimit = 30;
   let placeBetOpen = false;
+  let betWizardOpen = false;
+  let betWizardMarketId = '';
+  let statsOpen = false;
+  let statsLoading = false;
+  let statsError = '';
+  let statsData = null;
+  let statsUpdatedAt = '';
+  let statsTimer;
   let selectedMarket = null;
   let showHint = true;
   let hintTimer;
@@ -33,6 +43,38 @@
   $: walletLabel = walletAddress
     ? `${walletAddress.slice(0, 4)}...${walletAddress.slice(-4)}`
     : 'WALLET DISCONNECTED';
+
+  const lamportsPerSol = 1_000_000_000;
+
+  function formatSol(lamports) {
+    const value = Number(lamports || 0) / lamportsPerSol;
+    return `${value.toFixed(2)} SOL`;
+  }
+
+  function truncate(text, max = 42) {
+    if (!text) return '--';
+    return text.length > max ? `${text.slice(0, max)}…` : text;
+  }
+
+  function buildBar(value, max, length = 20, fillChar = '█') {
+    if (!max) return `${'░'.repeat(length)}`;
+    const filled = Math.max(0, Math.min(length, Math.round((value / max) * length)));
+    return `${fillChar.repeat(filled)}${'░'.repeat(Math.max(0, length - filled))}`;
+  }
+
+  $: statsYes = statsData?.pools?.yes_lamports || 0;
+  $: statsNo = statsData?.pools?.no_lamports || 0;
+  $: statsTotal = statsData?.pools?.total_lamports || 0;
+  $: statsYesPct = statsTotal ? Math.round((statsYes / statsTotal) * 100) : 0;
+  $: statsNoPct = statsTotal ? Math.max(0, 100 - statsYesPct) : 0;
+  $: topVolumeMax = Math.max(1, ...(statsData?.top_markets_by_volume || []).map((m) => m.total_lamports || 0));
+  $: topBetsMax = Math.max(1, ...(statsData?.top_markets_24h || []).map((m) => m.bets_24h || 0));
+
+  function logMarketAccountLink(id) {
+    if (!id) return;
+    const link = `https://explorer.solana.com/address/${id}?cluster=devnet`;
+    console.log(`[Futarchy] Market account: ${link}`);
+  }
 
   const commandMap = {
     '/futarchy': () => navigateTo('futarchy'),
@@ -45,12 +87,46 @@
     '/markets': () => (activeTab = 'markets'),
     '/positions': () => (activeTab = 'positions'),
     '/create': () => (activeTab = 'create'),
+    '/bet': (args = []) => {
+      const inputId = args[0] || '';
+      betWizardMarketId = inputId || selectedMarket?.id || '';
+      betWizardOpen = true;
+      if (betWizardMarketId) {
+        logMarketAccountLink(betWizardMarketId);
+        pushLog(`Launching bet wizard for market ${betWizardMarketId}...`);
+      } else {
+        pushLog('Launching bet wizard...');
+      }
+    },
+    '/stats': async (args = []) => {
+      statsOpen = true;
+      if (args[0] === 'refresh' || !statsData) {
+        await fetchStats();
+      }
+      startStatsTimer();
+      pushLog('Futarchy stats panel opened.');
+    },
+    '/close-stats': () => {
+      statsOpen = false;
+      stopStatsTimer();
+      pushLog('Futarchy stats panel closed.');
+    },
+    '/close-bet': () => {
+      betWizardOpen = false;
+      pushLog('Bet wizard closed.');
+    },
     '/help': () => {
       pushLogBatch([
         'Available commands:',
         '/markets    → open markets tab',
         '/positions  → open positions tab',
         '/create     → create market (soon)',
+        '/bet        → guided bet wizard',
+        '/bet <id>   → guided bet wizard for market id',
+        '/stats      → show futarchy stats',
+        '/stats refresh → refresh futarchy stats',
+        '/close-stats → close stats panel',
+        '/close-bet  → close bet wizard',
         '/job        → open job marketplace',
         '/create-job → open job creation flow',
         '/submit-job → open job creation flow',
@@ -86,6 +162,12 @@
     { command: '/markets', description: 'Open markets tab' },
     { command: '/positions', description: 'Open positions tab' },
     { command: '/create', description: 'Create market (soon)' },
+    { command: '/bet', description: 'Guided bet wizard' },
+    { command: '/bet <id>', description: 'Guided bet wizard for market id' },
+    { command: '/stats', description: 'Show futarchy stats' },
+    { command: '/stats refresh', description: 'Refresh futarchy stats' },
+    { command: '/close-stats', description: 'Close stats panel' },
+    { command: '/close-bet', description: 'Close bet wizard' },
     { command: '/job', description: 'Open job marketplace' },
     { command: '/create-job', description: 'Create a new job' },
     { command: '/submit-job', description: 'Submit a job' },
@@ -113,19 +195,23 @@
   }
 
   async function handleCommandSubmit() {
-    const command = commandInput.trim().toLowerCase();
-    if (!command) return;
+    const rawCommand = commandInput.trim();
+    if (!rawCommand) return;
+    const tokens = rawCommand.split(/\s+/);
+    const baseCommand = tokens[0].toLowerCase();
+    const args = tokens.slice(1);
+    const normalized = [baseCommand, ...args].join(' ');
 
-    history = [command, ...history.filter(item => item !== command)].slice(0, historyLimit);
+    history = [normalized, ...history.filter(item => item !== normalized)].slice(0, historyLimit);
     historyIndex = -1;
 
-    pushLog(`${promptPrefix} ${command}`);
+    pushLog(`${promptPrefix} ${normalized}`);
 
-    const handler = commandMap[command];
+    const handler = commandMap[baseCommand];
     if (handler) {
-      await handler();
+      await handler(args);
     } else {
-      pushLog(`Unknown command: ${command}`);
+      pushLog(`Unknown command: ${normalized}`);
     }
 
     commandInput = '';
@@ -207,12 +293,48 @@
 
   function handleMarketAction(event) {
     selectedMarket = event.detail.market;
-    placeBetOpen = true;
+    betWizardMarketId = selectedMarket?.id || '';
+    logMarketAccountLink(betWizardMarketId);
+    betWizardOpen = true;
   }
 
   function closeBetModal() {
     placeBetOpen = false;
     selectedMarket = null;
+  }
+
+  function closeBetWizard() {
+    betWizardOpen = false;
+  }
+
+  async function fetchStats() {
+    if (statsLoading) return;
+    statsLoading = true;
+    statsError = '';
+    try {
+      statsData = await getFutarchyStats({ apiBaseUrl: API_BASE || undefined });
+      statsUpdatedAt = new Date().toISOString();
+    } catch (error) {
+      statsError = error?.message || 'Failed to load futarchy stats';
+    } finally {
+      statsLoading = false;
+    }
+  }
+
+  function startStatsTimer() {
+    if (statsTimer) return;
+    statsTimer = setInterval(() => {
+      if (statsOpen) {
+        fetchStats();
+      }
+    }, 15000);
+  }
+
+  function stopStatsTimer() {
+    if (statsTimer) {
+      clearInterval(statsTimer);
+      statsTimer = null;
+    }
   }
 
   onMount(() => {
@@ -228,7 +350,7 @@
     }
 
     pushLog('Welcome to Futarchy Terminal. Type /futarchy to stay here.');
-    pushLog('Commands: /markets /positions /create /pbtcfi /ploans');
+    pushLog('Commands: /markets /positions /create /bet /stats /close-bet /pbtcfi /ploans');
     showHint = true;
     hintTimer = setTimeout(() => {
       showHint = false;
@@ -237,6 +359,7 @@
 
   onDestroy(() => {
     if (hintTimer) clearTimeout(hintTimer);
+    stopStatsTimer();
   });
 </script>
 
@@ -253,7 +376,7 @@
 
   {#if showHint}
     <TerminalBox tone="cyan" dense>
-      <div class="hint text-mono text-xs">TIP: /markets /positions /create /job /connect. Use /help. Tab completes, ↑/↓ cycles.</div>
+      <div class="hint text-mono text-xs">TIP: /markets /positions /create /bet /stats /job /connect. Use /help. Tab completes, ↑/↓ cycles.</div>
     </TerminalBox>
   {/if}
 
@@ -298,6 +421,7 @@
         autoFetch
         apiBaseUrl={API_BASE}
         status={statusFilter === 'all' ? '' : statusFilter}
+        compact={betWizardOpen || statsOpen}
         on:marketAction={handleMarketAction}
       />
     {:else if activeTab === 'positions'}
@@ -314,6 +438,84 @@
       </TerminalBox>
     {/if}
   </main>
+
+  {#if statsOpen}
+    <section class="terminal-stats">
+      <TerminalBox tone="muted" dense>
+        <div class="stats-header text-mono text-xs">
+          <span>FUTARCHY_STATS</span>
+          <span class="text-muted">updated: {statsUpdatedAt ? formatTimestamp(statsUpdatedAt) : '--'}</span>
+        </div>
+
+        {#if statsLoading}
+          <div class="text-mono text-xs">LOADING STATS...</div>
+        {:else if statsError}
+          <div class="text-mono text-xs text-muted">[!] {statsError}</div>
+        {:else if statsData}
+          <div class="stats-block text-mono text-xs">
+            MARKETS: total {statsData.markets.total} | active {statsData.markets.active} | resolved {statsData.markets.resolved} | cancelled {statsData.markets.cancelled}
+          </div>
+          <div class="stats-block text-mono text-xs">
+            BETS: total {statsData.bets.total} | last_24h {statsData.bets.last_24h}
+          </div>
+          <div class="stats-block text-mono text-xs">
+            POOLS: total {formatSol(statsTotal)} | YES {formatSol(statsYes)} | NO {formatSol(statsNo)}
+          </div>
+          <div class="stats-block text-mono text-xs stats-bar">
+            YES {statsYesPct}% [{buildBar(statsYes, statsTotal, 18)}] {statsNoPct}% NO
+          </div>
+          <div class="stats-block text-mono text-xs">
+            FHE_JOBS: pending {statsData.fhe_jobs.pending} | processing {statsData.fhe_jobs.processing} | completed {statsData.fhe_jobs.completed} | failed {statsData.fhe_jobs.failed}
+          </div>
+
+          <div class="stats-section text-mono text-xs text-muted">TOP_MARKETS_BY_VOLUME</div>
+          {#if statsData.top_markets_by_volume.length === 0}
+            <div class="text-mono text-xs">--</div>
+          {:else}
+            {#each statsData.top_markets_by_volume as market, index}
+              <div class="stats-row text-mono text-xs">
+                {index + 1}. {truncate(market.question, 36)}
+                <span class="stats-bar">[{buildBar(market.total_lamports, topVolumeMax, 16)}]</span>
+                <span class="text-muted">{formatSol(market.total_lamports)}</span>
+              </div>
+            {/each}
+          {/if}
+
+          <div class="stats-section text-mono text-xs text-muted">TOP_MARKETS_24H</div>
+          {#if statsData.top_markets_24h.length === 0}
+            <div class="text-mono text-xs">--</div>
+          {:else}
+            {#each statsData.top_markets_24h as market, index}
+              <div class="stats-row text-mono text-xs">
+                {index + 1}. {truncate(market.question, 32)}
+                <span class="stats-bar">[{buildBar(market.bets_24h, topBetsMax, 12)}]</span>
+                <span class="text-muted">bets {market.bets_24h} | vol {formatSol(market.volume_lamports_24h)}</span>
+              </div>
+            {/each}
+          {/if}
+        {:else}
+          <div class="text-mono text-xs text-muted">No stats loaded. Run /stats refresh.</div>
+        {/if}
+      </TerminalBox>
+    </section>
+  {/if}
+
+  {#if betWizardOpen}
+    <section class="terminal-wizard">
+      <FutarchyBetWizard
+        open={betWizardOpen}
+  apiBaseUrl={API_BASE}
+  initialMarketId={betWizardMarketId}
+  on:close={closeBetWizard}
+  on:success={(event) => {
+    const signature = event.detail?.signature;
+          pushLog(signature ? `Bet wizard confirmed: ${signature}` : 'Bet wizard confirmed.');
+          betWizardOpen = false;
+        }}
+        on:error={(event) => pushLog(`Bet wizard failed: ${event.detail.error?.message || 'Unknown error'}`)}
+      />
+    </section>
+  {/if}
 
   <section class="terminal-command">
     <TerminalBox tone="violet" dense>
@@ -360,7 +562,10 @@
   market={selectedMarket}
   apiBaseUrl={API_BASE}
   on:close={closeBetModal}
-  on:success={() => pushLog('Bet submitted successfully.')}
+  on:success={(event) => {
+    const signature = event.detail?.signature;
+    pushLog(signature ? `Bet confirmed: ${signature}` : 'Bet confirmed on-chain.');
+  }}
   on:error={(event) => pushLog(`Bet failed: ${event.detail.error?.message || 'Unknown error'}`)}
 />
 
@@ -439,8 +644,49 @@
     gap: var(--space-4);
   }
 
+  .terminal-stats {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .stats-header {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-3);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: var(--space-2);
+  }
+
+  .stats-block {
+    margin-bottom: var(--space-2);
+  }
+
+  .stats-section {
+    margin-top: var(--space-3);
+    letter-spacing: 0.08em;
+  }
+
+  .stats-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    align-items: center;
+  }
+
+  .stats-bar {
+    letter-spacing: 0.08em;
+  }
+
   .terminal-command {
     margin-top: var(--space-2);
+  }
+
+  .terminal-wizard {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
   }
 
   .command-bar {

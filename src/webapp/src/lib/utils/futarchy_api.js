@@ -58,6 +58,38 @@ export function placeBet(marketId, payload, { apiBaseUrl = DEFAULT_API_BASE } = 
   }, apiBaseUrl);
 }
 
+export function validateCreateMarket(payload, { apiBaseUrl = DEFAULT_API_BASE } = {}) {
+  return apiFetch('/api/futarchy/markets/validate-and-build', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }, apiBaseUrl);
+}
+
+export function validatePlaceBet(marketId, payload, { apiBaseUrl = DEFAULT_API_BASE } = {}) {
+  return apiFetch(`/api/futarchy/markets/${marketId}/bet/validate-and-build`, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }, apiBaseUrl);
+}
+
+export function validateSettleMarket(marketId, payload, { apiBaseUrl = DEFAULT_API_BASE } = {}) {
+  return apiFetch(`/api/futarchy/markets/${marketId}/settle/validate-and-build`, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }, apiBaseUrl);
+}
+
+export function validateClaimPayout(marketId, payload, { apiBaseUrl = DEFAULT_API_BASE } = {}) {
+  return apiFetch(`/api/futarchy/markets/${marketId}/claim/validate-and-build`, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }, apiBaseUrl);
+}
+
+export function getFutarchyStats({ apiBaseUrl = DEFAULT_API_BASE } = {}) {
+  return apiFetch('/api/futarchy/stats', {}, apiBaseUrl);
+}
+
 export function prepareBet(payload, { apiBaseUrl = DEFAULT_API_BASE } = {}) {
   return apiFetch('/api/futarchy/bet/prepare', {
     method: 'POST',

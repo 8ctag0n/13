@@ -1,8 +1,11 @@
 <script>
   import { createEventDispatcher } from 'svelte';
+  import { walletStore } from '../../stores/wallet';
   import TerminalBox from './terminal/TerminalBox.svelte';
   import TerminalButton from './terminal/TerminalButton.svelte';
   import FutarchyTxStatus from './FutarchyTxStatus.svelte';
+  import { validateClaimPayout } from '../../utils/futarchy_api';
+  import { signAndSendUnsignedTx } from '../../utils/futarchy_tx';
 
   const dispatch = createEventDispatcher();
 
@@ -10,16 +13,23 @@
   export let position = null;
   export let claimAmount = '';
   export let marketTitle = '';
+  export let apiBaseUrl = '';
 
   let txState = 'idle';
   let txMessage = '';
   let txError = '';
+  let txHash = '';
+  let confirmations = 0;
   let busy = false;
+
+  $: walletAddress = $walletStore.addresses?.solana || $walletStore.publicKey?.toString() || '';
 
   function resetState() {
     txState = 'idle';
     txMessage = '';
     txError = '';
+    txHash = '';
+    confirmations = 0;
     busy = false;
   }
 
@@ -30,14 +40,55 @@
 
   async function handleClaim() {
     if (busy) return;
+
+    if (!walletAddress) {
+      txState = 'error';
+      txError = 'Connect wallet to claim';
+      return;
+    }
+
+    if (!position?.marketId) {
+      txState = 'error';
+      txError = 'Position data missing';
+      return;
+    }
+
     busy = true;
     txState = 'signing';
-    txMessage = 'Submitting claim...';
+    txMessage = 'Validating claim...';
 
     try {
-      dispatch('claim', { position });
+      const payload = {
+        bettor: walletAddress,
+        bet_commitment: position.betCommitment || position.commitment
+      };
+
+      const response = await validateClaimPayout(position.marketId, payload, {
+        apiBaseUrl: apiBaseUrl || undefined
+      });
+
+      const unsignedTx = response?.unsigned_transaction;
+
+      const result = await signAndSendUnsignedTx({
+        unsignedTransaction: unsignedTx,
+        wallet: $walletStore,
+        onStatus: (status) => {
+          if (status.step === 'confirming') {
+            txState = 'confirming';
+            txMessage = status.message;
+            txHash = status.signature;
+            confirmations = status.confirmations || 0;
+          } else {
+            txState = 'signing';
+            txMessage = status.message;
+          }
+        }
+      });
+
       txState = 'success';
-      txMessage = 'Claim submitted';
+      txMessage = 'Payout claimed successfully!';
+      txHash = result.signature;
+      dispatch('success', { signature: result.signature, position });
     } catch (error) {
       txState = 'error';
       txError = error?.message || 'Claim failed';
@@ -74,6 +125,8 @@
         <FutarchyTxStatus
           state={txState}
           message={txState === 'error' ? txError : txMessage}
+          txHash={txHash}
+          confirmations={confirmations}
           primaryLabel={txState === 'error' ? 'TRY AGAIN' : ''}
           secondaryLabel={txState === 'error' ? 'CLOSE' : ''}
           on:primary={handleClaim}

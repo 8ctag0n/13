@@ -6,7 +6,8 @@
   import TerminalInput from './terminal/TerminalInput.svelte';
   import TerminalRadio from './terminal/TerminalRadio.svelte';
   import FutarchyTxStatus from './FutarchyTxStatus.svelte';
-  import { placeBet } from '../../utils/futarchy_api';
+  import { validatePlaceBet } from '../../utils/futarchy_api';
+  import { signAndSendUnsignedTx } from '../../utils/futarchy_tx';
 
   const dispatch = createEventDispatcher();
 
@@ -20,6 +21,12 @@
   export let quickAmounts = [1, 5, 10];
   export let currency = 'SOL';
   export let encryptedAmount = '';
+  export let ciphertextHash = '';
+  export let betCommitment = '';
+  export let proof = '';
+  export let publicInputs = '';
+  export let circuitType = 50;
+  export let fheJobId = null;
   export let showPrivacyNote = true;
 
   let amount = '';
@@ -27,6 +34,8 @@
   let txState = 'idle';
   let txMessage = '';
   let txError = '';
+  let txHash = '';
+  let confirmations = 0;
   let busy = false;
 
   const lamportsPerSol = 1_000_000_000;
@@ -43,6 +52,8 @@
     txState = 'idle';
     txMessage = '';
     txError = '';
+    txHash = '';
+    confirmations = 0;
     busy = false;
   }
 
@@ -82,22 +93,66 @@
       return;
     }
 
+    if (!proof || !publicInputs) {
+      txState = 'error';
+      txError = 'Missing proof or public inputs';
+      return;
+    }
+
+    if (!betCommitment && !ciphertextHash && !encryptedAmount) {
+      txState = 'error';
+      txError = 'Missing bet commitment or ciphertext hash';
+      return;
+    }
+
+    const circuitValue = Number(circuitType);
+    if (!Number.isFinite(circuitValue)) {
+      txState = 'error';
+      txError = 'Invalid circuit type';
+      return;
+    }
+
     busy = true;
     txState = 'signing';
-    txMessage = 'Submitting bet...';
+    txMessage = 'Validating bet...';
 
     try {
       const payload = {
         bettor: activeBettor,
         side: selectedSide,
         amount_lamports: amountLamports,
-        encrypted_amount: encryptedAmount || undefined
+        encrypted_amount: encryptedAmount || undefined,
+        ciphertext_hash: ciphertextHash || undefined,
+        bet_commitment: betCommitment || undefined,
+        proof,
+        public_inputs: publicInputs,
+        circuit_type: circuitValue,
+        fhe_job_id: fheJobId ?? undefined
       };
 
-      const response = await placeBet(market.id, payload, { apiBaseUrl: apiBaseUrl || undefined });
+      const response = await validatePlaceBet(market.id, payload, { apiBaseUrl: apiBaseUrl || undefined });
+      const unsignedTx = response?.unsigned_transaction;
+
+      const result = await signAndSendUnsignedTx({
+        unsignedTransaction: unsignedTx,
+        wallet: $walletStore,
+        onStatus: (status) => {
+          if (status.step === 'confirming') {
+            txState = 'confirming';
+            txMessage = status.message;
+            txHash = status.signature;
+            confirmations = status.confirmations || 0;
+          } else {
+            txState = 'signing';
+            txMessage = status.message;
+          }
+        }
+      });
+
       txState = 'success';
-      txMessage = 'Your bet has been placed!';
-      dispatch('success', { response });
+      txMessage = 'Bet confirmed on-chain!';
+      txHash = result.signature;
+      dispatch('success', { response, signature: result.signature, marketId: market.id });
     } catch (error) {
       txState = 'error';
       txError = error?.message || 'Failed to place bet';
@@ -200,6 +255,8 @@
         <FutarchyTxStatus
           state={txState}
           message={txState === 'error' ? txError : txMessage}
+          txHash={txHash}
+          confirmations={confirmations}
           primaryLabel={txState === 'error' ? 'TRY AGAIN' : ''}
           secondaryLabel={txState === 'error' ? 'CLOSE' : ''}
           on:primary={handleSubmit}

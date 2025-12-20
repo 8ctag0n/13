@@ -19,11 +19,13 @@
   export let creator = '';
   export let limit = 50;
   export let offset = 0;
+  export let compact = false;
 
   let loading = false;
   let error = '';
   let internalMarkets = markets;
   let lastSignature = '';
+  let expandedMarketId = '';
 
   const lamportsPerSol = 1_000_000_000;
 
@@ -99,6 +101,11 @@
     dispatch('marketAction', { market });
   }
 
+  function handleMarketToggle(event) {
+    const { market } = event.detail;
+    expandedMarketId = expandedMarketId === market.id ? '' : market.id;
+  }
+
   $: if (!autoFetch) {
     internalMarkets = markets;
   }
@@ -114,6 +121,12 @@
     if (signature !== lastSignature) {
       lastSignature = signature;
       fetchMarkets();
+    }
+  }
+
+  $: if (compact && expandedMarketId) {
+    if (!internalMarkets.find((market) => market.id === expandedMarketId)) {
+      expandedMarketId = '';
     }
   }
 </script>
@@ -151,7 +164,13 @@
       </TerminalBox>
     {:else}
       {#each internalMarkets as market}
-        <FutarchyMarketCard {market} on:action={handleMarketAction} />
+        <FutarchyMarketCard
+          {market}
+          {compact}
+          expanded={compact && expandedMarketId === market.id}
+          on:action={handleMarketAction}
+          on:toggle={handleMarketToggle}
+        />
       {/each}
     {/if}
   </div>
