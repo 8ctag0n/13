@@ -3,6 +3,7 @@ mod quote;
 mod jobs;
 mod stats;
 mod futarchy;
+mod gateway;
 
 use actix_web::web;
 
@@ -43,4 +44,9 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(futarchy::validate_bet);
     cfg.service(futarchy::validate_settle);
     cfg.service(futarchy::validate_claim);
+
+    // Gateway Prover (proxy to x402)
+    cfg.service(gateway::get_witness);
+    cfg.service(gateway::submit_zk_proof);
+    cfg.service(gateway::submit_fhe_result);
 }
