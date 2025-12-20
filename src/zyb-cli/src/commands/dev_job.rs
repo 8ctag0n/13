@@ -1,3 +1,22 @@
+//! Dev Job Commands - FHE Job Testing CLI
+//!
+//! This module provides CLI commands for testing FHE computation jobs using the new architecture:
+//! - **Bedrock** (Di2Tu6aNpJpPyxbMAasoLQU2yLqYMFWvUoV7cq7sXfvx) - Registry for provers/validators
+//! - **FHE Generator** (C8PpHFCKZ4F2Szbir2EMS4S4H3mwQqHNWUXK1N21nfAB) - FHE computation jobs
+//! - **ZK Generator** (Dzvy1pzCBgtMw5Fte2GybpeN2PsLPW8t7zDvLfKpxnSS) - ZK computation jobs
+//!
+//! The old zyberlink program is DEPRECATED. This CLI now uses fhe-generator-sdk directly.
+//!
+//! Circuit Types Supported:
+//! - CIRCUIT_FHE_ADD (4) - Addition
+//! - CIRCUIT_FHE_MULTIPLY (5) - Multiplication
+//! - CIRCUIT_FHE_SUM (6) - Sum of values
+//! - CIRCUIT_FHE_THRESHOLD (7) - Threshold comparison
+//! - CIRCUIT_FHE_RANGE_CHECK (8) - Range validation
+//! - CIRCUIT_FHE_AVERAGE (9) - Average calculation
+//! - CIRCUIT_FHE_COUNT_IF (10) - Conditional counting
+//! - CIRCUIT_FHE_HISTOGRAM (11) - Histogram generation
+
 use anyhow::{Context, Result};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use blake2::{Blake2s256, Digest};
@@ -14,8 +33,12 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
 use zyberlink_fhe::{generate_keys, prelude::*, ClientKey, FheUint8};
-use zyberlink_sdk::MarketplaceSDK;
-use zyberlink_types::fhe::{FheConsensusConfig, FheOperation, FhePredicate, HistogramBin};
+use zyberlink_types::fhe::{FheOperation, FhePredicate, HistogramBin};
+use fhe_generator_sdk::{
+    instructions as fhe_ix,
+    CIRCUIT_FHE_ADD, CIRCUIT_FHE_MULTIPLY, CIRCUIT_FHE_SUM, CIRCUIT_FHE_THRESHOLD,
+    CIRCUIT_FHE_RANGE_CHECK, CIRCUIT_FHE_AVERAGE, CIRCUIT_FHE_COUNT_IF, CIRCUIT_FHE_HISTOGRAM,
+};
 
 #[derive(Subcommand, Debug)]
 pub enum DevJobCommands {
@@ -206,7 +229,9 @@ impl VerifyOutcome {
 #[derive(Debug)]
 struct DevJobConfig {
     rpc_url: String,
-    program_id: solana_sdk::pubkey::Pubkey,
+    /// FHE Generator Program ID (C8PpHFCKZ4F2Szbir2EMS4S4H3mwQqHNWUXK1N21nfAB)
+    /// This is the main program for creating and managing FHE computation jobs
+    fhe_generator_program_id: solana_sdk::pubkey::Pubkey,
     backend_url: String,
     keypair_path: PathBuf,
     no_airdrop: bool,
@@ -214,12 +239,15 @@ struct DevJobConfig {
 }
 
 struct DevJobContext {
-    sdk: MarketplaceSDK,
+    /// FHE Generator Program ID - used for creating FHE computation jobs
+    fhe_generator_program_id: solana_sdk::pubkey::Pubkey,
     rpc_client: RpcClient,
     http_client: reqwest::Client,
     user_keypair: Keypair,
     backend_url: String,
     json: bool,
+    /// Atomic counter for unique job IDs (starts at 1000000)
+    next_job_id: std::sync::atomic::AtomicU64,
 }
 
 #[derive(Default, Deserialize)]
@@ -235,6 +263,10 @@ struct DevJobFileConfig {
 struct DevJobCommonFileConfig {
     profile: Option<String>,
     program_id: Option<String>,
+    #[allow(dead_code)] // Reserved for future Bedrock integration
+    bedrock_program_id: Option<String>,
+    #[allow(dead_code)] // Reserved for future ZK job support
+    zk_generator_program_id: Option<String>,
     rpc_url: Option<String>,
     backend_url: Option<String>,
     keypair: Option<PathBuf>,
@@ -245,6 +277,10 @@ struct DevJobCommonFileConfig {
 #[derive(Clone, Default, Deserialize)]
 struct DevJobProfileConfig {
     program_id: Option<String>,
+    #[allow(dead_code)] // Reserved for future Bedrock integration
+    bedrock_program_id: Option<String>,
+    #[allow(dead_code)] // Reserved for future ZK job support
+    zk_generator_program_id: Option<String>,
     rpc_url: Option<String>,
     backend_url: Option<String>,
     keypair: Option<PathBuf>,
@@ -342,7 +378,7 @@ async fn build_context(
 
     log::info!("Dev Job starting...");
     log::info!("RPC URL: {}", config.rpc_url);
-    log::info!("Program ID: {}", config.program_id);
+    log::info!("FHE Generator Program ID: {}", config.fhe_generator_program_id);
     log::info!("Backend URL: {}", config.backend_url);
     log::info!("User: {}", user_keypair.pubkey());
 
@@ -353,15 +389,21 @@ async fn build_context(
         ensure_balance(&rpc_client, &user_keypair).await?;
     }
 
-    let sdk = MarketplaceSDK::new(config.program_id);
+    // Start job IDs based on timestamp to avoid conflicts across runs
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let next_job_id = std::sync::atomic::AtomicU64::new(timestamp);
 
     Ok(DevJobContext {
-        sdk,
+        fhe_generator_program_id: config.fhe_generator_program_id,
         rpc_client,
         http_client,
         user_keypair,
         backend_url: config.backend_url,
         json: config.json,
+        next_job_id,
     })
 }
 
@@ -396,17 +438,18 @@ fn load_config(
         .or_else(|| std::env::var("SOLANA_RPC_URL").ok())
         .unwrap_or_else(|| "http://localhost:8899".to_string());
 
-    let program_id_str = args
+    let fhe_generator_program_id_str = args
         .program_id
         .clone()
         .or_else(|| profile.as_ref().and_then(|cfg| cfg.program_id.clone()))
         .or_else(|| common.and_then(|cfg| cfg.program_id.clone()))
+        .or_else(|| std::env::var("FHE_GENERATOR_PROGRAM_ID").ok())
         .or_else(|| std::env::var("PROGRAM_ID").ok())
-        .context("PROGRAM_ID env var required (or use --program-id)")?;
+        .unwrap_or_else(|| "C8PpHFCKZ4F2Szbir2EMS4S4H3mwQqHNWUXK1N21nfAB".to_string());
 
-    let program_id: solana_sdk::pubkey::Pubkey = program_id_str
+    let fhe_generator_program_id: solana_sdk::pubkey::Pubkey = fhe_generator_program_id_str
         .parse()
-        .context("Invalid PROGRAM_ID")?;
+        .context("Invalid FHE_GENERATOR_PROGRAM_ID")?;
 
     let backend_url = args
         .backend_url
@@ -433,7 +476,7 @@ fn load_config(
 
     Ok(DevJobConfig {
         rpc_url,
-        program_id,
+        fhe_generator_program_id,
         backend_url,
         keypair_path,
         no_airdrop,
@@ -573,7 +616,8 @@ async fn run_verify_sequence(
         let expected = spec.expected.context("Selected type does not support verify")?;
 
         let outcome = run_verified_job(
-            &context.sdk,
+            &context.fhe_generator_program_id,
+            &context.next_job_id,
             &context.rpc_client,
             &context.http_client,
             &context.user_keypair,
@@ -916,6 +960,35 @@ fn default_histogram_bins() -> Vec<HistogramBin> {
     ]
 }
 
+/// Map FheOperation to circuit type and operation parameters
+fn operation_to_circuit_params(operation: &FheOperation) -> (u8, u16, u8, u8) {
+    match operation {
+        FheOperation::Add(value) => (CIRCUIT_FHE_ADD, *value as u16, 0, 0),
+        FheOperation::Multiply(value) => (CIRCUIT_FHE_MULTIPLY, *value as u16, 0, 0),
+        FheOperation::Sum { expected_count } => (CIRCUIT_FHE_SUM, *expected_count, 0, 0),
+        FheOperation::Threshold { threshold, greater_or_equal } => {
+            (CIRCUIT_FHE_THRESHOLD, *threshold as u16, *greater_or_equal as u8, 0)
+        }
+        FheOperation::RangeCheck { min, max } => (CIRCUIT_FHE_RANGE_CHECK, *min as u16, *max, 0),
+        FheOperation::Average { expected_count } => (CIRCUIT_FHE_AVERAGE, *expected_count, 0, 0),
+        FheOperation::CountIf { predicate, expected_count } => {
+            let (param2, param3) = match predicate {
+                FhePredicate::Equals(val) => (0, *val),
+                FhePredicate::GreaterThan(val) => (1, *val),
+                FhePredicate::LessThan(val) => (2, *val),
+                FhePredicate::InRange { min, max: _ } => (3, *min), // TODO: support max in param3
+                FhePredicate::NotEquals(val) => (4, *val),
+            };
+            (CIRCUIT_FHE_COUNT_IF, *expected_count, param2, param3)
+        }
+        FheOperation::Histogram { bins } => (CIRCUIT_FHE_HISTOGRAM, bins.len() as u16, 0, 0),
+        FheOperation::FutarchyPoolUpdate { .. } => {
+            // Not supported in dev-job CLI yet
+            panic!("FutarchyPoolUpdate not supported in dev-job CLI")
+        }
+    }
+}
+
 async fn create_and_submit_job(context: &DevJobContext, spec: &JobSpec) -> Result<JobRunOutcome> {
     log::info!("Creating job: {}", spec.name);
 
@@ -936,27 +1009,35 @@ async fn create_and_submit_job(context: &DevJobContext, spec: &JobSpec) -> Resul
     encrypted_input.extend_from_slice(&encrypted_data);
     encrypted_input.extend_from_slice(&server_key);
 
+    // Hash the witness data
+    let mut hasher = Blake2s256::new();
+    hasher.update(&encrypted_input);
+    let witness_hash: [u8; 32] = hasher.finalize().into();
+
     let commitment = upload_witness(&context.http_client, &context.backend_url, &encrypted_input).await?;
     log::info!("Witness uploaded, commitment: {}", commitment);
 
-    let fhe_config = FheConsensusConfig {
-        required_provers,
-        consensus_threshold,
-        submission_timeout_secs: cost_config.timeout_seconds,
-        operation: spec.operation.clone(),
-    };
-
     let total_price = cost_config.min_payment_lamports * 2 * (required_provers as u64);
-    let job_id = context.sdk.get_next_job_id(&context.rpc_client)?;
+    let job_id = context.next_job_id.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 
-    let create_job_ix = context.sdk.create_fhe_job(
-        context.user_keypair.pubkey(),
+    // Map operation to circuit parameters
+    let (circuit_type, param1, param2, param3) = operation_to_circuit_params(&spec.operation);
+
+    let create_job_ix = fhe_ix::create_job(
+        &context.fhe_generator_program_id,
+        &context.user_keypair.pubkey(),
         job_id,
-        &encrypted_input,
-        fhe_config,
+        circuit_type,
+        witness_hash,
+        encrypted_data.len() as u32, // Only encrypted data, not server key
         total_price,
         cost_config.timeout_seconds,
-    )?;
+        required_provers,
+        consensus_threshold,
+        param1,
+        param2,
+        param3,
+    );
 
     let recent_blockhash = context.rpc_client.get_latest_blockhash()?;
     let mut tx = Transaction::new_with_payer(&[create_job_ix], Some(&context.user_keypair.pubkey()));
@@ -1009,7 +1090,8 @@ struct ValidateAndBuildResponse {
 }
 
 async fn run_verified_job(
-    sdk: &MarketplaceSDK,
+    fhe_generator_program_id: &solana_sdk::pubkey::Pubkey,
+    next_job_id: &std::sync::atomic::AtomicU64,
     rpc_client: &RpcClient,
     http_client: &reqwest::Client,
     user_keypair: &Keypair,
@@ -1036,6 +1118,11 @@ async fn run_verified_job(
     encrypted_input.extend_from_slice(&encrypted_data);
     encrypted_input.extend_from_slice(&server_key);
 
+    // Hash the witness data
+    let mut hasher = Blake2s256::new();
+    hasher.update(&encrypted_input);
+    let witness_hash: [u8; 32] = hasher.finalize().into();
+
     let commitment = upload_witness(http_client, backend_url, &encrypted_input).await?;
     log::info!("  Commitment: {}", commitment);
 
@@ -1044,24 +1131,27 @@ async fn run_verified_job(
     let required_provers = 3u8;
     let consensus_threshold = 2u8;
 
-    let fhe_config = FheConsensusConfig {
-        required_provers,
-        consensus_threshold,
-        submission_timeout_secs: cost_config.timeout_seconds,
-        operation: operation.clone(),
-    };
-
     let total_price = cost_config.min_payment_lamports * 2 * (required_provers as u64);
-    let job_id = sdk.get_next_job_id(rpc_client)?;
+    let job_id = next_job_id.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 
-    let create_job_ix = sdk.create_fhe_job(
-        user_keypair.pubkey(),
+    // Map operation to circuit parameters
+    let (circuit_type, param1, param2, param3) = operation_to_circuit_params(&operation);
+
+    let create_job_ix = fhe_ix::create_job(
+        fhe_generator_program_id,
+        &user_keypair.pubkey(),
         job_id,
-        &encrypted_input,
-        fhe_config,
+        circuit_type,
+        witness_hash,
+        encrypted_data.len() as u32, // Only encrypted data, not server key
         total_price,
         cost_config.timeout_seconds,
-    )?;
+        required_provers,
+        consensus_threshold,
+        param1,
+        param2,
+        param3,
+    );
 
     let recent_blockhash = rpc_client.get_latest_blockhash()?;
     let mut tx = Transaction::new_with_payer(&[create_job_ix], Some(&user_keypair.pubkey()));
