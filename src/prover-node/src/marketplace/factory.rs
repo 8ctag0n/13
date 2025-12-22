@@ -60,6 +60,8 @@ pub struct MarketplaceConfig {
     pub zk_generator_program: Option<String>,
     /// FHE Generator program ID (optional, for new architecture)
     pub fhe_generator_program: Option<String>,
+    /// Starknet private key for signing transactions (hex format)
+    pub starknet_private_key: Option<String>,
 }
 
 impl MarketplaceConfig {
@@ -83,6 +85,7 @@ impl MarketplaceConfig {
             prover_address: None, // Will be derived from keypair
             zk_generator_program: None,
             fhe_generator_program: None,
+            starknet_private_key: None,
         }
     }
 
@@ -111,6 +114,7 @@ impl MarketplaceConfig {
             prover_address: Some(prover_address.to_string()),
             zk_generator_program: None,
             fhe_generator_program: None,
+            starknet_private_key: None,
         }
     }
 
@@ -132,7 +136,14 @@ impl MarketplaceConfig {
             prover_address: Some(prover_address.to_string()),
             zk_generator_program: None,
             fhe_generator_program: None,
+            starknet_private_key: None,
         }
+    }
+
+    /// Set Starknet private key for signing transactions (builder pattern)
+    pub fn with_starknet_signer(mut self, private_key: &str) -> Self {
+        self.starknet_private_key = Some(private_key.to_string());
+        self
     }
 }
 
@@ -219,11 +230,28 @@ impl MarketplaceFactory {
                 let client = StarknetClient::new(&config.rpc_url)
                     .map_err(|e| anyhow::anyhow!("Failed to create StarknetClient: {}", e))?;
 
-                let marketplace = StarknetMarketplace::new(
-                    Arc::new(client),
-                    config.program_address.clone(),
-                    prover_address,
-                );
+                // Use new_with_signer if private key is provided
+                let marketplace = if let Some(ref private_key) = config.starknet_private_key {
+                    log::info!(
+                        "Creating StarknetMarketplace with signer for prover {}",
+                        prover_address
+                    );
+                    StarknetMarketplace::new_with_signer(
+                        Arc::new(client),
+                        config.program_address.clone(),
+                        prover_address,
+                        private_key.clone(),
+                    )
+                } else {
+                    log::warn!(
+                        "Creating StarknetMarketplace without signer (read-only mode)"
+                    );
+                    StarknetMarketplace::new(
+                        Arc::new(client),
+                        config.program_address.clone(),
+                        prover_address,
+                    )
+                };
 
                 Ok(Arc::new(marketplace))
             }
@@ -240,6 +268,40 @@ impl MarketplaceFactory {
     ) -> Result<Arc<SolanaMarketplace>> {
         let marketplace = SolanaMarketplace::new(rpc_url, program_id, keypair)
             .map_err(|e| anyhow::anyhow!("Failed to create SolanaMarketplace: {}", e))?;
+
+        Ok(Arc::new(marketplace))
+    }
+
+    /// Create a Starknet marketplace client directly (for Starknet-specific operations)
+    ///
+    /// # Arguments
+    /// * `rpc_url` - Starknet RPC endpoint URL
+    /// * `contract_address` - PbtcfiJobs contract address
+    /// * `prover_address` - Prover account address
+    /// * `private_key` - Optional private key for signing transactions
+    pub fn create_starknet(
+        rpc_url: &str,
+        contract_address: &str,
+        prover_address: &str,
+        private_key: Option<&str>,
+    ) -> Result<Arc<StarknetMarketplace>> {
+        let client = StarknetClient::new(rpc_url)
+            .map_err(|e| anyhow::anyhow!("Failed to create StarknetClient: {}", e))?;
+
+        let marketplace = if let Some(pk) = private_key {
+            StarknetMarketplace::new_with_signer(
+                Arc::new(client),
+                contract_address.to_string(),
+                prover_address.to_string(),
+                pk.to_string(),
+            )
+        } else {
+            StarknetMarketplace::new(
+                Arc::new(client),
+                contract_address.to_string(),
+                prover_address.to_string(),
+            )
+        };
 
         Ok(Arc::new(marketplace))
     }

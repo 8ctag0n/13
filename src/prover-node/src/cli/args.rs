@@ -78,6 +78,28 @@ pub struct ProverArgs {
     /// FHE Generator program ID (for new architecture)
     #[arg(long, env = "FHE_GENERATOR_PROGRAM_ID")]
     pub fhe_generator_program: Option<String>,
+
+    // ========== Starknet Configuration ==========
+
+    /// Blockchain to use (solana, starknet)
+    #[arg(long, default_value = "solana", env = "PROVER_CHAIN")]
+    pub chain: String,
+
+    /// Starknet RPC URL
+    #[arg(long, default_value = "http://localhost:5050", env = "STARKNET_RPC_URL")]
+    pub starknet_rpc_url: String,
+
+    /// Starknet PbtcfiJobs contract address
+    #[arg(long, env = "STARKNET_CONTRACT_ADDRESS")]
+    pub starknet_contract_address: Option<String>,
+
+    /// Starknet prover account address
+    #[arg(long, env = "STARKNET_PROVER_ADDRESS")]
+    pub starknet_prover_address: Option<String>,
+
+    /// Starknet prover private key (hex format, e.g., 0x...)
+    #[arg(long, env = "STARKNET_PRIVATE_KEY")]
+    pub starknet_private_key: Option<String>,
 }
 
 #[derive(Parser, Debug)]
