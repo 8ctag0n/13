@@ -2,6 +2,7 @@
 ///
 /// Provides FHE and ZK utilities for client-side operations.
 
+pub mod chains;
 pub mod commands;
 pub mod client;
 pub mod solana;
