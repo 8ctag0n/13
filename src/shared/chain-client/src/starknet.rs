@@ -11,9 +11,13 @@ use crate::signature::SignatureVerifier;
 use async_trait::async_trait;
 
 #[cfg(feature = "starknet")]
-use starknet_core::types::Felt;
+use starknet_core::types::{Felt, Call, BlockId, BlockTag};
 #[cfg(feature = "starknet")]
-use starknet_crypto::poseidon_hash_many;
+use starknet_providers::{Provider, jsonrpc::{HttpTransport, JsonRpcClient}};
+#[cfg(feature = "starknet")]
+use starknet_signers::{LocalWallet, SigningKey};
+#[cfg(feature = "starknet")]
+use starknet_accounts::{Account, ExecutionEncoding, SingleOwnerAccount};
 
 /// Starknet chain client
 ///
@@ -280,6 +284,8 @@ impl ChainClient for StarknetClient {
 
         #[cfg(feature = "starknet")]
         {
+            use url::Url;
+
             // Parse args as JSON: { "calldata": ["0x...", ...], "private_key": "0x..." }
             #[derive(serde::Deserialize)]
             struct ExecuteArgs {
@@ -292,93 +298,62 @@ impl ChainClient for StarknetClient {
                     "Invalid execute args (expected {{calldata, private_key}}): {}", e
                 )))?;
 
-            // Get nonce for the account
-            let nonce: String = self.rpc_call(
-                "starknet_getNonce",
-                serde_json::json!({
-                    "block_id": "latest",
-                    "contract_address": signer
-                })
-            ).await?;
+            // Parse calldata as Felt
+            let calldata: Vec<Felt> = execute_args.calldata.iter()
+                .map(|s| Felt::from_hex(s))
+                .collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(|e| ChainClientError::Generic(format!("Invalid calldata: {}", e)))?;
 
-            // Build INVOKE v3 transaction
-            // Calldata format for single call:
-            // [call_array_len, to, selector, data_offset, data_len, calldata..., calldata_len]
-            let mut full_calldata: Vec<String> = vec![
-                "0x1".to_string(),           // call_array_len = 1
-                program_address.to_string(), // to (contract address)
-                method.to_string(),          // selector
-                "0x0".to_string(),           // data_offset
-                format!("0x{:x}", execute_args.calldata.len()), // data_len
-            ];
-            full_calldata.extend(execute_args.calldata.clone());
-            full_calldata.push(format!("0x{:x}", execute_args.calldata.len())); // calldata_len
+            // Parse contract address, method selector, and signer address
+            let contract_address = Felt::from_hex(program_address)
+                .map_err(|e| ChainClientError::Generic(format!("Invalid contract address: {}", e)))?;
+            let selector = Felt::from_hex(method)
+                .map_err(|e| ChainClientError::Generic(format!("Invalid method selector: {}", e)))?;
+            let signer_address = Felt::from_hex(signer)
+                .map_err(|e| ChainClientError::Generic(format!("Invalid signer address: {}", e)))?;
 
-            // Parse private key
+            // Parse private key and create signing key
             let private_key = Felt::from_hex(&execute_args.private_key)
                 .map_err(|e| ChainClientError::Generic(format!("Invalid private key: {}", e)))?;
+            let signing_key = SigningKey::from_secret_scalar(private_key);
+            let signer_wallet = LocalWallet::from_signing_key(signing_key);
 
-            // Calculate transaction hash for signing
-            // This is a simplified version - full implementation needs proper hash calculation
-            let tx_elements: Vec<Felt> = vec![
-                Felt::from_hex("0x496e766f6b65").unwrap(), // "invoke"
-                Felt::from_hex(signer).map_err(|e| ChainClientError::Generic(format!("Invalid signer: {}", e)))?,
-                Felt::from_hex(&nonce).map_err(|e| ChainClientError::Generic(format!("Invalid nonce: {}", e)))?,
-                Felt::from_hex(program_address).map_err(|e| ChainClientError::Generic(format!("Invalid contract: {}", e)))?,
-                Felt::from_hex(method).map_err(|e| ChainClientError::Generic(format!("Invalid method: {}", e)))?,
-            ];
-            let tx_hash = poseidon_hash_many(&tx_elements);
+            // Create RPC provider
+            let rpc_url = Url::parse(&self.rpc_url)
+                .map_err(|e| ChainClientError::Generic(format!("Invalid RPC URL: {}", e)))?;
+            let provider = JsonRpcClient::new(HttpTransport::new(rpc_url));
 
-            // Sign with ECDSA
-            let signature = starknet_crypto::sign(
-                &private_key,
-                &tx_hash,
-                &Felt::from_hex("0x1").unwrap(), // k - should be random, simplified for now
-            ).map_err(|e| ChainClientError::Generic(format!("Signing failed: {}", e)))?;
+            // Get chain ID from provider
+            let chain_id = provider.chain_id().await
+                .map_err(|e| ChainClientError::Generic(format!("Failed to get chain ID: {}", e)))?;
 
-            // Build transaction
-            let tx = serde_json::json!({
-                "type": "INVOKE",
-                "version": "0x3",
-                "sender_address": signer,
-                "calldata": full_calldata,
-                "signature": [
-                    format!("0x{:064x}", signature.r),
-                    format!("0x{:064x}", signature.s)
-                ],
-                "nonce": nonce,
-                "resource_bounds": {
-                    "l1_gas": {
-                        "max_amount": "0x186a0",
-                        "max_price_per_unit": "0x5af3107a4000"
-                    },
-                    "l2_gas": {
-                        "max_amount": "0x0",
-                        "max_price_per_unit": "0x0"
-                    },
-                    "l1_data_gas": {
-                        "max_amount": "0x186a0",
-                        "max_price_per_unit": "0x5af3107a4000"
-                    }
-                },
-                "tip": "0x0",
-                "paymaster_data": [],
-                "account_deployment_data": [],
-                "nonce_data_availability_mode": "L1",
-                "fee_data_availability_mode": "L1"
-            });
+            // Create SingleOwnerAccount
+            let mut account = SingleOwnerAccount::new(
+                provider,
+                signer_wallet,
+                signer_address,
+                chain_id,
+                ExecutionEncoding::New,
+            );
 
-            // Send transaction
-            let result: serde_json::Value = self.rpc_call(
-                "starknet_addInvokeTransaction",
-                serde_json::json!({ "invoke_transaction": tx })
-            ).await?;
+            // Set block_id for nonce and gas estimation
+            account.set_block_id(BlockId::Tag(BlockTag::Latest));
 
-            // Extract transaction hash
-            result.get("transaction_hash")
-                .and_then(|h| h.as_str())
-                .map(|s| s.to_string())
-                .ok_or_else(|| ChainClientError::Generic("No transaction_hash in response".to_string()))
+            // Build the call
+            let call = Call {
+                to: contract_address,
+                selector,
+                calldata,
+            };
+
+            // Execute the transaction (v3)
+            let execution = account.execute_v3(vec![call]);
+
+            let result = execution.send().await
+                .map_err(|e| ChainClientError::Generic(format!("Transaction execution failed: {}", e)))?;
+
+            // Return transaction hash as hex string
+            Ok(format!("{:#x}", result.transaction_hash))
         }
     }
 

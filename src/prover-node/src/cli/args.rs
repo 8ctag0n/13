@@ -7,6 +7,14 @@ pub struct ProverArgs {
     #[command(subcommand)]
     pub command: Option<ProverCommand>,
 
+    // ========== Multi-Chain Configuration ==========
+
+    /// Path to TOML configuration file (overrides CLI flags)
+    #[arg(short, long, env = "PROVER_CONFIG")]
+    pub config: Option<String>,
+
+    // ========== Legacy CLI Flags (for backward compatibility) ==========
+
     /// Solana RPC URL
     #[arg(short, long, default_value = "http://localhost:8899", global = true)]
     pub rpc_url: String,

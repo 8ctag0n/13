@@ -12153,6 +12153,7 @@ dependencies = [
  "starknet-signers",
  "thiserror 1.0.69",
  "tokio",
+ "url",
  "uuid 1.19.0",
 ]
 
@@ -12235,6 +12236,7 @@ dependencies = [
  "solana-sdk",
  "thiserror 1.0.69",
  "tokio",
+ "toml 0.8.23",
  "url",
  "urlencoding",
  "x25519-dalek",

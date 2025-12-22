@@ -45,7 +45,7 @@ mod wizard;
 
 // Re-exports for convenience
 use cli::{ProverArgs, ProverCommand};
-use config::ProverConfig;
+use config::{ProverConfig, ChainConfig};
 use marketplace::{MarketplaceFactory, MarketplaceOperations, SolanaMarketplace};
 use core::{CircuitRegistry, JobProcessor};
 use gateway::GatewayClient;
@@ -105,11 +105,12 @@ fn config_from_args(args: &ProverArgs) -> Result<ProverConfig> {
 
 /// Main prover node that manages job polling and proof generation
 struct ProverNode {
-    marketplace: Arc<SolanaMarketplace>,
+    /// Multi-chain marketplaces (chain_name -> marketplace)
+    marketplaces: std::collections::HashMap<String, Arc<dyn MarketplaceOperations>>,
     keypair: Arc<Keypair>,
     config: ProverConfig,
     roi_calculator: Arc<ROICalculator>,
-    active_jobs: Arc<tokio::sync::Mutex<Vec<Pubkey>>>,
+    active_jobs: Arc<tokio::sync::Mutex<Vec<String>>>, // Changed to String for multi-chain job IDs
     job_processor: Arc<JobProcessor>,
     tui_state: Option<Arc<tui::TUIState>>,
     start_time: std::time::Instant,
@@ -125,7 +126,10 @@ impl ProverNode {
             .map_err(|e| anyhow::anyhow!("Failed to read keypair file: {}", e))?;
         let keypair_arc = Arc::new(keypair);
 
-        // Create SolanaMarketplace - use generators if configured
+        // Create a single Solana marketplace for legacy mode (single-chain)
+        // This maintains backward compatibility when not using multi-chain config
+        let mut marketplaces = std::collections::HashMap::new();
+
         let marketplace = if config.zk_generator_program.is_some() || config.fhe_generator_program.is_some() {
             info!(
                 "Creating marketplace with generators: ZK={:?}, FHE={:?}",
@@ -145,6 +149,9 @@ impl ProverNode {
                 keypair_arc.clone(),
             )?
         };
+
+        // Store in marketplaces map for compatibility with new multi-chain structure
+        marketplaces.insert("solana".to_string(), marketplace.clone() as Arc<dyn MarketplaceOperations>);
 
         // Initialize Halo2 prover
         info!("Initializing Halo2 proving system...");
@@ -207,8 +214,10 @@ impl ProverNode {
         let gateway_client_arc = Arc::new(gateway_client);
 
         // Initialize JobProcessor with all dependencies
+        // Use the first marketplace for JobProcessor (it will be passed per-job in multi-chain mode)
+        let default_marketplace = marketplace.clone();
         let job_processor = Arc::new(JobProcessor::new(
-            marketplace.clone(),
+            default_marketplace.clone() as Arc<dyn MarketplaceOperations>,
             keypair_arc.clone(),
             halo2_prover_arc,
             witness_encryption_arc,
@@ -218,7 +227,7 @@ impl ProverNode {
         ));
 
         Ok(Self {
-            marketplace,
+            marketplaces,
             keypair: keypair_arc,
             config,
             roi_calculator: Arc::new(roi_calculator),
@@ -227,6 +236,213 @@ impl ProverNode {
             tui_state,
             start_time: std::time::Instant::now(),
         })
+    }
+
+    /// Create a ProverNode from multi-chain TOML configuration
+    fn new_from_config_file(
+        config_path: &str,
+        tui_state: Option<Arc<tui::TUIState>>,
+    ) -> Result<Self> {
+        use config::{ProverConfigFile, ChainConfig};
+
+        info!("Loading multi-chain configuration from: {}", config_path);
+        let config_file = ProverConfigFile::load_from_file(config_path)?;
+
+        // Get first enabled Solana chain for keypair (required for encryption)
+        let solana_keypair_path = config_file.chains.iter()
+            .find_map(|(_, chain_config)| {
+                if let ChainConfig::Solana(ref sol) = chain_config {
+                    if sol.enabled {
+                        return sol.keypair_path.clone();
+                    }
+                }
+                None
+            })
+            .context("At least one enabled Solana chain with keypair_path is required")?;
+
+        let keypair = read_keypair_file(&solana_keypair_path)
+            .map_err(|e| anyhow::anyhow!("Failed to read keypair file: {}", e))?;
+        let keypair_arc = Arc::new(keypair);
+
+        info!("Prover Authority: {}", keypair_arc.pubkey());
+
+        // Create marketplaces for all enabled chains
+        let mut marketplaces = std::collections::HashMap::new();
+
+        for (chain_name, chain_config) in config_file.enabled_chains() {
+            info!("Initializing marketplace for chain: {}", chain_name);
+
+            let marketplace = Self::create_marketplace_from_config(
+                &chain_name,
+                chain_config,
+                keypair_arc.clone(),
+            )?;
+
+            marketplaces.insert(chain_name.clone(), marketplace);
+            info!("Marketplace ready for chain: {}", chain_name);
+        }
+
+        if marketplaces.is_empty() {
+            anyhow::bail!("No marketplaces initialized - at least one chain must be enabled");
+        }
+
+        info!("Initialized {} marketplace(s)", marketplaces.len());
+
+        // Initialize Halo2 prover
+        info!("Initializing Halo2 proving system...");
+        let mut halo2_prover = Halo2Prover::new()?;
+        halo2_prover.setup()?;
+        info!("Halo2 prover ready");
+
+        // Initialize witness encryption
+        info!("Initializing witness encryption system...");
+        let encryption_seed = derive_encryption_seed(&*keypair_arc);
+        let witness_encryption = WitnessEncryption::from_seed(encryption_seed)?;
+        let pubkey = witness_encryption.public_key();
+        info!("Witness encryption ready (pubkey: {})", hex::encode(pubkey));
+
+        // Initialize witness fetcher
+        info!("Initializing witness fetcher...");
+        let witness_fetcher = WitnessFetcher::new(config_file.witness.base_url.clone());
+        info!("Witness fetcher ready (backend: {})", config_file.witness.base_url);
+
+        // Initialize GatewayClient
+        info!("Initializing gateway client...");
+        let gateway_client = GatewayClient::new(
+            config_file.witness.base_url.clone(),
+            Arc::new(keypair_arc.insecure_clone()),
+        );
+        info!("Gateway client ready (gateway: {})", config_file.witness.base_url);
+
+        // Initialize FHE engine if server key is provided
+        let fhe_engine = if let Some(ref key_path) = config_file.prover.fhe_server_key_path {
+            info!("Initializing FHE engine with server key from: {}", key_path);
+            let server_key_bytes =
+                std::fs::read(key_path).context("Failed to read FHE server key file")?;
+            let server_key = deserialize_server_key(&server_key_bytes)
+                .context("Failed to deserialize FHE server key")?;
+            let engine = FheEngine::new(server_key);
+            info!("FHE engine ready");
+            Some(Arc::new(engine))
+        } else {
+            info!("FHE engine not initialized (no server key provided)");
+            None
+        };
+
+        // Initialize ROI calculator
+        let roi_calculator = ROICalculator::new(
+            config_file.prover.min_roi_threshold,
+            config_file.prover.cost_multiplier,
+        );
+        info!(
+            "ROI calculator initialized - Min ROI: {:.1}%, Cost multiplier: {:.1}x",
+            config_file.prover.min_roi_threshold,
+            config_file.prover.cost_multiplier
+        );
+
+        // Create shared references
+        let halo2_prover_arc = Arc::new(halo2_prover);
+        let witness_encryption_arc = Arc::new(witness_encryption);
+        let witness_fetcher_arc = Arc::new(witness_fetcher);
+        let gateway_client_arc = Arc::new(gateway_client);
+
+        // Initialize JobProcessor with first marketplace as default
+        let default_marketplace = marketplaces.values().next().unwrap().clone();
+        let job_processor = Arc::new(JobProcessor::new(
+            default_marketplace,
+            keypair_arc.clone(),
+            halo2_prover_arc,
+            witness_encryption_arc,
+            witness_fetcher_arc,
+            gateway_client_arc,
+            fhe_engine,
+        ));
+
+        // Create legacy ProverConfig for compatibility
+        let legacy_config = ProverConfig::new(
+            "multi-chain".to_string(),
+            Pubkey::default(), // Not used in multi-chain mode
+            solana_keypair_path,
+            Duration::from_secs(config_file.prover.poll_interval_secs),
+            0, // Deprecated
+            config_file.prover.min_roi_threshold,
+            config_file.prover.cost_multiplier,
+            Duration::from_secs(config_file.prover.mock_proving_time_secs),
+            config_file.prover.max_concurrent_jobs,
+            config_file.witness.base_url.clone(),
+            config_file.witness.blink_backend_url.clone(),
+            config_file.prover.zk_circuits_path.clone(),
+            config_file.prover.fhe_server_key_path.clone(),
+            None,
+            None,
+        );
+
+        Ok(Self {
+            marketplaces,
+            keypair: keypair_arc,
+            config: legacy_config,
+            roi_calculator: Arc::new(roi_calculator),
+            active_jobs: Arc::new(tokio::sync::Mutex::new(Vec::new())),
+            job_processor,
+            tui_state,
+            start_time: std::time::Instant::now(),
+        })
+    }
+
+    /// Create a marketplace client from chain configuration
+    fn create_marketplace_from_config(
+        chain_name: &str,
+        chain_config: &ChainConfig,
+        keypair: Arc<Keypair>,
+    ) -> Result<Arc<dyn MarketplaceOperations>> {
+        use marketplace::{MarketplaceConfig, MarketplaceFactory};
+
+        match chain_config {
+            ChainConfig::Solana(sol_config) => {
+                let program_id = sol_config.program_id.as_ref()
+                    .or(sol_config.zk_generator_program.as_ref())
+                    .or(sol_config.fhe_generator_program.as_ref())
+                    .context("At least one program ID required for Solana chain")?;
+
+                let marketplace_config = MarketplaceConfig::solana(
+                    &sol_config.rpc_url,
+                    program_id,
+                ).with_generators(
+                    sol_config.zk_generator_program.as_deref(),
+                    sol_config.fhe_generator_program.as_deref(),
+                );
+
+                MarketplaceFactory::create(&marketplace_config, keypair)
+            }
+            ChainConfig::Starknet(stark_config) => {
+                // Load private key from environment
+                let private_key = std::env::var("STARKNET_PRIVATE_KEY").ok();
+
+                let mut marketplace_config = MarketplaceConfig::starknet(
+                    &stark_config.rpc_url,
+                    &stark_config.contract_address,
+                    &stark_config.prover_address,
+                );
+
+                if let Some(ref pk) = private_key {
+                    marketplace_config = marketplace_config.with_starknet_signer(pk);
+                }
+
+                MarketplaceFactory::create(&marketplace_config, keypair)
+            }
+            ChainConfig::Aptos(aptos_config) => {
+                // Load private key from environment
+                let _private_key = std::env::var("APTOS_PRIVATE_KEY").ok();
+
+                let marketplace_config = MarketplaceConfig::aptos(
+                    &aptos_config.rpc_url,
+                    &aptos_config.module_address,
+                    &aptos_config.prover_address,
+                );
+
+                MarketplaceFactory::create(&marketplace_config, keypair)
+            }
+        }
     }
 
     /// Start the prover node main loop
@@ -248,9 +464,9 @@ impl ProverNode {
         }
     }
 
-    /// Poll for available jobs and process them
+    /// Poll for available jobs and process them (multi-chain)
     async fn poll_and_process_jobs(&self) -> Result<()> {
-        debug!("Polling for available jobs...");
+        debug!("Polling for available jobs across {} chain(s)...", self.marketplaces.len());
 
         // Get current active job count
         let active_count = self.active_jobs.lock().await.len();
@@ -262,20 +478,43 @@ impl ProverNode {
             return Ok(());
         }
 
-        // Find pending ZK jobs
-        let pending_jobs = self.marketplace.find_pending_jobs().await
-            .context("Failed to find pending jobs")?;
+        // Poll all marketplaces in parallel
+        let mut all_pending_jobs = Vec::new();
+        let mut all_fhe_jobs = Vec::new();
 
-        // Also find FHE jobs that need more provers (for consensus)
-        let fhe_jobs = self.marketplace.find_fhe_jobs_needing_provers().await
-            .context("Failed to find FHE jobs")?;
+        for (chain_name, marketplace) in &self.marketplaces {
+            debug!("Polling chain: {}", chain_name);
 
-        let total_pending = pending_jobs.len() + fhe_jobs.len();
+            // Find pending ZK jobs
+            match marketplace.find_pending_jobs().await {
+                Ok(jobs) => {
+                    debug!("Found {} pending jobs on {}", jobs.len(), chain_name);
+                    // Tag jobs with chain name for later processing
+                    all_pending_jobs.extend(jobs.into_iter().map(|job| (chain_name.clone(), job)));
+                }
+                Err(e) => {
+                    warn!("Failed to find pending jobs on {}: {:#}", chain_name, e);
+                }
+            }
+
+            // Also find FHE jobs that need more provers (for consensus)
+            match marketplace.find_fhe_jobs_needing_provers().await {
+                Ok(jobs) => {
+                    debug!("Found {} FHE jobs needing provers on {}", jobs.len(), chain_name);
+                    all_fhe_jobs.extend(jobs.into_iter().map(|job| (chain_name.clone(), job)));
+                }
+                Err(e) => {
+                    warn!("Failed to find FHE jobs on {}: {:#}", chain_name, e);
+                }
+            }
+        }
+
+        let total_pending = all_pending_jobs.len() + all_fhe_jobs.len();
         info!(
-            "Found {} pending jobs ({} ZK + {} FHE needing provers)",
+            "Found {} pending jobs across all chains ({} ZK + {} FHE needing provers)",
             total_pending,
-            pending_jobs.len(),
-            fhe_jobs.len()
+            all_pending_jobs.len(),
+            all_fhe_jobs.len()
         );
 
         // Filter jobs using ROI calculator - only accept profitable jobs
@@ -283,7 +522,7 @@ impl ProverNode {
         let mut rejected_count = 0;
 
         // Process regular pending jobs (mostly ZK jobs)
-        for job in pending_jobs {
+        for (chain_name, job) in all_pending_jobs {
             // Skip FHE jobs here - we handle them separately below
             if CircuitRegistry::is_fhe_circuit_from_enum(&job.circuit_type) {
                 continue;
@@ -300,22 +539,26 @@ impl ProverNode {
             );
 
             if roi.is_profitable {
-                suitable_jobs.push((job, circuit_type, roi));
+                suitable_jobs.push((chain_name, job, circuit_type, roi));
             } else {
                 rejected_count += 1;
                 debug!(
-                    "Rejected job {} - Tier {}, ROI {:.1}%, Profit: {} lamports",
-                    job.id, roi.complexity_tier, roi.roi_percentage, roi.profit
+                    "[{}] Rejected job {} - Tier {}, ROI {:.1}%, Profit: {} lamports",
+                    chain_name, job.id, roi.complexity_tier, roi.roi_percentage, roi.profit
                 );
             }
         }
 
         // Process FHE jobs that need more provers
-        for job in fhe_jobs {
+        for (chain_name, job) in all_fhe_jobs {
             let circuit_type = job.circuit_type.clone();
 
+            // Get marketplace for this chain
+            let marketplace = self.marketplaces.get(&chain_name)
+                .context("Marketplace not found for chain")?;
+
             // Get FHE consensus config to determine required provers
-            let fhe_config = self.marketplace.get_fhe_consensus_config(job.id).await
+            let fhe_config = marketplace.get_fhe_consensus_config(job.id).await
                 .context("Failed to get FHE consensus config")?;
 
             let required_provers = fhe_config.as_ref()
@@ -332,16 +575,16 @@ impl ProverNode {
             if roi.is_profitable {
                 if let Some(config) = &fhe_config {
                     info!(
-                        "FHE job {} needs provers: required {}",
-                        job.id, config.required_provers
+                        "[{}] FHE job {} needs provers: required {}",
+                        chain_name, job.id, config.required_provers
                     );
                 }
-                suitable_jobs.push((job, circuit_type, roi));
+                suitable_jobs.push((chain_name, job, circuit_type, roi));
             } else {
                 rejected_count += 1;
                 debug!(
-                    "Rejected FHE job {} - Tier {}, ROI {:.1}%, Profit: {} lamports",
-                    job.id, roi.complexity_tier, roi.roi_percentage, roi.profit
+                    "[{}] Rejected FHE job {} - Tier {}, ROI {:.1}%, Profit: {} lamports",
+                    chain_name, job.id, roi.complexity_tier, roi.roi_percentage, roi.profit
                 );
             }
         }
@@ -374,15 +617,14 @@ impl ProverNode {
 
         // Process jobs up to max concurrent limit
         let slots_available = self.config.max_concurrent_jobs - active_count;
-        for (job, circuit_type, roi) in suitable_jobs.into_iter().take(slots_available) {
+        for (chain_name, job, circuit_type, roi) in suitable_jobs.into_iter().take(slots_available) {
             info!(
-                "Processing job {} - Price: {} lamports, Circuit: {:?}, ROI: {:.1}%, Profit: {} lamports",
-                job.id, job.price, circuit_type, roi.roi_percentage, roi.profit
+                "[{}] Processing job {} - Price: {} lamports, Circuit: {:?}, ROI: {:.1}%, Profit: {} lamports",
+                chain_name, job.id, job.price, circuit_type, roi.roi_percentage, roi.profit
             );
 
-            // Parse job_pda from address string
-            let job_pda: Pubkey = job.address.parse()
-                .context("Failed to parse job address")?;
+            // Create unique job identifier for multi-chain (chain:job_id:creator)
+            let job_identifier = format!("{}:{}:{}", chain_name, job.id, job.creator);
 
             // Spawn job processing task
             let active_jobs = self.active_jobs.clone();
@@ -390,13 +632,15 @@ impl ProverNode {
             let tui_state = self.tui_state.clone();
             let job_id = job.id;
             let job_clone = job.clone();
+            let chain_name_clone = chain_name.clone();
+            let job_identifier_clone = job_identifier.clone();
 
             tokio::spawn(async move {
                 if let Err(e) = job_processor
                     .process_job(&job_clone, tui_state.clone())
                     .await
                 {
-                    error!("Failed to process job {}: {}", job_id, e);
+                    error!("[{}] Failed to process job {}: {}", chain_name_clone, job_id, e);
 
                     // Update failed job stats
                     if let Some(ref tui) = tui_state {
@@ -407,11 +651,11 @@ impl ProverNode {
                 }
 
                 // Remove from active jobs
-                active_jobs.lock().await.retain(|&pda| pda != job_pda);
+                active_jobs.lock().await.retain(|id| id != &job_identifier_clone);
             });
 
             // Add to active jobs
-            self.active_jobs.lock().await.push(job_pda);
+            self.active_jobs.lock().await.push(job_identifier);
         }
 
         Ok(())
@@ -428,8 +672,6 @@ async fn main() -> Result<()> {
 
     match args.command.as_ref().unwrap_or(&ProverCommand::Run) {
         ProverCommand::Run => {
-            let config = config_from_args(&args)?;
-
             // Start Futarchy poller in background thread if enabled
             let futarchy_handle = if args.enable_futarchy {
                 Some(start_futarchy_poller(&args)?)
@@ -437,13 +679,31 @@ async fn main() -> Result<()> {
                 None
             };
 
-            if args.tui_mode {
-                // Run with TUI
-                run_with_tui(config).await?;
+            // Check if using multi-chain TOML config or legacy CLI flags
+            if let Some(ref config_path) = args.config {
+                info!("Using multi-chain configuration from: {}", config_path);
+
+                if args.tui_mode {
+                    // Run with TUI (multi-chain mode)
+                    run_with_tui_multichain(config_path).await?;
+                } else {
+                    // Run headless (multi-chain mode)
+                    let prover = ProverNode::new_from_config_file(config_path, None)?;
+                    prover.run().await?;
+                }
             } else {
-                // Run headless
-                let prover = ProverNode::new(config)?;
-                prover.run().await?;
+                // Legacy mode: single chain via CLI flags
+                info!("Using legacy CLI flags (single-chain mode)");
+                let config = config_from_args(&args)?;
+
+                if args.tui_mode {
+                    // Run with TUI (legacy mode)
+                    run_with_tui(config).await?;
+                } else {
+                    // Run headless (legacy mode)
+                    let prover = ProverNode::new(config)?;
+                    prover.run().await?;
+                }
             }
 
             // Futarchy poller runs in its own thread and will be cleaned up on exit
@@ -463,7 +723,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-/// Run prover node with TUI interface
+/// Run prover node with TUI interface (legacy single-chain mode)
 async fn run_with_tui(config: ProverConfig) -> Result<()> {
     use std::sync::Arc;
 
@@ -480,6 +740,47 @@ async fn run_with_tui(config: ProverConfig) -> Result<()> {
     let prover_tui_state = Arc::clone(&tui_state);
     let prover_handle = tokio::spawn(async move {
         let prover = ProverNode::new_with_tui(config, Some(prover_tui_state))?;
+        prover.run().await
+    });
+
+    // Run TUI in main thread (needs to be on main thread for terminal control)
+    let tui_result = tui_app.run(&mut terminal);
+
+    // Cleanup terminal
+    tui::restore_terminal(&mut terminal)?;
+
+    // Signal prover to quit
+    tui_state.set_quit();
+
+    // Wait for prover to finish
+    match tokio::time::timeout(Duration::from_secs(5), prover_handle).await {
+        Ok(Ok(Ok(_))) => info!("Prover shut down cleanly"),
+        Ok(Ok(Err(e))) => error!("Prover error: {}", e),
+        Ok(Err(e)) => error!("Prover task panicked: {}", e),
+        Err(_) => warn!("Prover shutdown timeout"),
+    }
+
+    tui_result
+}
+
+/// Run prover node with TUI interface (multi-chain mode)
+async fn run_with_tui_multichain(config_path: &str) -> Result<()> {
+    use std::sync::Arc;
+
+    // Create shared TUI state
+    let tui_state = Arc::new(tui::TUIState::new());
+
+    // Setup terminal
+    let mut terminal = tui::setup_terminal()?;
+
+    // Create TUI app
+    let mut tui_app = tui::TUIApp::new(Arc::clone(&tui_state));
+
+    // Start prover node in background task
+    let prover_tui_state = Arc::clone(&tui_state);
+    let config_path_owned = config_path.to_string();
+    let prover_handle = tokio::spawn(async move {
+        let prover = ProverNode::new_from_config_file(&config_path_owned, Some(prover_tui_state))?;
         prover.run().await
     });
 

@@ -48,6 +48,7 @@ starknet-crypto = { version = "0.8", optional = true }
 starknet-providers = { version = "0.16", optional = true }
 starknet-signers = { version = "0.14", optional = true }
 starknet-accounts = { version = "0.16", optional = true }
+url = { version = "2.5", optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
@@ -55,5 +56,5 @@ tokio = { workspace = true, features = ["test-util"] }
 [features]
 default = []
 solana = []
-starknet = ["starknet-core", "starknet-crypto", "starknet-providers", "starknet-signers", "starknet-accounts"]
+starknet = ["starknet-core", "starknet-crypto", "starknet-providers", "starknet-signers", "starknet-accounts", "url"]
 aptos = ["bcs", "sha3", "rand"]

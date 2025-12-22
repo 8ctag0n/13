@@ -277,11 +277,10 @@ impl MarketplaceOperations for StarknetMarketplace {
         match result {
             Ok(data) if !data.is_empty() => {
                 // Parse JobExecution struct:
-                // loan_id: u256 (2 felts), prover: ContractAddress (1 felt),
-                // status: JobStatus (1 felt), result_hash: felt252 (1 felt),
-                // claimed_at: u64 (1 felt), completed_at: u64 (1 felt)
-                let status = if data.len() > 4 {
-                    match Self::parse_felt_to_u64(&data[4])? {
+                // [0] loan_id low, [1] loan_id high, [2] prover,
+                // [3] status, [4] result_hash, [5] claimed_at, [6] completed_at
+                let status = if data.len() > 3 {
+                    match Self::parse_felt_to_u64(&data[3])? {
                         0 => JobStatus::Pending,
                         1 => JobStatus::Claimed,
                         2 => JobStatus::Completed,
@@ -401,7 +400,11 @@ impl MarketplaceOperations for StarknetMarketplace {
         };
 
         // Build calldata for submit_result(loan_id: u256, result_hash: felt252)
-        let result_hash = format!("0x{}", hex::encode(proof_commitment));
+        // Note: felt252 only supports ~251 bits, so we mask the top 5 bits to ensure
+        // the value is within range (Starknet prime is ~2^251)
+        let mut masked_commitment = proof_commitment;
+        masked_commitment[0] &= 0x07; // Clear top 5 bits to ensure < 2^251
+        let result_hash = format!("0x{}", hex::encode(masked_commitment));
         let mut calldata = Self::u256_to_calldata(job_id);
         calldata.push(result_hash.clone());
 
