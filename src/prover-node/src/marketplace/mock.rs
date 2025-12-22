@@ -4,8 +4,8 @@
 //! including success cases, failures, and edge conditions.
 
 use super::{
-    FheConsensusConfig, JobData, MarketplaceError, MarketplaceOperations, ProverData, Result,
-    TransactionResult,
+    FheConsensusConfig, JobData, JobSource, MarketplaceError, MarketplaceOperations, ProverData,
+    Result, TransactionResult,
 };
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -101,6 +101,8 @@ impl MockMarketplace {
             timeout_at: chrono::Utc::now().timestamp() + 3600,
             is_fhe: false,
             address: format!("JobPDA{}", id),
+            source: JobSource::Legacy,
+            program_id: None,
         });
     }
 
@@ -118,6 +120,8 @@ impl MockMarketplace {
             timeout_at: chrono::Utc::now().timestamp() + 3600,
             is_fhe: true,
             address: format!("FheJobPDA{}", id),
+            source: JobSource::Legacy,
+            program_id: None,
         });
     }
 

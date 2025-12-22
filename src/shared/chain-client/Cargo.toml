@@ -42,11 +42,18 @@ log.workspace = true
 # HTTP client for Starknet RPC and Aptos REST
 reqwest = { version = "0.11", features = ["json"] }
 
+# Starknet SDK (for transaction signing)
+starknet-core = { version = "0.16", optional = true }
+starknet-crypto = { version = "0.8", optional = true }
+starknet-providers = { version = "0.16", optional = true }
+starknet-signers = { version = "0.14", optional = true }
+starknet-accounts = { version = "0.16", optional = true }
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
 
 [features]
 default = []
 solana = []
-starknet = []
+starknet = ["starknet-core", "starknet-crypto", "starknet-providers", "starknet-signers", "starknet-accounts"]
 aptos = ["bcs", "sha3", "rand"]

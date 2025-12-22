@@ -1,4 +1,4 @@
-// mod jobs; // DEPRECATED - Replaced by managers::loan_manager
+mod jobs; // Job marketplace for prover-node integration
 mod collateral;
 mod zk_verifier;
 mod liquidation;
