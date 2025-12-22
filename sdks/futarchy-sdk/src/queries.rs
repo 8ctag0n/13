@@ -30,8 +30,9 @@ pub async fn query_position(
     program_id: &Pubkey,
     market_id: u64,
     user: &Pubkey,
+    bet_commitment: &[u8; 32],
 ) -> Result<Position> {
-    let position_pda = find_position_pda(program_id, market_id, user);
+    let position_pda = find_position_pda(program_id, market_id, user, bet_commitment);
 
     let account = rpc_client
         .get_account_with_commitment(&position_pda.address, CommitmentConfig::confirmed())

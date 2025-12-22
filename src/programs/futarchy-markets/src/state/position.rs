@@ -33,7 +33,7 @@ pub struct Position {
 }
 
 impl Position {
-    /// Space needed for Position account (without encrypted_amount)
+    /// Space needed for Position account (with None encrypted_amount)
     ///
     /// Calculation:
     /// - user: 32
@@ -42,9 +42,10 @@ impl Position {
     /// - placed_at: 8
     /// - claimed: 1
     /// - bump: 1
+    /// - Option discriminant (None): 1
     ///
-    /// Total: 106 bytes
-    pub const SPACE: usize = 106;
+    /// Total: 107 bytes
+    pub const SPACE: usize = 107;
 
     /// Calculate space needed for Position account with optional encrypted amount
     ///

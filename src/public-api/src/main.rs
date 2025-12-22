@@ -93,13 +93,13 @@ async fn main() -> std::io::Result<()> {
     log::info!("");
     log::info!("  Futarchy:");
     log::info!("  GET  /api/futarchy/markets");
-    log::info!("  GET  /api/futarchy/markets/{id}");
-    log::info!("  GET  /api/futarchy/markets/{id}/positions");
-    log::info!("  GET  /api/futarchy/positions/{bettor}");
+    log::info!("  GET  /api/futarchy/markets/{{id}}");
+    log::info!("  GET  /api/futarchy/markets/{{id}}/positions");
+    log::info!("  GET  /api/futarchy/positions/{{bettor}}");
     log::info!("  POST /api/futarchy/markets/validate-and-build");
-    log::info!("  POST /api/futarchy/markets/{id}/bet/validate-and-build");
-    log::info!("  POST /api/futarchy/markets/{id}/settle/validate-and-build");
-    log::info!("  POST /api/futarchy/markets/{id}/claim/validate-and-build");
+    log::info!("  POST /api/futarchy/markets/{{id}}/bet/validate-and-build");
+    log::info!("  POST /api/futarchy/markets/{{id}}/settle/validate-and-build");
+    log::info!("  POST /api/futarchy/markets/{{id}}/claim/validate-and-build");
     log::info!("");
     log::info!("Starting server at http://{}:{}...", host, port);
 
@@ -110,8 +110,13 @@ async fn main() -> std::io::Result<()> {
             .allow_any_header()
             .max_age(3600);
 
+        // FHE bet submit can be ~165MB (ciphertext + server_key base64 encoded)
+        let json_cfg = web::JsonConfig::default()
+            .limit(200 * 1024 * 1024);  // 200MB limit for FHE payloads
+
         App::new()
             .app_data(app_state.clone())
+            .app_data(json_cfg)
             .wrap(actix_middleware::Logger::default())
             .wrap(cors)
             .configure(handlers::configure_routes)

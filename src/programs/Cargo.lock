@@ -482,8 +482,10 @@ dependencies = [
 name = "bedrock-sdk"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "bedrock",
  "borsh 1.5.7",
+ "solana-client",
  "solana-program",
  "solana-sdk",
 ]

@@ -42,6 +42,7 @@ env_logger.workspace = true
 # ZyberLink crates
 zyberlink-types = { path = "../../src/shared/types" }
 zyberlink-fhe = { path = "../../src/shared/fhe" }
+bedrock-sdk = { path = "../../src/programs/sdks/bedrock-sdk" }
 
 # Re-export tfhe types
 tfhe = { version = "0.10", default-features = false, features = ["integer", "x86_64-unix"] }

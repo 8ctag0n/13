@@ -134,7 +134,7 @@ pub struct UpdatePoolCiphertextRequest {
 
 #[derive(Debug, Deserialize)]
 pub struct PrepareBetRequest {
-    pub market_id: u64,
+    pub market_id: String,
     pub bettor: String,
     pub side: bool,
     pub amount_lamports: u64,
@@ -147,7 +147,7 @@ pub struct PrepareBetRequest {
 #[derive(Debug, Serialize)]
 pub struct PrepareBetResponse {
     pub unsigned_transaction: String,
-    pub market_id: u64,
+    pub market_id: String,
     pub signers: Vec<String>,
 }
 
@@ -156,6 +156,8 @@ pub struct SubmitBetRequest {
     pub signed_tx: String,
     pub ciphertext: String,
     pub server_key: Option<String>,
+    pub market_id: Option<u64>,
+    pub side: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -183,6 +185,7 @@ pub struct ValidateBetRequest {
 pub struct ValidateClaimRequest {
     pub user: String,
     pub claim_nullifier: String,
+    pub bet_commitment: String,
     pub proof: String,
     pub public_inputs: String,
     pub payout_amount: u64,
@@ -1256,6 +1259,11 @@ pub async fn validate_claim_payout(
         Err(resp) => return resp,
     };
 
+    let bet_commitment = match hex_to_32_bytes(&body.bet_commitment, "bet_commitment") {
+        Ok(arr) => arr,
+        Err(resp) => return resp,
+    };
+
     let proof_bytes = match BASE64.decode(&body.proof) {
         Ok(bytes) => bytes,
         Err(e) => {
@@ -1289,6 +1297,7 @@ pub async fn validate_claim_payout(
         &user,
         market_id,
         claim_nullifier,
+        bet_commitment,
         proof_bytes,
         public_inputs_bytes,
         body.payout_amount,
@@ -1526,10 +1535,30 @@ pub async fn prepare_bet(
         }
     };
 
+    // Convert market_id string to u64 (hash first 8 bytes of hex-decoded string)
+    let market_id_u64: u64 = {
+        let bytes = match hex::decode(&body.market_id) {
+            Ok(b) if b.len() >= 8 => {
+                let mut arr = [0u8; 8];
+                arr.copy_from_slice(&b[..8]);
+                u64::from_le_bytes(arr)
+            }
+            Ok(_) => {
+                // Short hex, try parsing as number
+                body.market_id.parse::<u64>().unwrap_or(0)
+            }
+            Err(_) => {
+                // Not hex, try parsing as number directly
+                body.market_id.parse::<u64>().unwrap_or(0)
+            }
+        };
+        bytes
+    };
+
     let instruction = match futarchy_sdk::build_place_bet_ix(
         &futarchy_program_id,
         &bettor,
-        body.market_id,
+        market_id_u64,
         bet_commitment,
         proof_bytes,
         public_inputs_bytes,
@@ -1716,6 +1745,29 @@ pub async fn submit_bet(
 
     if let Err(e) = FutarchyQueries::mark_confirmed(&app_state.db_pool, &tx_signature).await {
         log::warn!("Failed to mark ciphertext as confirmed: {}", e);
+    }
+
+    // Create FHE job for prover to process (if market_id and side provided)
+    if let (Some(market_id), Some(side)) = (body.market_id, body.side) {
+        let market_id_str = market_id.to_string();
+        let pool_hash = FutarchyQueries::get_pool_ciphertext_hash(&app_state.db_pool, &market_id_str, side)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "0".repeat(64));
+
+        if let Err(e) = FutarchyQueries::create_fhe_job(
+            &app_state.db_pool,
+            &market_id_str,
+            side,
+            &pool_hash,
+            &ciphertext_hash,
+        ).await {
+            log::warn!("Failed to create FHE job for market {} side {}: {}", market_id, side, e);
+            // Continue anyway - bet is confirmed, job can be created later
+        } else {
+            log::info!("Created FHE job for market {} side {} bet_hash={}", market_id, side, &ciphertext_hash[..16]);
+        }
     }
 
     log::info!(

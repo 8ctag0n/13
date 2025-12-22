@@ -1,19 +1,29 @@
 //! Market commands for prediction markets
 //!
-//! Implements CLI commands for creating and participating in prediction markets using ZK circuits.
+//! Implements CLI commands for creating and participating in prediction markets.
+//! Supports both ZK circuits and FHE encrypted bets.
 
 use anyhow::{Context, Result};
-use clap::{Args, Subcommand};
+use clap::{Args, Subcommand, ValueEnum};
 use colored::Colorize;
 use serde_json::json;
 use std::fs;
 use std::path::PathBuf;
 
 use crate::client::{CreateJobRequest, ZkClient};
+use crate::client::futarchy::{FutarchyClient, PrepareBetRequest, SubmitBetRequest, encode_base64};
 
 // Circuit type 30 reserved for future market prediction circuit
 const CIRCUIT_MARKET_BET: u8 = 31;
 const CIRCUIT_MARKET_SETTLEMENT: u8 = 32;
+const CIRCUIT_FHE_BET: u8 = 35;
+
+/// Side of a futarchy bet
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum BetSide {
+    Yes,
+    No,
+}
 
 #[derive(Subcommand, Debug)]
 pub enum MarketCommands {
@@ -64,9 +74,13 @@ pub struct BetArgs {
     #[arg(long)]
     pub market_id: String,
 
-    /// Selected outcome (0-indexed)
-    #[arg(long)]
-    pub outcome: u8,
+    /// Selected outcome (0-indexed) - for ZK mode
+    #[arg(long, required_unless_present = "use_fhe")]
+    pub outcome: Option<u8>,
+
+    /// Bet side (yes/no) - for FHE mode
+    #[arg(long, value_enum)]
+    pub side: Option<BetSide>,
 
     /// Bet amount (lamports)
     #[arg(long)]
@@ -76,25 +90,37 @@ pub struct BetArgs {
     #[arg(long)]
     pub bettor: String,
 
-    /// Server URL
+    /// Server URL (ZK server)
     #[arg(long, default_value = "http://localhost:3000")]
     pub server: String,
+
+    /// Futarchy server URL (for FHE mode)
+    #[arg(long, default_value = "http://localhost:9000")]
+    pub futarchy_server: String,
+
+    /// Use FHE encryption for the bet (enables encrypted pool aggregation)
+    #[arg(long)]
+    pub use_fhe: bool,
 
     /// Path to output witness file
     #[arg(long, default_value = "./bet_witness.json")]
     pub witness_output: PathBuf,
 
-    /// Path to Solana keypair for payment
+    /// Path to Solana keypair for signing transactions
     #[arg(long)]
     pub keypair: Option<PathBuf>,
 
     /// Solana RPC URL
-    #[arg(long, default_value = "https://api.devnet.solana.com")]
+    #[arg(long, default_value = "http://localhost:8899")]
     pub rpc_url: String,
 
     /// Skip payment confirmation
     #[arg(long)]
     pub skip_confirm: bool,
+
+    /// Path to save FHE keys (for later decryption)
+    #[arg(long, default_value = "~/.zyb/fhe_keys")]
+    pub fhe_keys_dir: String,
 }
 
 #[derive(Args, Debug)]
@@ -198,25 +224,191 @@ fn create_market(args: CreateArgs) -> Result<()> {
 
 #[tokio::main]
 async fn place_bet(args: BetArgs) -> Result<()> {
-    println!("{}", "Placing private bet...".cyan().bold());
-    println!();
-    println!("Market ID: {}", args.market_id);
-    println!("Selected outcome: {}", args.outcome);
-    println!("Bet amount: {} lamports", args.amount);
-    println!("Circuit: MarketBet (31)");
-    println!();
-
     // Validate amount
     if args.amount == 0 {
         anyhow::bail!("Bet amount must be greater than 0");
     }
+
+    // Route to appropriate handler based on mode
+    if args.use_fhe {
+        place_bet_fhe(args).await
+    } else {
+        place_bet_zk(args).await
+    }
+}
+
+/// Place bet using FHE encryption (encrypted pool aggregation)
+async fn place_bet_fhe(args: BetArgs) -> Result<()> {
+    use zyberlink_fhe::futarchy::{encrypt_bet_with_hash, hash_ciphertext_hex};
+    use zyberlink_fhe::{generate_keys, serialize_client_key, serialize_server_key};
+    use solana_sdk::signature::{read_keypair_file, Signer};
+    use solana_sdk::transaction::Transaction;
+
+    println!("{}", "Placing FHE-encrypted bet...".cyan().bold());
+    println!();
+
+    // Validate side is provided for FHE mode
+    let side = args.side.ok_or_else(|| {
+        anyhow::anyhow!("--side (yes/no) is required for FHE mode")
+    })?;
+    let side_bool = matches!(side, BetSide::Yes);
+
+    let market_id = args.market_id.clone();
+
+    println!("Market ID: {}", market_id);
+    println!("Side: {}", if side_bool { "YES" } else { "NO" });
+    println!("Amount: {} lamports", args.amount);
+    println!("Mode: FHE encrypted");
+    println!();
+
+    // Require keypair for FHE mode (needed to sign TX)
+    let keypair_path = args.keypair.as_ref().ok_or_else(|| {
+        anyhow::anyhow!("--keypair is required for FHE mode (needed to sign transaction)")
+    })?;
+
+    let keypair = read_keypair_file(keypair_path)
+        .map_err(|e| anyhow::anyhow!("Failed to read keypair: {}", e))?;
+
+    let bettor_pubkey = keypair.pubkey().to_string();
+    println!("Bettor: {}", bettor_pubkey);
+    println!();
+
+    // Step 1: Generate FHE keys
+    println!("{}", "Generating FHE keys (this may take ~30s)...".cyan());
+    let (client_key, server_key) = generate_keys()
+        .context("Failed to generate FHE keys")?;
+    println!("{}", "FHE keys generated.".green());
+
+    // Step 2: Encrypt the bet amount
+    println!("{}", "Encrypting bet amount...".cyan());
+    let encrypted_bet = encrypt_bet_with_hash(args.amount, &client_key)
+        .context("Failed to encrypt bet amount")?;
+
+    let ciphertext_hash = encrypted_bet.hash_hex();
+    println!("Ciphertext size: {} bytes", encrypted_bet.size());
+    println!("Ciphertext hash: {}...", &ciphertext_hash[..16]);
+    println!();
+
+    // Step 3: Save FHE keys for later decryption
+    let keys_dir = shellexpand::tilde(&args.fhe_keys_dir).to_string();
+    fs::create_dir_all(&keys_dir)?;
+
+    let key_file = format!("{}/bet_{}_{}.keys", keys_dir, market_id, &ciphertext_hash[..8]);
+    let client_key_bytes = serialize_client_key(&client_key)?;
+    let server_key_bytes = serialize_server_key(&server_key)?;
+
+    let keys_data = json!({
+        "market_id": market_id,
+        "ciphertext_hash": ciphertext_hash,
+        "client_key": encode_base64(&client_key_bytes),
+        "server_key_hash": hash_ciphertext_hex(&server_key_bytes),
+        "created_at": chrono::Utc::now().to_rfc3339(),
+    });
+    fs::write(&key_file, serde_json::to_string_pretty(&keys_data)?)?;
+    println!("{}", format!("Keys saved to: {}", key_file).green());
+    println!();
+
+    // Step 4: Call prepare endpoint
+    println!("{}", "Preparing transaction...".cyan());
+    let futarchy_client = FutarchyClient::with_url(&args.futarchy_server);
+
+    // Generate placeholder proof (256 bytes for Groth16, 80 bytes public inputs)
+    // In FHE mode, ZK verification is skipped but size validation still applies
+    let proof_placeholder = encode_base64(&[0u8; 256]);
+    let public_inputs_placeholder = encode_base64(&[0u8; 80]);
+
+    // Save market_id as u64 for later use in submit request
+    let market_id_u64: Option<u64> = market_id.parse().ok();
+
+    let prepare_req = PrepareBetRequest {
+        market_id,
+        bettor: bettor_pubkey.clone(),
+        side: side_bool,
+        amount_lamports: args.amount,
+        ciphertext_hash: ciphertext_hash.clone(),
+        proof: proof_placeholder,
+        public_inputs: public_inputs_placeholder,
+        // Circuit 30 = basic MarketBet (no eligibility required)
+        // Circuit 31 = MarketBetWithPoI (requires RegisterUser first)
+        // TODO: Add --require-eligibility flag to switch between 30/31
+        circuit_type: 30,
+    };
+
+    let prepare_resp = futarchy_client.prepare_bet(prepare_req).await
+        .context("Failed to prepare bet transaction")?;
+
+    println!("{}", "Transaction prepared.".green());
+    println!();
+
+    // Step 5: Sign the transaction
+    println!("{}", "Signing transaction...".cyan());
+    let unsigned_tx_bytes = crate::client::futarchy::decode_base64(&prepare_resp.unsigned_transaction)
+        .context("Failed to decode unsigned transaction")?;
+
+    let mut tx: Transaction = bincode::deserialize(&unsigned_tx_bytes)
+        .context("Failed to deserialize unsigned transaction")?;
+
+    // Get recent blockhash
+    let rpc_client = solana_client::rpc_client::RpcClient::new(&args.rpc_url);
+    let blockhash = rpc_client.get_latest_blockhash()
+        .context("Failed to get recent blockhash")?;
+
+    tx.sign(&[&keypair], blockhash);
+
+    let signed_tx_bytes = bincode::serialize(&tx)
+        .context("Failed to serialize signed transaction")?;
+    println!("{}", "Transaction signed.".green());
+    println!();
+
+    // Step 6: Submit signed TX with ciphertext
+    println!("{}", "Submitting bet to network...".cyan());
+    let submit_req = SubmitBetRequest {
+        signed_tx: encode_base64(&signed_tx_bytes),
+        ciphertext: encode_base64(&encrypted_bet.ciphertext),
+        server_key: Some(encode_base64(&server_key_bytes)),
+        market_id: market_id_u64,
+        side: Some(side_bool),
+    };
+
+    let submit_resp = futarchy_client.submit_bet(submit_req).await
+        .context("Failed to submit bet")?;
+
+    println!();
+    println!("{}", "FHE Bet placed successfully!".green().bold());
+    println!();
+    println!("TX Signature: {}", submit_resp.tx_signature.yellow().bold());
+    println!("Ciphertext Hash: {}", submit_resp.ciphertext_hash);
+    println!("Status: {}", submit_resp.status);
+    println!();
+    println!("{}", "The bet amount is encrypted. Provers will aggregate it".cyan());
+    println!("{}", "to the pool using homomorphic encryption.".cyan());
+    println!();
+    println!("{}", format!("Keys saved at: {}", key_file).yellow());
+    println!("{}", "Keep these keys safe - needed for claiming winnings!".yellow().bold());
+
+    Ok(())
+}
+
+/// Place bet using ZK proofs (original flow)
+async fn place_bet_zk(args: BetArgs) -> Result<()> {
+    let outcome = args.outcome.ok_or_else(|| {
+        anyhow::anyhow!("--outcome is required for ZK mode")
+    })?;
+
+    println!("{}", "Placing private bet (ZK mode)...".cyan().bold());
+    println!();
+    println!("Market ID: {}", args.market_id);
+    println!("Selected outcome: {}", outcome);
+    println!("Bet amount: {} lamports", args.amount);
+    println!("Circuit: MarketBet (31)");
+    println!();
 
     // Build witness
     println!("{}", "Building witness...".cyan());
 
     let witness = json!({
         "marketId": args.market_id,
-        "outcome": args.outcome,
+        "outcome": outcome,
         "amount": args.amount.to_string(),
         "bettorPubkey": args.bettor,
         "timestamp": chrono::Utc::now().timestamp(),

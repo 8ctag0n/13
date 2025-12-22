@@ -64,7 +64,7 @@ pub fn build_place_bet_ix(
     fhe_accounts: Option<FheAccounts>,
 ) -> Result<Instruction> {
     let market_pda = find_market_pda(program_id, market_id);
-    let position_pda = find_position_pda(program_id, market_id, bettor);
+    let position_pda = find_position_pda(program_id, market_id, bettor, &bet_commitment);
     let user_escrow_pda = find_user_escrow_pda(program_id, bettor, market_id);
     let market_escrow_pda = find_escrow_pda(program_id, market_id);
 
@@ -136,6 +136,7 @@ pub fn build_claim_payout_ix(
     user: &Pubkey,
     market_id: u64,
     claim_nullifier: [u8; 32],
+    bet_commitment: [u8; 32],  // Needed to derive position PDA
     proof: Vec<u8>,
     public_inputs: Vec<u8>,
     payout_amount: u64,
@@ -159,7 +160,7 @@ pub fn build_claim_payout_ix(
     ];
 
     if include_position {
-        let position_pda = find_position_pda(program_id, market_id, user);
+        let position_pda = find_position_pda(program_id, market_id, user, &bet_commitment);
         accounts.push(AccountMeta::new(position_pda.address, false));
     }
 

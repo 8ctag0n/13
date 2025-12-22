@@ -105,6 +105,7 @@ impl FutarchyClient {
         user: &Pubkey,
         market_id: u64,
         claim_nullifier: [u8; 32],
+        bet_commitment: [u8; 32],
         proof: Vec<u8>,
         public_inputs: Vec<u8>,
         payout_amount: u64,
@@ -116,6 +117,7 @@ impl FutarchyClient {
             user,
             market_id,
             claim_nullifier,
+            bet_commitment,
             proof,
             public_inputs,
             payout_amount,
@@ -218,8 +220,8 @@ impl FutarchyClient {
         query_market(&self.rpc_client, &self.program_id, market_id).await
     }
 
-    pub async fn get_position(&self, market_id: u64, user: &Pubkey) -> Result<Position> {
-        query_position(&self.rpc_client, &self.program_id, market_id, user).await
+    pub async fn get_position(&self, market_id: u64, user: &Pubkey, bet_commitment: &[u8; 32]) -> Result<Position> {
+        query_position(&self.rpc_client, &self.program_id, market_id, user, bet_commitment).await
     }
 
     pub async fn get_all_markets(&self) -> Result<Vec<(Pubkey, Market)>> {
@@ -258,8 +260,8 @@ impl FutarchyClient {
         find_market_pda(&self.program_id, market_id)
     }
 
-    pub fn find_position_pda(&self, market_id: u64, user: &Pubkey) -> PdaDerivation {
-        find_position_pda(&self.program_id, market_id, user)
+    pub fn find_position_pda(&self, market_id: u64, user: &Pubkey, bet_commitment: &[u8; 32]) -> PdaDerivation {
+        find_position_pda(&self.program_id, market_id, user, bet_commitment)
     }
 
     pub fn find_escrow_pda(&self, market_id: u64) -> PdaDerivation {

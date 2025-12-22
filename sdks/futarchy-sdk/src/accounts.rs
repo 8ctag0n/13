@@ -18,12 +18,15 @@ pub fn find_position_pda(
     program_id: &Pubkey,
     market_id: u64,
     user: &Pubkey,
+    bet_commitment: &[u8; 32],
 ) -> PdaDerivation {
+    // Seeds: [POSITION_SEED, user, market_id, bet_commitment]
     let (address, bump) = Pubkey::find_program_address(
         &[
             POSITION_SEED,
-            &market_id.to_le_bytes(),
             user.as_ref(),
+            &market_id.to_le_bytes(),
+            bet_commitment,
         ],
         program_id,
     );
@@ -51,11 +54,15 @@ pub fn find_user_escrow_pda(
     user: &Pubkey,
     market_id: u64,
 ) -> PdaDerivation {
+    // First derive the market PDA
+    let market_pda = find_market_pda(program_id, market_id);
+
+    // User escrow PDA uses market PDA address, not market_id
     let (address, bump) = Pubkey::find_program_address(
         &[
             USER_ESCROW_SEED,
             user.as_ref(),
-            &market_id.to_le_bytes(),
+            market_pda.address.as_ref(),
         ],
         program_id,
     );

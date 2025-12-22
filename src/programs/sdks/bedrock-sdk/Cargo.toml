@@ -11,3 +11,7 @@ solana-program.workspace = true
 solana-sdk.workspace = true
 borsh.workspace = true
 bedrock = { path = "../../bedrock", features = ["no-entrypoint"] }
+
+[dev-dependencies]
+solana-client.workspace = true
+anyhow = "1.0"

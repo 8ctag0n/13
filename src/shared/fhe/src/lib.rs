@@ -45,6 +45,7 @@ mod engine;
 mod keys;
 mod client;
 mod error;
+pub mod futarchy;
 
 // Re-export main types
 pub use engine::FheEngine;

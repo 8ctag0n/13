@@ -14,6 +14,7 @@ path = "src/main.rs"
 zyberlink-sdk = { path = "../../sdks/rust" }
 zyberlink-types = { path = "../shared/types" }
 zyberlink-fhe = { path = "../shared/fhe" }
+fhe-generator-sdk = { path = "../programs/sdks/fhe-generator-sdk" }
 
 # FHE
 tfhe = { version = "0.10", features = ["integer", "x86_64-unix"] }

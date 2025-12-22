@@ -55,7 +55,7 @@ init-marketplace: ## Initialize marketplace on-chain
 		exit 1; \
 	fi
 	@export $$(grep -v '^#' src/blink-server/.env | xargs) && \
-	cargo run --manifest-path sdks/rust/Cargo.toml --example initialize_program
+	cargo run --manifest-path src/programs/sdks/bedrock-sdk/Cargo.toml --example initialize_bedrock
 
 check-provers: ## Check if provers are registered in marketplace
 	@echo "$(BLUE) Checking prover registration...$(NC)"
@@ -645,7 +645,7 @@ c2: ## [CONTAINER] Initialize marketplace + register provers
 	@echo ""
 	@echo "Step 1/3: Initializing marketplace..."
 	@export $$(grep -v '^#' .env.containers | xargs) && \
-	SOLANA_RPC_URL=http://localhost:8899 cargo run --manifest-path sdks/rust/Cargo.toml --example initialize_program
+	SOLANA_RPC_URL=http://localhost:8899 cargo run --manifest-path src/programs/sdks/bedrock-sdk/Cargo.toml --example initialize_bedrock
 	@echo "$(GREEN)  Marketplace initialized$(NC)"
 	@echo ""
 	@echo "Step 2/3: Building prover binary..."
@@ -679,17 +679,22 @@ c3: ## [CONTAINER] Start provers + dev-job (local binaries)
 	@-pkill -f "zyb dev-job" 2>/dev/null || true
 	@-pkill -f "zyberlink-prover" 2>/dev/null || true
 	@echo ""
-	@echo "Step 1/2: Starting 3 prover nodes..."
+	@echo "Step 1/2: Starting 3 prover nodes (with FHE/ZK/Futarchy support)..."
 	@export $$(grep -v '^#' .env.containers | xargs) && \
 	for i in 1 2 3; do \
 		KEYPAIR="/tmp/prover-$$i-keypair.json"; \
 		if [ -f "$$KEYPAIR" ]; then \
-			RUST_LOG=info WITNESS_BACKEND_URL=http://localhost:9000 \
+			RUST_LOG=info \
+			ZK_GENERATOR_PROGRAM_ID=$$ZK_GENERATOR_PROGRAM_ID \
+			FHE_GENERATOR_PROGRAM_ID=$$FHE_GENERATOR_PROGRAM_ID \
 			./target/release/zyberlink-prover \
 				--program-id $$PROGRAM_ID \
 				--rpc-url http://localhost:8899 \
-				--witness-backend-url http://localhost:9000 \
+				--gateway-url http://localhost:9000 \
+				--blink-backend-url http://localhost:9000 \
 				--keypair $$KEYPAIR \
+				--enable-futarchy \
+				--futarchy-server-url http://localhost:9000 \
 				run > /tmp/prover-$$i.log 2>&1 & \
 			echo "  Prover $$i started (PID: $$!)"; \
 		fi; \
@@ -953,7 +958,7 @@ d2: ## [DEVNET] Initialize marketplace + register provers on devnet
 	@echo ""
 	@echo "Step 1/3: Initializing marketplace..."
 	@export $$(grep -v '^#' .env.devnet | xargs) && \
-	cargo run --manifest-path sdks/rust/Cargo.toml --example initialize_program 2>&1 | tail -5
+	cargo run --manifest-path src/programs/sdks/bedrock-sdk/Cargo.toml --example initialize_bedrock 2>&1 | tail -5
 	@echo "$(GREEN)  Marketplace initialized$(NC)"
 	@echo ""
 	@echo "Step 2/3: Building prover binary..."
