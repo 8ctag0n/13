@@ -95,7 +95,7 @@ impl CircuitType {
             // Markets
             CircuitType::MarketBet => 4,        // market_id, bet_commitment, balance_proof, position
             CircuitType::MarketBetWithPoI => 5, // + blacklist_root
-            CircuitType::MarketClaim => 3,      // market_id, outcome, claim_commitment
+            CircuitType::MarketClaim => 8,      // market_id, nullifier, payout_amount, resolution, total_pool, winning_pool, bet_commitment, timestamp
 
             // Portfolio
             CircuitType::PortfolioCompliance => 3, // compliance_root, threshold, timestamp
