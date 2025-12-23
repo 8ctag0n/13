@@ -11,15 +11,19 @@ fn main() -> anyhow::Result<()> {
     let program_id = Pubkey::from_str("5B8x1aJEHsMLqqKDYVQe2dTA38hbie1QXX2JSmPAxWJT")?;
     let rpc = RpcClient::new("http://localhost:8899");
 
-    let keypair = read_keypair_file("/home/deploy/.config/solana/id.json")
+    let keypair_path = std::env::args().nth(2).unwrap_or_else(|| "/tmp/backend-keypair.json".to_string());
+    let keypair = read_keypair_file(&keypair_path)
         .map_err(|e| anyhow::anyhow!("Failed to read keypair: {}", e))?;
 
     println!("User: {}", keypair.pubkey());
 
     let client = FutarchyClient::new("http://localhost:8899", program_id);
 
-    let market_id: u64 = 1;
-    let amount: u64 = 100_000; // 0.0001 SOL - enough for testing
+    let market_id: u64 = std::env::args()
+        .nth(1)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(3);
+    let amount: u64 = 50_000_000; // 0.05 SOL - enough for multiple bets
 
     println!("Depositing {} lamports to market {}", amount, market_id);
 

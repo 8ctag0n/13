@@ -131,19 +131,30 @@ pub fn build_settle_market_ix(
     })
 }
 
+/// Build ClaimPayout instruction with NullifierAccount PDA.
+///
+/// The nullifier account will be created on-chain to prevent double-claims.
+/// This replaces the old system with unlimited scalability.
+///
+/// Accounts:
+/// 0. `[writable, signer]` User claiming payout
+/// 1. `[]` Market account (PDA)
+/// 2. `[writable]` Nullifier account (PDA) - will be created
+/// 3. `[writable]` Escrow account (PDA)
+/// 4. `[]` ZK-generator program
+/// 5. `[]` System program
 pub fn build_claim_payout_ix(
     program_id: &Pubkey,
     user: &Pubkey,
     market_id: u64,
     claim_nullifier: [u8; 32],
-    bet_commitment: [u8; 32],  // Needed to derive position PDA
     proof: Vec<u8>,
     public_inputs: Vec<u8>,
     payout_amount: u64,
     zk_generator_program: &Pubkey,
-    include_position: bool,
 ) -> Result<Instruction> {
     let market_pda = find_market_pda(program_id, market_id);
+    let nullifier_pda = find_nullifier_pda(program_id, market_id, &claim_nullifier);
     let escrow_pda = find_escrow_pda(program_id, market_id);
 
     let instruction_data = FutarchyInstruction::ClaimPayout {
@@ -154,21 +165,14 @@ pub fn build_claim_payout_ix(
         payout_amount,
     };
 
-    let mut accounts = vec![
+    let accounts = vec![
         AccountMeta::new(*user, true),
-        AccountMeta::new(market_pda.address, false),
-    ];
-
-    if include_position {
-        let position_pda = find_position_pda(program_id, market_id, user, &bet_commitment);
-        accounts.push(AccountMeta::new(position_pda.address, false));
-    }
-
-    accounts.extend_from_slice(&[
+        AccountMeta::new_readonly(market_pda.address, false),
+        AccountMeta::new(nullifier_pda.address, false),
         AccountMeta::new(escrow_pda.address, false),
         AccountMeta::new_readonly(*zk_generator_program, false),
         AccountMeta::new_readonly(system_program::id(), false),
-    ]);
+    ];
 
     Ok(Instruction {
         program_id: *program_id,

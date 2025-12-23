@@ -81,26 +81,26 @@ pub async fn find_pending_fhe_jobs(
     let mut pending_jobs = Vec::new();
 
     for (market_pubkey, market) in all_markets {
-        if market.has_pending_fhe_work() {
-            if !market.encrypted_pool_yes.is_empty() {
-                pending_jobs.push(FutarchyFheJob {
-                    market_id: market.market_id,
-                    market_pubkey,
-                    job_id: market.pending_pool_update_job,
-                    side: true,
-                    encrypted_pool: market.encrypted_pool_yes.clone(),
-                });
-            }
-
-            if !market.encrypted_pool_no.is_empty() {
-                pending_jobs.push(FutarchyFheJob {
-                    market_id: market.market_id,
-                    market_pubkey,
-                    job_id: market.pending_pool_update_job,
-                    side: false,
-                    encrypted_pool: market.encrypted_pool_no.clone(),
-                });
-            }
+        // Only process markets with a pending FHE job
+        if let Some(job_id) = market.pending_pool_update_job {
+            // For first bet, pool may be empty - use empty vec as "zero" pool
+            // The prover will handle this case by initializing the pool
+            pending_jobs.push(FutarchyFheJob {
+                market_id: market.market_id,
+                market_pubkey,
+                job_id: Some(job_id),
+                // Determine side based on which pool is non-empty or default to YES for first bet
+                // TODO: Store the bet side in the job metadata instead of guessing
+                side: !market.encrypted_pool_yes.is_empty() || market.encrypted_pool_no.is_empty(),
+                encrypted_pool: if !market.encrypted_pool_yes.is_empty() {
+                    market.encrypted_pool_yes.clone()
+                } else if !market.encrypted_pool_no.is_empty() {
+                    market.encrypted_pool_no.clone()
+                } else {
+                    // First bet - empty pool (prover should initialize with encrypted zero)
+                    Vec::new()
+                },
+            });
         }
     }
 

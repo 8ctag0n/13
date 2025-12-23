@@ -145,6 +145,40 @@ let ix = client.claim_payout(
 )?;
 ```
 
+If you want to generate the proof locally via snarkjs:
+
+```rust
+use futarchy_sdk::{
+    generate_market_claim_proof, MarketClaimProofPaths, MarketClaimWitness, SnarkjsCommand
+};
+
+let proof_paths = MarketClaimProofPaths {
+    wasm_path: "circuits/market/market_claim_js/market_claim.wasm".into(),
+    zkey_path: "circuits/market/market_claim_final.zkey".into(),
+};
+
+let witness = MarketClaimWitness {
+    market_id,
+    nullifier: claim_nullifier,
+    payout_amount,
+    resolution: 1,
+    total_pool: 2_000_000_000,
+    winning_pool: 1_000_000_000,
+    bet_commitment: [1u8; 32],
+    timestamp: chrono::Utc::now().timestamp(),
+    secret: [9u8; 32],
+    bet_amount: 1_000_000_000,
+    bet_side: 1,
+    blinding: [7u8; 32],
+};
+
+let proof = generate_market_claim_proof(
+    &SnarkjsCommand::npx(),
+    &proof_paths,
+    &witness,
+)?;
+```
+
 ### Query Market State
 
 ```rust

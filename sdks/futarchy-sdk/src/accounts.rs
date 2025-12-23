@@ -1,5 +1,8 @@
 use solana_program::pubkey::Pubkey;
-use crate::state::*;
+use crate::state::{
+    MARKET_SEED, POSITION_SEED, ESCROW_SEED, NULLIFIER_SEED,
+    USER_ELIGIBILITY_SEED, USER_ESCROW_SEED,
+};
 
 pub struct PdaDerivation {
     pub address: Pubkey,
@@ -63,6 +66,24 @@ pub fn find_user_escrow_pda(
             USER_ESCROW_SEED,
             user.as_ref(),
             market_pda.address.as_ref(),
+        ],
+        program_id,
+    );
+    PdaDerivation { address, bump }
+}
+
+/// Find nullifier PDA for a market and nullifier hash.
+/// The existence of this account proves the nullifier has been used.
+pub fn find_nullifier_pda(
+    program_id: &Pubkey,
+    market_id: u64,
+    nullifier_hash: &[u8; 32],
+) -> PdaDerivation {
+    let (address, bump) = Pubkey::find_program_address(
+        &[
+            NULLIFIER_SEED,
+            &market_id.to_le_bytes(),
+            nullifier_hash,
         ],
         program_id,
     );

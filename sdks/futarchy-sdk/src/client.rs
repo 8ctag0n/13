@@ -100,29 +100,28 @@ impl FutarchyClient {
         build_settle_market_ix(&self.program_id, oracle, market_id, outcome)
     }
 
+    /// Build ClaimPayout instruction.
+    ///
+    /// Uses NullifierAccount PDA for unlimited scalability.
     pub fn claim_payout(
         &self,
         user: &Pubkey,
         market_id: u64,
         claim_nullifier: [u8; 32],
-        bet_commitment: [u8; 32],
         proof: Vec<u8>,
         public_inputs: Vec<u8>,
         payout_amount: u64,
         zk_generator_program: &Pubkey,
-        include_position: bool,
     ) -> Result<Instruction> {
         build_claim_payout_ix(
             &self.program_id,
             user,
             market_id,
             claim_nullifier,
-            bet_commitment,
             proof,
             public_inputs,
             payout_amount,
             zk_generator_program,
-            include_position,
         )
     }
 

@@ -4,6 +4,7 @@ use solana_program::pubkey::Pubkey;
 pub const MARKET_SEED: &[u8] = b"market";
 pub const POSITION_SEED: &[u8] = b"position";
 pub const ESCROW_SEED: &[u8] = b"escrow";
+pub const NULLIFIER_SEED: &[u8] = b"nullifier";
 pub const USER_ELIGIBILITY_SEED: &[u8] = b"user_eligibility";
 pub const USER_ESCROW_SEED: &[u8] = b"user_escrow";
 
@@ -148,4 +149,21 @@ impl UserEscrow {
     pub fn available(&self) -> u64 {
         self.deposited.saturating_sub(self.locked)
     }
+}
+
+/// Nullifier account - represents a used claim nullifier
+/// The existence of this PDA proves the nullifier has been used.
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
+pub struct Nullifier {
+    pub market_id: u64,
+    pub nullifier_hash: [u8; 32],
+    pub claimed_by: Pubkey,
+    pub claimed_at: i64,
+    pub payout_amount: u64,
+    pub bump: u8,
+}
+
+impl Nullifier {
+    /// Space needed for Nullifier account: 8 + 32 + 32 + 8 + 8 + 1 = 89 bytes
+    pub const SPACE: usize = 89;
 }

@@ -19,7 +19,10 @@ fn main() -> anyhow::Result<()> {
 
     let client = FutarchyClient::new("http://localhost:8899", program_id);
 
-    let market_id: u64 = 1;
+    let market_id: u64 = std::env::args()
+        .nth(1)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(2); // Default to 2 if not provided
     let question_hash = {
         use sha2::{Sha256, Digest};
         let mut hasher = Sha256::new();
@@ -29,7 +32,11 @@ fn main() -> anyhow::Result<()> {
         arr.copy_from_slice(&result);
         arr
     };
-    let end_time: i64 = 1766500000; // 2025-12-23 (future)
+    // End time: 1 hour from now
+    let end_time: i64 = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64 + 3600;
     let max_bet: u64 = 1_000_000_000; // 1 SOL
 
     println!("Creating market...");
