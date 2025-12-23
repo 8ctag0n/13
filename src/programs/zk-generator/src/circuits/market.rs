@@ -32,24 +32,26 @@
 //!
 //! ```text
 //! PRIVATE INPUTS:
-//! ├── bettor_wallet          // Wallet address
 //! ├── bet_amount             // Original bet amount
-//! ├── position               // Position that was bet
-//! ├── blinding_factor        // Same blinding from bet
-//! └── bet_nullifier          // Prevents double-claim
+//! ├── bet_side               // Position that was bet (0/1)
+//! ├── blinding               // Same blinding from bet
+//! └── secret                 // Secret used for nullifier
 //!
 //! PUBLIC INPUTS:
 //! ├── market_id              // Market identifier
-//! ├── winning_outcome        // Resolved outcome
+//! ├── nullifier              // Poseidon(secret, bet_commitment)
+//! ├── payout_amount          // Calculated winnings
+//! ├── resolution             // Resolved outcome (0/1)
+//! ├── total_pool             // Total pool size
+//! ├── winning_pool           // Winning side pool
 //! ├── bet_commitment         // Original bet commitment
-//! ├── claim_nullifier        // Hash(bet_nullifier, market_id)
-//! └── payout_amount          // Calculated winnings
+//! └── timestamp              // Claim timestamp
 //!
 //! CONSTRAINTS:
 //! 1. Verify bet_commitment matches original bet
-//! 2. Assert(position == winning_outcome)
+//! 2. Assert(bet_side == resolution)
 //! 3. Verify payout calculation
-//! 4. Verify claim_nullifier for double-claim prevention
+//! 4. Verify nullifier for double-claim prevention
 //! ```
 
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -154,20 +156,27 @@ impl MarketBetWithPoiPublicInputs {
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
 pub struct MarketClaimPublicInputs {
     /// Market identifier
-    pub market_id: Pubkey,
-    /// Resolved winning outcome
-    pub winning_outcome: u8,
-    /// Original bet commitment (to verify ownership)
-    pub bet_commitment: [u8; 32],
+    pub market_id: u64,
     /// Claim nullifier to prevent double-claim
-    pub claim_nullifier: [u8; 32],
+    pub nullifier: [u8; 32],
     /// Calculated payout amount
     pub payout_amount: u64,
+    /// Resolved winning outcome (0/1)
+    pub resolution: u8,
+    /// Total market pool
+    pub total_pool: u64,
+    /// Winning side pool
+    pub winning_pool: u64,
+    /// Original bet commitment (to verify ownership)
+    pub bet_commitment: [u8; 32],
+    /// Claim timestamp
+    pub timestamp: i64,
 }
 
 impl MarketClaimPublicInputs {
-    // 32 (market_id) + 1 (winning_outcome) + 32 (bet_commitment) + 32 (claim_nullifier) + 8 (payout)
-    pub const LEN: usize = 32 + 1 + 32 + 32 + 8; // 105 bytes
+    // 8 (market_id) + 32 (nullifier) + 8 (payout) + 1 (resolution)
+    // + 8 (total_pool) + 8 (winning_pool) + 32 (bet_commitment) + 8 (timestamp)
+    pub const LEN: usize = 8 + 32 + 8 + 1 + 8 + 8 + 32 + 8; // 105 bytes
 
     /// Deserialize from bytes
     pub fn from_bytes(data: &[u8]) -> Result<Self, ProgramError> {
@@ -176,38 +185,57 @@ impl MarketClaimPublicInputs {
             return Err(ProgramError::InvalidInstructionData);
         }
 
-        let market_id = Pubkey::try_from(&data[0..32])
-            .map_err(|_| ProgramError::InvalidInstructionData)?;
+        let market_id = u64::from_le_bytes(
+            data[0..8].try_into().map_err(|_| ProgramError::InvalidInstructionData)?,
+        );
 
-        let winning_outcome = data[32];
-
-        let mut bet_commitment = [0u8; 32];
-        bet_commitment.copy_from_slice(&data[33..65]);
-
-        let mut claim_nullifier = [0u8; 32];
-        claim_nullifier.copy_from_slice(&data[65..97]);
+        let mut nullifier = [0u8; 32];
+        nullifier.copy_from_slice(&data[8..40]);
 
         let payout_amount = u64::from_le_bytes(
+            data[40..48].try_into().map_err(|_| ProgramError::InvalidInstructionData)?,
+        );
+
+        let resolution = data[48];
+
+        let total_pool = u64::from_le_bytes(
+            data[49..57].try_into().map_err(|_| ProgramError::InvalidInstructionData)?,
+        );
+
+        let winning_pool = u64::from_le_bytes(
+            data[57..65].try_into().map_err(|_| ProgramError::InvalidInstructionData)?,
+        );
+
+        let mut bet_commitment = [0u8; 32];
+        bet_commitment.copy_from_slice(&data[65..97]);
+
+        let timestamp = i64::from_le_bytes(
             data[97..105].try_into().map_err(|_| ProgramError::InvalidInstructionData)?,
         );
 
         Ok(Self {
             market_id,
-            winning_outcome,
+            nullifier,
             bet_commitment,
-            claim_nullifier,
             payout_amount,
+            resolution,
+            total_pool,
+            winning_pool,
+            timestamp,
         })
     }
 
     /// Serialize to bytes
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(Self::LEN);
-        bytes.extend_from_slice(self.market_id.as_ref());
-        bytes.push(self.winning_outcome);
-        bytes.extend_from_slice(&self.bet_commitment);
-        bytes.extend_from_slice(&self.claim_nullifier);
+        bytes.extend_from_slice(&self.market_id.to_le_bytes());
+        bytes.extend_from_slice(&self.nullifier);
         bytes.extend_from_slice(&self.payout_amount.to_le_bytes());
+        bytes.push(self.resolution);
+        bytes.extend_from_slice(&self.total_pool.to_le_bytes());
+        bytes.extend_from_slice(&self.winning_pool.to_le_bytes());
+        bytes.extend_from_slice(&self.bet_commitment);
+        bytes.extend_from_slice(&self.timestamp.to_le_bytes());
         bytes
     }
 }
@@ -354,14 +382,24 @@ pub fn verify_market_claim_proof(
     }
 
     // Validate market_id
-    if public_inputs.market_id == Pubkey::default() {
+    if public_inputs.market_id == 0 {
         msg!("Invalid market ID");
         return Err(MarketError::MarketNotFound.into());
     }
 
-    // Validate claim_nullifier is not zero
-    if public_inputs.claim_nullifier == [0u8; 32] {
-        msg!("Invalid claim nullifier");
+    // Validate nullifier is not zero
+    if public_inputs.nullifier == [0u8; 32] {
+        msg!("Invalid nullifier");
+        return Err(MarketError::InvalidPublicInputs.into());
+    }
+
+    if public_inputs.winning_pool == 0 {
+        msg!("Invalid winning pool");
+        return Err(MarketError::InvalidPublicInputs.into());
+    }
+
+    if public_inputs.payout_amount > public_inputs.total_pool {
+        msg!("Payout exceeds total pool");
         return Err(MarketError::InvalidPublicInputs.into());
     }
 
@@ -371,7 +409,7 @@ pub fn verify_market_claim_proof(
         "MarketClaim proof verified for market: {}",
         public_inputs.market_id
     );
-    msg!("  Winning outcome: {}", public_inputs.winning_outcome);
+    msg!("  Resolution: {}", public_inputs.resolution);
     msg!("  Payout: {}", public_inputs.payout_amount);
 
     Ok(true)
@@ -403,11 +441,14 @@ mod tests {
     #[test]
     fn test_market_claim_public_inputs_serialization() {
         let inputs = MarketClaimPublicInputs {
-            market_id: Pubkey::new_unique(),
-            winning_outcome: 1,
-            bet_commitment: [2u8; 32],
-            claim_nullifier: [3u8; 32],
+            market_id: 42,
+            nullifier: [3u8; 32],
             payout_amount: 5_000_000,
+            resolution: 1,
+            total_pool: 10_000_000,
+            winning_pool: 6_000_000,
+            bet_commitment: [2u8; 32],
+            timestamp: 1_700_000_000,
         };
 
         let bytes = inputs.to_bytes();
@@ -415,8 +456,12 @@ mod tests {
 
         let decoded = MarketClaimPublicInputs::from_bytes(&bytes).unwrap();
         assert_eq!(decoded.market_id, inputs.market_id);
-        assert_eq!(decoded.winning_outcome, inputs.winning_outcome);
+        assert_eq!(decoded.nullifier, inputs.nullifier);
+        assert_eq!(decoded.resolution, inputs.resolution);
+        assert_eq!(decoded.total_pool, inputs.total_pool);
+        assert_eq!(decoded.winning_pool, inputs.winning_pool);
         assert_eq!(decoded.payout_amount, inputs.payout_amount);
+        assert_eq!(decoded.timestamp, inputs.timestamp);
     }
 
     #[test]

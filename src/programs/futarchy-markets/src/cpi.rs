@@ -158,6 +158,25 @@ pub fn derive_position_pda(
     )
 }
 
+/// Derive nullifier PDA for a market and nullifier hash
+///
+/// Seeds: [b"nullifier", market_id.to_le_bytes(), nullifier_hash]
+/// The existence of this PDA means the nullifier has been used.
+pub fn derive_nullifier_pda(
+    program_id: &Pubkey,
+    market_id: u64,
+    nullifier_hash: &[u8; 32],
+) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[
+            crate::state::NULLIFIER_SEED,
+            &market_id.to_le_bytes(),
+            nullifier_hash,
+        ],
+        program_id,
+    )
+}
+
 /// Create FHE job for pool addition via CPI
 ///
 /// Creates a job to add encrypted bet to encrypted pool using FHE

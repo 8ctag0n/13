@@ -307,22 +307,32 @@ const payoutAmount = localBetData.amount +
 
 // Generate claim proof (Circuit 32)
 const nullifierSecret = randomBytes(32);
-const claimNullifier = poseidon([nullifierSecret, 1]); // market_id = 1
+const claimNullifier = poseidon([nullifierSecret, betCommitment]);
+const totalPool = totalWinningPool + totalLosingPool;
+const marketIdBytes = Buffer.alloc(8);
+marketIdBytes.writeUInt32LE(1, 0);
+
+const [nullifierPda] = await PublicKey.findProgramAddress(
+  [Buffer.from("nullifier"), marketIdBytes, claimNullifier],
+  program.programId
+);
 
 const { proof: claimProof, publicInputs: claimPublicInputs } = await generateMarketClaimProof({
   // Private inputs
-  bettorWallet: wallet.publicKey.toBuffer(),
   betAmount: localBetData.amount,
-  position: localBetData.position,
+  betSide: localBetData.position,
   blinding: localBetData.blinding,
-  nullifierSecret,
+  secret: nullifierSecret,
 
   // Public inputs
   marketId: 1,
-  winningOutcome: 1, // YES
+  resolution: 1, // YES
+  totalPool,
+  winningPool: totalWinningPool,
   betCommitment,
-  claimNullifier,
+  nullifier: claimNullifier,
   payoutAmount,
+  timestamp: Math.floor(Date.now() / 1000),
 });
 
 // Claim payout
@@ -337,7 +347,7 @@ await program.methods
   .accounts({
     user: wallet.publicKey,
     market: marketPda,
-    position: positionPda,
+    nullifier: nullifierPda,
     escrow: escrowPda,
     zkGeneratorProgram: ZK_GENERATOR_PROGRAM_ID,
     systemProgram: SystemProgram.programId,

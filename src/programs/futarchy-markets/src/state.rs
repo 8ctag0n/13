@@ -1,12 +1,14 @@
 //! State account definitions
 
 pub mod market;
+pub mod nullifier;
 pub mod position;
 pub mod user_eligibility;
 pub mod user_escrow;
 pub mod executable_action;
 
 pub use market::{Market, MarketStatus, MARKET_SEED};
+pub use nullifier::{Nullifier, NULLIFIER_SEED};
 pub use position::{Position, POSITION_SEED};
 pub use user_eligibility::{UserEligibility, USER_ELIGIBILITY_SEED};
 pub use user_escrow::{UserEscrow, USER_ESCROW_SEED};
