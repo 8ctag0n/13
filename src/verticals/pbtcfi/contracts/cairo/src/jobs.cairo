@@ -59,6 +59,11 @@ pub trait IFheJobs<TContractState> {
     fn get_pending_jobs(self: @TContractState) -> Array<u256>;
     fn get_pending_jobs_by_type(self: @TContractState, job_type: JobType) -> Array<u256>;
     fn get_jobs_by_creator(self: @TContractState, creator: ContractAddress) -> Array<u256>;
+
+    // Sprint 3: Multi-prover consensus
+    fn enable_consensus(ref self: TContractState, job_id: u256, required_provers: u8, consensus_threshold: u8);
+    fn get_consensus_data(self: @TContractState, job_id: u256) -> FheConsensusData;
+    fn is_consensus_enabled(self: @TContractState, job_id: u256) -> bool;
 }
 
 // ============================================================================
@@ -145,12 +150,35 @@ pub struct JobExecution {
     pub completed_at: u64,
 }
 
+/// Sprint 3: Multi-Prover Consensus Data
+/// Tracks consensus requirements and prover submissions for a job
+#[derive(Drop, Copy, Serde, starknet::Store)]
+pub struct FheConsensusData {
+    pub job_id: u256,
+    pub required_provers: u8,       // Total provers needed (e.g., 3)
+    pub consensus_threshold: u8,    // Minimum provers that must agree (e.g., 2 for 2/3)
+    pub claimed_count: u8,          // How many provers have claimed
+    pub submitted_count: u8,        // How many results have been submitted
+    pub consensus_reached: bool,    // Whether consensus has been achieved
+    pub consensus_hash: felt252,    // The agreed-upon result hash
+}
+
+/// Sprint 3: Individual prover submission tracking
+#[derive(Drop, Copy, Serde, starknet::Store)]
+pub struct ProverSubmission {
+    pub prover: ContractAddress,
+    pub result_hash: felt252,
+    pub submitted_at: u64,
+    pub has_claimed: bool,
+    pub has_submitted: bool,
+}
+
 // Mapping from loan_id to job_id (for backwards compatibility)
 // This allows pBTCFi code to use loan_id while internally using job_id
 
 #[starknet::contract]
 pub mod PbtcfiJobs {
-    use super::{Loan, LoanStatus, JobStatus, Prover, JobExecution, Job, JobType};
+    use super::{Loan, LoanStatus, JobStatus, Prover, JobExecution, Job, JobType, FheConsensusData, ProverSubmission};
     use starknet::{ContractAddress, get_block_timestamp, get_caller_address};
     use starknet::storage::{Map, StoragePathEntry, StoragePointerReadAccess, StoragePointerWriteAccess};
 
@@ -170,6 +198,11 @@ pub mod PbtcfiJobs {
         // Creator tracking
         creator_jobs: Map<ContractAddress, Array<u256>>,
         creator_job_count: Map<ContractAddress, u256>,
+
+        // Sprint 3: Multi-prover consensus storage
+        fhe_consensus: Map<u256, FheConsensusData>,  // job_id -> consensus data
+        job_prover_submissions: Map<(u256, ContractAddress), ProverSubmission>,  // (job_id, prover) -> submission
+        job_result_counts: Map<(u256, felt252), u8>,  // (job_id, result_hash) -> count
     }
 
     #[event]
@@ -182,6 +215,9 @@ pub mod PbtcfiJobs {
         ProverRegistered: ProverRegistered,
         // pBTCFi-specific events
         LoanCreated: LoanCreated,
+        // Sprint 3: Multi-prover consensus events
+        ConsensusReached: ConsensusReached,
+        ResultSubmitted: ResultSubmitted,
     }
 
     #[derive(Drop, starknet::Event)]
@@ -227,6 +263,25 @@ pub mod PbtcfiJobs {
         pub job_id: u256,
         pub borrower: ContractAddress,
         pub btc_commitment: felt252,
+        pub timestamp: u64,
+    }
+
+    #[derive(Drop, starknet::Event)]
+    pub struct ConsensusReached {
+        #[key]
+        pub job_id: u256,
+        pub consensus_hash: felt252,
+        pub agreeing_provers: u8,
+        pub timestamp: u64,
+    }
+
+    #[derive(Drop, starknet::Event)]
+    pub struct ResultSubmitted {
+        #[key]
+        pub job_id: u256,
+        pub prover: ContractAddress,
+        pub result_hash: felt252,
+        pub submission_count: u8,
         pub timestamp: u64,
     }
 
@@ -304,8 +359,11 @@ pub mod PbtcfiJobs {
             let caller = get_caller_address();
             let timestamp = get_block_timestamp();
 
-            // Sprint 1: Initialize prover with default values
-            // TODO Sprint 2: Add parameters for stake, encryption_pubkey
+            // Sprint 2: Validate prover is not already registered
+            let existing = self.registered_provers.entry(caller).read();
+            assert(existing.registered_at == 0, 'Prover already registered');
+
+            // Initialize prover with default values
             let prover = Prover {
                 authority: caller,
                 stake: 0,  // Default: no stake required for MVP
@@ -343,21 +401,55 @@ pub mod PbtcfiJobs {
             let prover = self.registered_provers.entry(caller).read();
             assert(prover.registered_at > 0, 'Prover not registered');
 
-            // Get current job execution
-            let mut job_exec = self.job_executions.entry(job_id).read();
-            assert(job_exec.status == JobStatus::Pending, 'Job not available');
+            // Check if consensus is enabled for this job
+            let mut consensus = self.fhe_consensus.entry(job_id).read();
+            let consensus_enabled = consensus.required_provers > 0;
 
-            // Update job execution
-            job_exec.prover = caller;
-            job_exec.status = JobStatus::Claimed;
-            job_exec.claimed_at = timestamp;
+            if consensus_enabled {
+                // Multi-prover mode: allow multiple claims up to required_provers
+                assert(consensus.claimed_count < consensus.required_provers, 'All provers claimed');
 
-            self.job_executions.entry(job_id).write(job_exec);
+                // Check if this prover already claimed
+                let existing_submission = self.job_prover_submissions.entry((job_id, caller)).read();
+                assert(!existing_submission.has_claimed, 'Already claimed');
 
-            // Update job status
-            let mut job = self.jobs.entry(job_id).read();
-            job.status = JobStatus::Claimed;
-            self.jobs.entry(job_id).write(job);
+                // Record prover claim
+                let submission = ProverSubmission {
+                    prover: caller,
+                    result_hash: 0,
+                    submitted_at: 0,
+                    has_claimed: true,
+                    has_submitted: false,
+                };
+                self.job_prover_submissions.entry((job_id, caller)).write(submission);
+
+                // Increment claimed count
+                consensus.claimed_count += 1;
+                self.fhe_consensus.entry(job_id).write(consensus);
+
+                // Only change job status to Claimed when all required provers have claimed
+                if consensus.claimed_count == consensus.required_provers {
+                    let mut job = self.jobs.entry(job_id).read();
+                    job.status = JobStatus::Claimed;
+                    self.jobs.entry(job_id).write(job);
+                }
+            } else {
+                // Single-prover mode (original behavior)
+                let mut job_exec = self.job_executions.entry(job_id).read();
+                assert(job_exec.status == JobStatus::Pending, 'Job not available');
+
+                // Update job execution
+                job_exec.prover = caller;
+                job_exec.status = JobStatus::Claimed;
+                job_exec.claimed_at = timestamp;
+
+                self.job_executions.entry(job_id).write(job_exec);
+
+                // Update job status
+                let mut job = self.jobs.entry(job_id).read();
+                job.status = JobStatus::Claimed;
+                self.jobs.entry(job_id).write(job);
+            }
 
             self.emit(JobClaimed {
                 job_id,
@@ -370,34 +462,117 @@ pub mod PbtcfiJobs {
             let caller = get_caller_address();
             let timestamp = get_block_timestamp();
 
-            let mut job_exec = self.job_executions.entry(job_id).read();
-            assert(job_exec.status == JobStatus::Claimed, 'Job not claimed');
-            assert(job_exec.prover == caller, 'Not job owner');
+            // Check if consensus is enabled for this job
+            let mut consensus = self.fhe_consensus.entry(job_id).read();
+            let consensus_enabled = consensus.required_provers > 0;
 
-            // MVP: Auto-finalize on submit
-            job_exec.result_hash = result_hash;
-            job_exec.status = JobStatus::Completed;
-            job_exec.completed_at = timestamp;
+            if consensus_enabled {
+                // Multi-prover consensus mode
+                assert(!consensus.consensus_reached, 'Consensus already reached');
 
-            self.job_executions.entry(job_id).write(job_exec);
+                // Verify prover has claimed this job
+                let mut submission = self.job_prover_submissions.entry((job_id, caller)).read();
+                assert(submission.has_claimed, 'Job not claimed by prover');
+                assert(!submission.has_submitted, 'Result already submitted');
 
-            // Update job status
-            let mut job = self.jobs.entry(job_id).read();
-            job.status = JobStatus::Completed;
-            self.jobs.entry(job_id).write(job);
+                // Record submission
+                submission.result_hash = result_hash;
+                submission.submitted_at = timestamp;
+                submission.has_submitted = true;
+                self.job_prover_submissions.entry((job_id, caller)).write(submission);
 
-            // Sprint 1: Update prover stats (jobs_completed, total_earnings)
-            let mut prover = self.registered_provers.entry(caller).read();
-            prover.jobs_completed += 1;
-            prover.total_earnings += job.reward;
-            self.registered_provers.entry(caller).write(prover);
+                // Increment result count for this hash
+                let current_count = self.job_result_counts.entry((job_id, result_hash)).read();
+                let new_count = current_count + 1;
+                self.job_result_counts.entry((job_id, result_hash)).write(new_count);
 
-            self.emit(JobCompleted {
-                job_id,
-                prover: caller,
-                result_hash,
-                timestamp,
-            });
+                // Increment submitted count
+                consensus.submitted_count += 1;
+
+                self.emit(ResultSubmitted {
+                    job_id,
+                    prover: caller,
+                    result_hash,
+                    submission_count: consensus.submitted_count,
+                    timestamp,
+                });
+
+                // Check for consensus
+                if new_count >= consensus.consensus_threshold {
+                    // Consensus reached!
+                    consensus.consensus_reached = true;
+                    consensus.consensus_hash = result_hash;
+                    self.fhe_consensus.entry(job_id).write(consensus);
+
+                    // Complete the job
+                    let mut job = self.jobs.entry(job_id).read();
+                    let job_reward = job.reward;
+                    job.status = JobStatus::Completed;
+                    self.jobs.entry(job_id).write(job);
+
+                    // Update job execution with consensus result
+                    let mut job_exec = self.job_executions.entry(job_id).read();
+                    job_exec.result_hash = result_hash;
+                    job_exec.status = JobStatus::Completed;
+                    job_exec.completed_at = timestamp;
+                    self.job_executions.entry(job_id).write(job_exec);
+
+                    // Emit consensus event
+                    self.emit(ConsensusReached {
+                        job_id,
+                        consensus_hash: result_hash,
+                        agreeing_provers: new_count,
+                        timestamp,
+                    });
+
+                    // Update prover stats for caller
+                    let mut prover = self.registered_provers.entry(caller).read();
+                    prover.jobs_completed += 1;
+                    prover.total_earnings += job_reward;
+                    self.registered_provers.entry(caller).write(prover);
+
+                    self.emit(JobCompleted {
+                        job_id,
+                        prover: caller,
+                        result_hash,
+                        timestamp,
+                    });
+                } else {
+                    // No consensus yet, just save the consensus state
+                    self.fhe_consensus.entry(job_id).write(consensus);
+                }
+            } else {
+                // Single-prover mode (original behavior)
+                let mut job_exec = self.job_executions.entry(job_id).read();
+                assert(job_exec.status == JobStatus::Claimed, 'Job not claimed');
+                assert(job_exec.prover == caller, 'Not job owner');
+
+                // MVP: Auto-finalize on submit
+                job_exec.result_hash = result_hash;
+                job_exec.status = JobStatus::Completed;
+                job_exec.completed_at = timestamp;
+
+                self.job_executions.entry(job_id).write(job_exec);
+
+                // Update job status
+                let mut job = self.jobs.entry(job_id).read();
+                let job_reward = job.reward;  // Read reward before moving job
+                job.status = JobStatus::Completed;
+                self.jobs.entry(job_id).write(job);
+
+                // Sprint 1: Update prover stats (jobs_completed, total_earnings)
+                let mut prover = self.registered_provers.entry(caller).read();
+                prover.jobs_completed += 1;
+                prover.total_earnings += job_reward;
+                self.registered_provers.entry(caller).write(prover);
+
+                self.emit(JobCompleted {
+                    job_id,
+                    prover: caller,
+                    result_hash,
+                    timestamp,
+                });
+            }
         }
 
         fn get_job_execution(self: @ContractState, job_id: u256) -> JobExecution {
@@ -465,6 +640,44 @@ pub mod PbtcfiJobs {
             };
 
             creator_jobs
+        }
+
+        // Sprint 3: Multi-prover consensus functions
+        fn enable_consensus(ref self: ContractState, job_id: u256, required_provers: u8, consensus_threshold: u8) {
+            let caller = get_caller_address();
+
+            // Verify job exists and caller is creator
+            let job = self.jobs.entry(job_id).read();
+            assert(job.job_id == job_id, 'Job does not exist');
+            assert(job.creator == caller, 'Not job creator');
+            assert(job.status == JobStatus::Pending, 'Job must be pending');
+
+            // Validate consensus parameters
+            assert(required_provers > 0, 'Need at least 1 prover');
+            assert(consensus_threshold > 0, 'Threshold must be > 0');
+            assert(consensus_threshold <= required_provers, 'Threshold > required');
+
+            // Initialize consensus data
+            let consensus = FheConsensusData {
+                job_id,
+                required_provers,
+                consensus_threshold,
+                claimed_count: 0,
+                submitted_count: 0,
+                consensus_reached: false,
+                consensus_hash: 0,
+            };
+
+            self.fhe_consensus.entry(job_id).write(consensus);
+        }
+
+        fn get_consensus_data(self: @ContractState, job_id: u256) -> FheConsensusData {
+            self.fhe_consensus.entry(job_id).read()
+        }
+
+        fn is_consensus_enabled(self: @ContractState, job_id: u256) -> bool {
+            let consensus = self.fhe_consensus.entry(job_id).read();
+            consensus.required_provers > 0
         }
     }
 
@@ -629,6 +842,7 @@ pub mod PbtcfiJobs {
 
             // Update job status
             let mut job = self.jobs.entry(job_id).read();
+            let job_reward = job.reward;  // Read reward before moving job
             job.status = JobStatus::Completed;
             self.jobs.entry(job_id).write(job);
 
@@ -640,7 +854,7 @@ pub mod PbtcfiJobs {
             // Sprint 1: Update prover stats (jobs_completed, total_earnings)
             let mut prover = self.registered_provers.entry(caller).read();
             prover.jobs_completed += 1;
-            prover.total_earnings += job.reward;
+            prover.total_earnings += job_reward;
             self.registered_provers.entry(caller).write(prover);
 
             self.emit(JobCompleted {
