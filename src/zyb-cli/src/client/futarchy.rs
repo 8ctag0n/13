@@ -76,22 +76,29 @@ impl FutarchyClient {
             .await
             .context("Failed to send submit_bet request")?;
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
+        let status = response.status();
+        let raw_body = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "Unknown error".to_string());
+
+        // Check for error in response body (server may return 200 with error JSON)
+        if let Ok(error_obj) = serde_json::from_str::<serde_json::Value>(&raw_body) {
+            if error_obj.get("error").is_some() {
+                let error_msg = error_obj["error"].as_str().unwrap_or("Unknown error");
+                return Err(anyhow!("Transaction failed: {}", error_msg));
+            }
+        }
+
+        if !status.is_success() {
             return Err(anyhow!(
                 "Server returned error {}: {}",
                 status,
-                error_text
+                raw_body
             ));
         }
 
-        response
-            .json()
-            .await
+        serde_json::from_str(&raw_body)
             .context("Failed to parse submit_bet response")
     }
 

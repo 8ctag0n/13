@@ -113,6 +113,42 @@ pub struct FheJobRow {
     pub processed_at: Option<DateTime<Utc>>,
 }
 
+/// FHE job with ciphertexts (internal row from DB JOIN)
+#[derive(Debug, sqlx::FromRow)]
+pub struct FheJobWithCiphertextsRow {
+    pub id: i32,
+    pub job_id: Option<i64>,
+    pub market_id: String,
+    pub side: bool,
+    pub pool_ciphertext_hash: String,
+    pub bet_ciphertext_hash: String,
+    pub result_ciphertext_hash: Option<String>,
+    pub status: String,
+    pub created_at: DateTime<Utc>,
+    pub processed_at: Option<DateTime<Utc>>,
+    pub pool_ciphertext: Option<Vec<u8>>,
+    pub bet_ciphertext: Option<Vec<u8>>,
+}
+
+/// FHE job with ciphertexts data (public-facing)
+#[derive(Debug, serde::Serialize)]
+pub struct FheJobWithCiphertexts {
+    pub id: i32,
+    pub job_id: Option<i64>,
+    pub market_id: String,
+    pub side: bool,
+    pub pool_ciphertext_hash: String,
+    pub bet_ciphertext_hash: String,
+    pub result_ciphertext_hash: Option<String>,
+    pub status: String,
+    pub created_at: DateTime<Utc>,
+    pub processed_at: Option<DateTime<Utc>>,
+    #[serde(skip_serializing)]
+    pub pool_ciphertext: Option<Vec<u8>>,
+    #[serde(skip_serializing)]
+    pub bet_ciphertext: Option<Vec<u8>>,
+}
+
 // =============================================================================
 // Queries
 // =============================================================================
@@ -448,20 +484,21 @@ impl FutarchyQueries {
         market_id: &str,
         side: bool,
     ) -> Result<i32> {
-        let row: Option<(i32,)> = sqlx::query_as(
+        // Use COALESCE to handle NULL from MAX when no rows exist
+        let row: (i32,) = sqlx::query_as(
             r#"
-            SELECT MAX(version)
+            SELECT COALESCE(MAX(version), -1) + 1
             FROM futarchy_ciphertexts
             WHERE market_id = $1 AND side = $2 AND ciphertext_type = 'pool'
             "#,
         )
         .bind(market_id)
         .bind(side)
-        .fetch_optional(pool)
+        .fetch_one(pool)
         .await
         .map_err(|e| anyhow!("Failed to get pool version: {}", e))?;
 
-        Ok(row.and_then(|(v,)| Some(v + 1)).unwrap_or(0))
+        Ok(row.0)
     }
 
     // =========================================================================
@@ -566,6 +603,8 @@ impl FutarchyQueries {
     // =========================================================================
 
     /// Create an FHE job for pool update
+    ///
+    /// `onchain_job_id` is the job ID from the FHE-Generator program (pending_pool_update_job from Market)
     pub async fn create_fhe_job(
         pool: &PgPool,
         market_id: &str,
@@ -573,15 +612,28 @@ impl FutarchyQueries {
         pool_ciphertext_hash: &str,
         bet_ciphertext_hash: &str,
     ) -> Result<i32> {
+        Self::create_fhe_job_with_onchain_id(pool, market_id, side, pool_ciphertext_hash, bet_ciphertext_hash, None).await
+    }
+
+    /// Create an FHE job with explicit on-chain job ID
+    pub async fn create_fhe_job_with_onchain_id(
+        pool: &PgPool,
+        market_id: &str,
+        side: bool,
+        pool_ciphertext_hash: &str,
+        bet_ciphertext_hash: &str,
+        onchain_job_id: Option<u64>,
+    ) -> Result<i32> {
         let row: (i32,) = sqlx::query_as(
             r#"
             INSERT INTO futarchy_fhe_jobs (
-                market_id, side, pool_ciphertext_hash, bet_ciphertext_hash
+                job_id, market_id, side, pool_ciphertext_hash, bet_ciphertext_hash
             )
-            VALUES ($1, $2, $3, $4)
+            VALUES ($1, $2, $3, $4, $5)
             RETURNING id
             "#,
         )
+        .bind(onchain_job_id.map(|id| id as i64))
         .bind(market_id)
         .bind(side)
         .bind(pool_ciphertext_hash)
@@ -634,6 +686,75 @@ impl FutarchyQueries {
         .execute(pool)
         .await
         .map_err(|e| anyhow!("Failed to complete FHE job: {}", e))?;
+
+        Ok(())
+    }
+
+    /// Get FHE job with associated ciphertexts (for prover data endpoint)
+    pub async fn get_fhe_job_with_ciphertexts(
+        pool: &PgPool,
+        job_id: i32,
+    ) -> Result<Option<FheJobWithCiphertexts>> {
+        let row = sqlx::query_as::<_, FheJobWithCiphertextsRow>(
+            r#"
+            SELECT
+                j.id, j.job_id, j.market_id, j.side,
+                j.pool_ciphertext_hash, j.bet_ciphertext_hash,
+                j.result_ciphertext_hash, j.status, j.created_at, j.processed_at,
+                pool.ciphertext as pool_ciphertext,
+                bet.ciphertext as bet_ciphertext
+            FROM futarchy_fhe_jobs j
+            LEFT JOIN futarchy_ciphertexts pool ON pool.hash = j.pool_ciphertext_hash
+            LEFT JOIN futarchy_ciphertexts bet ON bet.hash = j.bet_ciphertext_hash
+            WHERE j.id = $1
+            "#,
+        )
+        .bind(job_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| anyhow!("Failed to fetch FHE job with ciphertexts: {}", e))?;
+
+        Ok(row.map(|r| FheJobWithCiphertexts {
+            id: r.id,
+            job_id: r.job_id,
+            market_id: r.market_id,
+            side: r.side,
+            pool_ciphertext_hash: r.pool_ciphertext_hash,
+            bet_ciphertext_hash: r.bet_ciphertext_hash,
+            result_ciphertext_hash: r.result_ciphertext_hash,
+            status: r.status,
+            created_at: r.created_at,
+            processed_at: r.processed_at,
+            pool_ciphertext: r.pool_ciphertext,
+            bet_ciphertext: r.bet_ciphertext,
+        }))
+    }
+
+    /// Complete an FHE job with prover info
+    pub async fn complete_fhe_job_with_prover(
+        pool: &PgPool,
+        job_id: i32,
+        result_hash: &str,
+        _prover_pubkey: Option<&str>,
+    ) -> Result<()> {
+        let result = sqlx::query(
+            r#"
+            UPDATE futarchy_fhe_jobs
+            SET status = 'completed',
+                result_ciphertext_hash = $2,
+                processed_at = NOW()
+            WHERE id = $1 AND status = 'pending'
+            "#,
+        )
+        .bind(job_id)
+        .bind(result_hash)
+        .execute(pool)
+        .await
+        .map_err(|e| anyhow!("Failed to complete FHE job: {}", e))?;
+
+        if result.rows_affected() == 0 {
+            return Err(anyhow!("FHE job {} not found or not in pending status", job_id));
+        }
 
         Ok(())
     }

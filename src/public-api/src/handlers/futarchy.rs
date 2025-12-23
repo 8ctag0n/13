@@ -91,6 +91,15 @@ pub async fn get_pending_fhe_jobs(data: web::Data<AppState>) -> impl Responder {
     proxy_blink_get(data, "/api/futarchy/fhe-jobs/pending").await
 }
 
+#[get("/api/futarchy/fhe-jobs/{id}/data")]
+pub async fn get_fhe_job_data(
+    data: web::Data<AppState>,
+    path: web::Path<String>,
+) -> impl Responder {
+    let id = path.into_inner();
+    proxy_blink_get(data, &format!("/api/futarchy/fhe-jobs/{}/data", id)).await
+}
+
 // =============================================================================
 // Futarchy POST routes (legacy proxy to blink)
 // =============================================================================
@@ -157,6 +166,16 @@ pub async fn fail_fhe_job(
 ) -> impl Responder {
     let id = path.into_inner();
     proxy_blink_post(data, &format!("/api/futarchy/fhe-jobs/{}/fail", id), body.into_inner()).await
+}
+
+#[post("/api/futarchy/fhe-jobs/{id}/result")]
+pub async fn submit_fhe_job_result(
+    data: web::Data<AppState>,
+    path: web::Path<String>,
+    body: web::Json<serde_json::Value>,
+) -> impl Responder {
+    let id = path.into_inner();
+    proxy_blink_post(data, &format!("/api/futarchy/fhe-jobs/{}/result", id), body.into_inner()).await
 }
 
 // =============================================================================

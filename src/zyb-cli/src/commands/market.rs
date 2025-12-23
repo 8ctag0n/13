@@ -121,6 +121,11 @@ pub struct BetArgs {
     /// Path to save FHE keys (for later decryption)
     #[arg(long, default_value = "~/.zyb/fhe_keys")]
     pub fhe_keys_dir: String,
+
+    /// Path to shared FHE keys directory (load instead of generate)
+    /// Directory should contain fhe_client_key.bin and fhe_server_key.bin
+    #[arg(long)]
+    pub shared_keys_dir: Option<String>,
 }
 
 #[derive(Args, Debug)]
@@ -273,11 +278,34 @@ async fn place_bet_fhe(args: BetArgs) -> Result<()> {
     println!("Bettor: {}", bettor_pubkey);
     println!();
 
-    // Step 1: Generate FHE keys
-    println!("{}", "Generating FHE keys (this may take ~30s)...".cyan());
-    let (client_key, server_key) = generate_keys()
-        .context("Failed to generate FHE keys")?;
-    println!("{}", "FHE keys generated.".green());
+    // Step 1: Load or generate FHE keys
+    let (client_key, server_key) = if let Some(ref shared_dir) = args.shared_keys_dir {
+        let dir = shellexpand::tilde(shared_dir).to_string();
+        let client_path = format!("{}/fhe_client_key.bin", dir);
+        let server_path = format!("{}/fhe_server_key.bin", dir);
+
+        println!("{}", format!("Loading shared FHE keys from: {}", dir).cyan());
+
+        let client_bytes = fs::read(&client_path)
+            .context("Failed to read fhe_client_key.bin")?;
+        let server_bytes = fs::read(&server_path)
+            .context("Failed to read fhe_server_key.bin")?;
+
+        use zyberlink_fhe::{deserialize_client_key, deserialize_server_key};
+        let client_key = deserialize_client_key(&client_bytes)
+            .context("Failed to deserialize client key")?;
+        let server_key = deserialize_server_key(&server_bytes)
+            .context("Failed to deserialize server key")?;
+
+        println!("{}", "Shared FHE keys loaded.".green());
+        (client_key, server_key)
+    } else {
+        println!("{}", "Generating FHE keys (this may take ~30s)...".cyan());
+        let keys = generate_keys()
+            .context("Failed to generate FHE keys")?;
+        println!("{}", "FHE keys generated.".green());
+        keys
+    };
 
     // Step 2: Encrypt the bet amount
     println!("{}", "Encrypting bet amount...".cyan());

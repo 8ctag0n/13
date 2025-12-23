@@ -19,6 +19,7 @@ use futarchy_sdk::{find_market_pda, find_escrow_pda, FheAccounts};
 
 use crate::db::futarchy_queries::{
     CreateCiphertextData, CreateMarketData, CreatePositionData, FutarchyQueries,
+    FheJobWithCiphertexts,
 };
 use crate::AppState;
 
@@ -1445,6 +1446,166 @@ pub async fn fail_fhe_job(
     }
 }
 
+/// GET /api/futarchy/fhe-jobs/{id}/data
+/// Get ciphertexts for an FHE job (pool + bet) - for prover hybrid flow
+#[get("/api/futarchy/fhe-jobs/{id}/data")]
+pub async fn get_fhe_job_data(
+    pool: web::Data<PgPool>,
+    path: web::Path<i32>,
+) -> impl Responder {
+    let job_id = path.into_inner();
+
+    match FutarchyQueries::get_fhe_job_with_ciphertexts(&pool, job_id).await {
+        Ok(Some(job)) => {
+            // Si pool_ciphertext_hash es todo ceros, pool esta vacio (primera bet)
+            let is_pool_empty = job.pool_ciphertext_hash.chars().all(|c| c == '0');
+
+            let pool_ciphertext_b64 = if is_pool_empty {
+                None
+            } else {
+                job.pool_ciphertext.as_ref().map(|ct| BASE64.encode(ct))
+            };
+
+            let bet_ciphertext_b64 = job.bet_ciphertext.as_ref().map(|ct| BASE64.encode(ct));
+
+            HttpResponse::Ok().json(json!({
+                "job_id": job.id,
+                "market_id": job.market_id,
+                "side": if job.side { "yes" } else { "no" },
+                "pool_ciphertext_hash": if is_pool_empty { serde_json::Value::Null } else { json!(job.pool_ciphertext_hash) },
+                "pool_ciphertext": pool_ciphertext_b64,
+                "bet_ciphertext_hash": job.bet_ciphertext_hash,
+                "bet_ciphertext": bet_ciphertext_b64,
+                "status": job.status,
+                "created_at": job.created_at.to_rfc3339(),
+            }))
+        }
+        Ok(None) => {
+            HttpResponse::NotFound().json(json!({
+                "error": "FHE job not found",
+                "job_id": job_id,
+            }))
+        }
+        Err(e) => {
+            log::error!("Failed to fetch FHE job data {}: {}", job_id, e);
+            HttpResponse::InternalServerError().json(json!({
+                "error": format!("Failed to fetch FHE job data: {}", e),
+            }))
+        }
+    }
+}
+
+/// POST /api/futarchy/fhe-jobs/{id}/result
+/// Submit result ciphertext for completed FHE job - for prover hybrid flow
+#[derive(Debug, Deserialize)]
+pub struct SubmitFheResultRequest {
+    /// Base64-encoded result ciphertext (new pool)
+    pub result_ciphertext: String,
+    /// Prover pubkey (for tracking)
+    pub prover_pubkey: Option<String>,
+}
+
+#[post("/api/futarchy/fhe-jobs/{id}/result")]
+pub async fn submit_fhe_result(
+    pool: web::Data<PgPool>,
+    path: web::Path<i32>,
+    body: web::Json<SubmitFheResultRequest>,
+) -> impl Responder {
+    let job_id = path.into_inner();
+
+    // Decode result ciphertext
+    let result_bytes = match BASE64.decode(&body.result_ciphertext) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            return HttpResponse::BadRequest().json(json!({
+                "error": format!("Invalid result_ciphertext base64: {}", e),
+            }));
+        }
+    };
+
+    // Compute hash
+    let result_hash = {
+        let mut hasher = Keccak256::new();
+        hasher.update(&result_bytes);
+        hex::encode(hasher.finalize())
+    };
+
+    // Fetch job data to get market_id and side
+    let job_data = match FutarchyQueries::get_fhe_job_with_ciphertexts(&pool, job_id).await {
+        Ok(Some(job)) => job,
+        Ok(None) => {
+            return HttpResponse::NotFound().json(json!({
+                "error": "FHE job not found",
+                "job_id": job_id,
+            }));
+        }
+        Err(e) => {
+            return HttpResponse::InternalServerError().json(json!({
+                "error": format!("Failed to fetch job: {}", e),
+            }));
+        }
+    };
+
+    // Get next version for pool ciphertext
+    let version = match FutarchyQueries::get_next_pool_version(
+        &pool,
+        &job_data.market_id,
+        job_data.side,
+    ).await {
+        Ok(v) => v,
+        Err(e) => {
+            return HttpResponse::InternalServerError().json(json!({
+                "error": format!("Failed to get version: {}", e),
+            }));
+        }
+    };
+
+    // Store result as new pool ciphertext
+    let ct_data = CreateCiphertextData {
+        hash: result_hash.clone(),
+        ciphertext: result_bytes,
+        ciphertext_type: "pool".to_string(),
+        market_id: Some(job_data.market_id.clone()),
+        side: Some(job_data.side),
+        version,
+        created_by: body.prover_pubkey.clone(),
+    };
+
+    if let Err(e) = FutarchyQueries::store_ciphertext(&pool, &ct_data).await {
+        return HttpResponse::InternalServerError().json(json!({
+            "error": format!("Failed to store result ciphertext: {}", e),
+        }));
+    }
+
+    // Mark job as completed
+    if let Err(e) = FutarchyQueries::complete_fhe_job_with_prover(
+        &pool,
+        job_id,
+        &result_hash,
+        body.prover_pubkey.as_deref(),
+    ).await {
+        return HttpResponse::InternalServerError().json(json!({
+            "error": format!("Failed to complete FHE job: {}", e),
+        }));
+    }
+
+    log::info!(
+        "FHE job {} completed: result_hash={} version={}",
+        job_id,
+        &result_hash[..16],
+        version
+    );
+
+    HttpResponse::Ok().json(json!({
+        "message": "FHE job result submitted successfully",
+        "job_id": job_id,
+        "result_hash": result_hash,
+        "market_id": job_data.market_id,
+        "side": if job_data.side { "yes" } else { "no" },
+        "version": version,
+    }))
+}
+
 // =============================================================================
 // E2E Bet Flow Endpoints (prepare + submit)
 // =============================================================================
@@ -1756,17 +1917,51 @@ pub async fn submit_bet(
             .flatten()
             .unwrap_or_else(|| "0".repeat(64));
 
-        if let Err(e) = FutarchyQueries::create_fhe_job(
+        // Try to get on-chain job_id from Market.pending_pool_update_job
+        let onchain_job_id: Option<u64> = {
+            let rpc_url = app_state.rpc_url.clone();
+            let futarchy_program_id = get_futarchy_program_id().ok();
+
+            if let Some(program_id) = futarchy_program_id {
+                // Read Market on-chain to get pending_pool_update_job
+                // Use spawn_blocking with internal tokio runtime for async SDK call
+                tokio::task::spawn_blocking(move || {
+                    let rpc_client = RpcClient::new(&rpc_url);
+                    let rt = tokio::runtime::Runtime::new().ok()?;
+                    rt.block_on(async {
+                        match futarchy_sdk::query_market(&rpc_client, &program_id, market_id).await {
+                            Ok(market) => market.pending_pool_update_job,
+                            Err(e) => {
+                                log::warn!("Failed to read Market on-chain for job_id: {}", e);
+                                None
+                            }
+                        }
+                    })
+                })
+                .await
+                .unwrap_or(None)
+            } else {
+                None
+            }
+        };
+
+        if let Some(job_id) = onchain_job_id {
+            log::info!("Found on-chain FHE job_id {} for market {}", job_id, market_id);
+        }
+
+        if let Err(e) = FutarchyQueries::create_fhe_job_with_onchain_id(
             &app_state.db_pool,
             &market_id_str,
             side,
             &pool_hash,
             &ciphertext_hash,
+            onchain_job_id,
         ).await {
             log::warn!("Failed to create FHE job for market {} side {}: {}", market_id, side, e);
             // Continue anyway - bet is confirmed, job can be created later
         } else {
-            log::info!("Created FHE job for market {} side {} bet_hash={}", market_id, side, &ciphertext_hash[..16]);
+            log::info!("Created FHE job for market {} side {} bet_hash={} onchain_job_id={:?}",
+                market_id, side, &ciphertext_hash[..16], onchain_job_id);
         }
     }
 
@@ -1846,6 +2041,9 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         .service(get_pending_fhe_jobs)
         .service(complete_fhe_job)
         .service(fail_fhe_job)
+        // FHE jobs data endpoints (for prover hybrid flow)
+        .service(get_fhe_job_data)
+        .service(submit_fhe_result)
         // Positions
         .service(get_bettor_positions)
         .service(validate_claim_payout);

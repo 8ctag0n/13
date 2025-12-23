@@ -33,6 +33,7 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(futarchy::get_market_positions);
     cfg.service(futarchy::get_bettor_positions);
     cfg.service(futarchy::get_pending_fhe_jobs);
+    cfg.service(futarchy::get_fhe_job_data);
     cfg.service(futarchy::create_market);
     cfg.service(futarchy::place_bet);
     cfg.service(futarchy::settle_market);
@@ -40,6 +41,7 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(futarchy::submit_bet);
     cfg.service(futarchy::complete_fhe_job);
     cfg.service(futarchy::fail_fhe_job);
+    cfg.service(futarchy::submit_fhe_job_result);
     cfg.service(futarchy::validate_market);
     cfg.service(futarchy::validate_bet);
     cfg.service(futarchy::validate_settle);
