@@ -1,14 +1,4 @@
-#![allow(
-    dead_code,
-    unused_imports,
-    unused_variables,
-    clippy::too_many_arguments,
-    clippy::manual_range_contains,
-    clippy::manual_contains,
-    clippy::unnecessary_cast,
-    clippy::needless_borrows_for_generic_args,
-    deprecated
-)]
+#![allow(clippy::too_many_arguments, clippy::needless_borrows_for_generic_args)]
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -21,7 +11,6 @@ use solana_sdk::{
 use std::{sync::Arc, time::Duration};
 use tokio::time::sleep;
 use zyberlink_sdk::MarketplaceClient;
-use zyberlink_types::CircuitType;
 
 // FHE engine from shared crate
 use zyberlink_fhe::{deserialize_server_key, FheEngine};
