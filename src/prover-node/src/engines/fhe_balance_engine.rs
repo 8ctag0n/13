@@ -1,6 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 // ============================================================================
 // JobType mapping from Cairo contracts (jobs.cairo)
@@ -159,15 +160,33 @@ pub trait FheBalanceProcessor: Send + Sync {
 pub struct FheBalanceEngine {
     /// Mock mode for testing
     mock_mode: bool,
+    /// Real FHE engine from zyberlink-fhe (optional)
+    fhe_engine: Option<Arc<zyberlink_fhe::FheEngine>>,
 }
 
 impl FheBalanceEngine {
-    pub fn new() -> Self {
-        Self { mock_mode: false }
+    /// Create engine in production mode (requires real FHE server key)
+    ///
+    /// # Arguments
+    /// * `fhe_engine` - Real FHE engine from zyberlink-fhe with server key loaded
+    pub fn new(fhe_engine: Arc<zyberlink_fhe::FheEngine>) -> Self {
+        Self {
+            mock_mode: false,
+            fhe_engine: Some(fhe_engine),
+        }
     }
 
+    /// Create engine in mock mode (for testing without FHE keys)
     pub fn new_mock() -> Self {
-        Self { mock_mode: true }
+        Self {
+            mock_mode: true,
+            fhe_engine: None,
+        }
+    }
+
+    /// Check if engine is using real FHE operations
+    pub fn is_real_fhe(&self) -> bool {
+        !self.mock_mode && self.fhe_engine.is_some()
     }
 
     /// Compute result hash from encrypted values
@@ -226,7 +245,27 @@ impl FheBalanceEngine {
             .ok_or_else(|| anyhow::anyhow!("BalanceUpdate requires delta_encrypted"))?;
 
         // Perform homomorphic addition
-        let new_encrypted = input.current_encrypted.add(delta);
+        let new_encrypted = if self.is_real_fhe() {
+            // Use real FHE engine for homomorphic addition
+            if let Some(ref fhe_engine) = self.fhe_engine {
+                // Convert EncryptedValue (c1, c2) to Vec<u8> for FHE engine
+                let current_bytes = self.encrypted_value_to_bytes(&input.current_encrypted);
+                let delta_bytes = self.encrypted_value_to_bytes(delta);
+
+                // Perform real homomorphic addition using zyberlink-fhe
+                let result_bytes = fhe_engine.compute_add_encrypted(&current_bytes, &delta_bytes)?;
+
+                // Convert back to EncryptedValue
+                self.bytes_to_encrypted_value(&result_bytes)?
+            } else {
+                // Fallback to mock mode if FHE engine not available
+                input.current_encrypted.add(delta)
+            }
+        } else {
+            // Mock mode: simple byte addition
+            input.current_encrypted.add(delta)
+        };
+
         let result_hash = self.compute_result_hash(&new_encrypted);
 
         Ok(FheBalanceResult {
@@ -237,6 +276,30 @@ impl FheBalanceEngine {
             verification_result: None,
             proof: vec![0xBA, 0x1A, 0xCE, 0x00], // Placeholder proof
         })
+    }
+
+    /// Convert EncryptedValue (c1, c2) to bytes for FHE engine
+    fn encrypted_value_to_bytes(&self, encrypted: &EncryptedValue) -> Vec<u8> {
+        // For now, concatenate c1 and c2
+        // TODO: Use proper serialization format compatible with zyberlink-fhe
+        let mut bytes = Vec::with_capacity(64);
+        bytes.extend_from_slice(&encrypted.c1);
+        bytes.extend_from_slice(&encrypted.c2);
+        bytes
+    }
+
+    /// Convert bytes from FHE engine back to EncryptedValue
+    fn bytes_to_encrypted_value(&self, bytes: &[u8]) -> Result<EncryptedValue> {
+        if bytes.len() < 64 {
+            return Err(anyhow::anyhow!("Invalid encrypted value bytes: too short"));
+        }
+
+        let mut c1 = [0u8; 32];
+        let mut c2 = [0u8; 32];
+        c1.copy_from_slice(&bytes[0..32]);
+        c2.copy_from_slice(&bytes[32..64]);
+
+        Ok(EncryptedValue { c1, c2 })
     }
 
     /// Process StakeProof job
@@ -340,7 +403,8 @@ impl FheBalanceEngine {
 
 impl Default for FheBalanceEngine {
     fn default() -> Self {
-        Self::new()
+        // Default to mock mode (no FHE keys required)
+        Self::new_mock()
     }
 }
 
@@ -482,11 +546,46 @@ mod tests {
 
     #[test]
     fn test_supports_job_type() {
-        let engine = FheBalanceEngine::new();
+        let engine = FheBalanceEngine::new_mock();
         assert!(engine.supports_job_type(JobType::LoanVerification));
         assert!(engine.supports_job_type(JobType::BalanceUpdate));
         assert!(engine.supports_job_type(JobType::StakeProof));
         assert!(engine.supports_job_type(JobType::TransferProof));
         assert!(engine.supports_job_type(JobType::LiquidationCheck));
+    }
+
+    #[test]
+    fn test_engine_modes() {
+        // Mock mode engine
+        let mock_engine = FheBalanceEngine::new_mock();
+        assert!(mock_engine.mock_mode);
+        assert!(!mock_engine.is_real_fhe());
+
+        // Default engine should be mock mode
+        let default_engine = FheBalanceEngine::default();
+        assert!(default_engine.mock_mode);
+        assert!(!default_engine.is_real_fhe());
+    }
+
+    #[test]
+    fn test_encrypted_value_conversion() {
+        let engine = FheBalanceEngine::new_mock();
+
+        let original = EncryptedValue {
+            c1: [1u8; 32],
+            c2: [2u8; 32],
+        };
+
+        // Test round-trip conversion
+        let bytes = engine.encrypted_value_to_bytes(&original);
+        assert_eq!(bytes.len(), 64);
+
+        let recovered = engine.bytes_to_encrypted_value(&bytes).unwrap();
+        assert_eq!(recovered.c1, original.c1);
+        assert_eq!(recovered.c2, original.c2);
+
+        // Test error on invalid bytes
+        let short_bytes = vec![0u8; 32];
+        assert!(engine.bytes_to_encrypted_value(&short_bytes).is_err());
     }
 }

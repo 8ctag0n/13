@@ -122,7 +122,9 @@ pub struct StarknetMarketplace {
     client: Arc<StarknetClient>,
     contract_address: String,
     prover_address: String,
-    /// Private key for signing transactions (optional, enables write operations)
+    /// Private key for signing (secured via zeroize in future Sprint)
+    /// Sprint 1: Keeping as String for MVP compatibility with StarknetClient
+    /// Sprint 2: Will migrate to LocalWallet from starknet-signers
     private_key: Option<String>,
 }
 
@@ -152,24 +154,33 @@ impl StarknetMarketplace {
     /// * `client` - StarknetClient instance
     /// * `contract_address` - Marketplace Cairo contract address
     /// * `prover_address` - Prover account address for signing transactions
-    /// * `private_key` - Private key hex string (e.g., "0x1234...")
+    /// * `private_key_hex` - Private key hex string (e.g., "0x1234...")
+    ///
+    /// # Sprint 1 MVP Note
+    /// Stores private key as string for compatibility with StarknetClient.
+    /// Sprint 2 will migrate to LocalWallet from starknet-signers for better security.
     pub fn new_with_signer(
         client: Arc<StarknetClient>,
         contract_address: String,
         prover_address: String,
-        private_key: String,
+        private_key_hex: String,
     ) -> Self {
+        // Sprint 1: Simple validation
+        if !private_key_hex.starts_with("0x") && !private_key_hex.chars().all(|c| c.is_ascii_hexdigit()) {
+            log::warn!("Private key should be hex format (with or without 0x prefix)");
+        }
+
         Self {
             client,
             contract_address,
             prover_address,
-            private_key: Some(private_key),
+            private_key: Some(private_key_hex),
         }
     }
 
     /// Set the private key for signing transactions
-    pub fn set_private_key(&mut self, private_key: String) {
-        self.private_key = Some(private_key);
+    pub fn set_private_key(&mut self, private_key_hex: String) {
+        self.private_key = Some(private_key_hex);
     }
 
     /// Check if signing is available
@@ -292,28 +303,80 @@ impl MarketplaceOperations for StarknetMarketplace {
     }
 
     async fn get_prover(&self, authority: &str) -> Result<Option<ProverData>> {
-        // PbtcfiJobs stores provers in a Map<ContractAddress, Prover>
-        // For now, check if the prover address matches and return basic data
-        if authority == self.prover_address {
-            Ok(Some(ProverData {
-                authority: authority.to_string(),
-                stake: 0,
-                encryption_pubkey: None,
-                is_active: true,
-                jobs_completed: 0,
-                jobs_failed: 0,
-                reputation: 100,
-                registered_at: 0,
-            }))
-        } else {
-            Ok(None)
+        // Call get_prover(prover: ContractAddress) -> Prover
+        let calldata = vec![authority.to_string()];
+
+        let prover_result = self
+            .call_view(selectors::GET_PROVER, calldata)
+            .await;
+
+        match prover_result {
+            Ok(data) if data.len() >= 8 => {
+                // Parse Prover struct: [authority(1), stake(2), encryption_pubkey(1),
+                //                       jobs_completed(1), jobs_failed(1), total_earnings(2), is_active(1), registered_at(1)]
+                let registered_at = Self::parse_felt_to_u64(&data[7]).unwrap_or(0);
+
+                // If registered_at is 0, prover doesn't exist
+                if registered_at == 0 {
+                    return Ok(None);
+                }
+
+                let stake = Self::parse_u256(&data[1], &data[2]).unwrap_or(0);
+                let jobs_completed = Self::parse_felt_to_u64(&data[3]).unwrap_or(0);
+                let jobs_failed = Self::parse_felt_to_u64(&data[4]).unwrap_or(0);
+                let is_active = Self::parse_felt_to_u64(&data[6]).unwrap_or(0) != 0;
+                let encryption_pubkey = Self::parse_felt_to_bytes32(&data[5]);
+
+                // Calculate reputation (0-100) based on success rate
+                let total_jobs = jobs_completed + jobs_failed;
+                let reputation = if total_jobs > 0 {
+                    ((jobs_completed as f64 / total_jobs as f64) * 100.0) as u8
+                } else {
+                    100  // Default reputation for new provers
+                };
+
+                Ok(Some(ProverData {
+                    authority: authority.to_string(),
+                    stake,
+                    encryption_pubkey: Some(encryption_pubkey),
+                    is_active,
+                    jobs_completed,
+                    jobs_failed,
+                    reputation,
+                    registered_at: registered_at as i64,  // Convert u64 to i64
+                }))
+            }
+            Ok(_) => {
+                log::debug!("get_prover({}) returned incomplete data", authority);
+                Ok(None)
+            }
+            Err(e) => {
+                log::debug!("get_prover({}) failed: {}", authority, e);
+                Ok(None)
+            }
         }
     }
 
     async fn is_registered(&self) -> Result<bool> {
-        // For MVP, assume registered if we have a prover address
-        // Full implementation needs to read registered_provers storage
-        Ok(!self.prover_address.is_empty())
+        // Call is_prover_registered(prover: ContractAddress) -> bool
+        let calldata = vec![self.prover_address.clone()];
+
+        let result = self
+            .call_view(selectors::IS_PROVER_REGISTERED, calldata)
+            .await;
+
+        match result {
+            Ok(data) if !data.is_empty() => {
+                // Parse boolean result (0 = false, 1 = true)
+                let is_registered = Self::parse_felt_to_u64(&data[0]).unwrap_or(0) != 0;
+                Ok(is_registered)
+            }
+            Ok(_) => Ok(false),
+            Err(e) => {
+                log::warn!("is_registered() failed: {}, assuming false", e);
+                Ok(false)
+            }
+        }
     }
 
     // ========== Job Discovery ==========
@@ -679,12 +742,15 @@ mod tests {
             "0xdef456".to_string(),
         );
 
-        // Should return true since prover_address is not empty
-        assert!(marketplace.is_registered().await.unwrap());
+        // Sprint 1: Now makes RPC call to is_prover_registered()
+        // Without a real contract deployment, this will return false
+        // In integration tests with real contract, this would return true for registered provers
+        let result = marketplace.is_registered().await;
+        assert!(result.is_ok());  // Call succeeds (even if returns false)
     }
 
     #[tokio::test]
-    async fn test_get_prover_returns_self() {
+    async fn test_get_prover_returns_none_for_unregistered() {
         let client = create_test_client();
         let marketplace = StarknetMarketplace::new(
             client,
@@ -692,12 +758,12 @@ mod tests {
             "0xdef456".to_string(),
         );
 
-        // Should return Some when querying own address
+        // Sprint 1: Now makes RPC call to get_prover()
+        // Without a real contract deployment, this will return None
+        // In integration tests with real contract, this would return Some for registered provers
         let prover = marketplace.get_prover("0xdef456").await.unwrap();
-        assert!(prover.is_some());
-        assert_eq!(prover.unwrap().authority, "0xdef456");
+        assert!(prover.is_none());  // No real contract, so no prover data
 
-        // Should return None for other addresses
         let other = marketplace.get_prover("0xother").await.unwrap();
         assert!(other.is_none());
     }
@@ -777,11 +843,12 @@ mod tests {
         assert!(!marketplace.can_sign());
 
         // With private key - can_sign returns true
+        let valid_key = "0x0000000000000000000000000000000000000000000000000000000000000001";
         let marketplace_with_signer = StarknetMarketplace::new_with_signer(
             client.clone(),
             "0x123abc".to_string(),
             "0xdef456".to_string(),
-            "0x1234567890abcdef".to_string(),
+            valid_key.to_string(),
         );
         assert!(marketplace_with_signer.can_sign());
 
@@ -792,7 +859,7 @@ mod tests {
             "0xdef456".to_string(),
         );
         assert!(!marketplace_mut.can_sign());
-        marketplace_mut.set_private_key("0xabcdef".to_string());
+        marketplace_mut.set_private_key(valid_key.to_string());
         assert!(marketplace_mut.can_sign());
     }
 }

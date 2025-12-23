@@ -56,6 +56,13 @@ impl JobProcessor {
         gateway_client: Arc<GatewayClient>,
         fhe_engine: Option<Arc<FheEngine>>,
     ) -> Self {
+        // Create FHE balance engine (real if FHE engine available, mock otherwise)
+        let fhe_balance_engine = if let Some(ref engine) = fhe_engine {
+            Arc::new(FheBalanceEngine::new(engine.clone()))
+        } else {
+            Arc::new(FheBalanceEngine::new_mock())
+        };
+
         Self {
             marketplace,
             keypair,
@@ -66,7 +73,7 @@ impl JobProcessor {
             fhe_engine,
             futarchy_worker: None,
             futarchy_app_server_url: None,
-            fhe_balance_engine: Arc::new(FheBalanceEngine::new()),
+            fhe_balance_engine,
         }
     }
 
