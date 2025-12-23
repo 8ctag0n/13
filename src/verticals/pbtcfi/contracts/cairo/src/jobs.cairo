@@ -203,6 +203,10 @@ pub mod PbtcfiJobs {
         fhe_consensus: Map<u256, FheConsensusData>,  // job_id -> consensus data
         job_prover_submissions: Map<(u256, ContractAddress), ProverSubmission>,  // (job_id, prover) -> submission
         job_result_counts: Map<(u256, felt252), u8>,  // (job_id, result_hash) -> count
+
+        // Sprint 4: Prover tracking for reward splitting
+        job_provers: Map<(u256, u8), ContractAddress>,  // (job_id, index) -> prover address
+        job_prover_count: Map<u256, u8>,  // job_id -> count of provers who claimed
     }
 
     #[event]
@@ -423,6 +427,11 @@ pub mod PbtcfiJobs {
                 };
                 self.job_prover_submissions.entry((job_id, caller)).write(submission);
 
+                // Sprint 4: Track prover in array for reward splitting
+                let current_count = self.job_prover_count.entry(job_id).read();
+                self.job_provers.entry((job_id, current_count)).write(caller);
+                self.job_prover_count.entry(job_id).write(current_count + 1);
+
                 // Increment claimed count
                 consensus.claimed_count += 1;
                 self.fhe_consensus.entry(job_id).write(consensus);
@@ -525,11 +534,34 @@ pub mod PbtcfiJobs {
                         timestamp,
                     });
 
-                    // Update prover stats for caller
-                    let mut prover = self.registered_provers.entry(caller).read();
-                    prover.jobs_completed += 1;
-                    prover.total_earnings += job_reward;
-                    self.registered_provers.entry(caller).write(prover);
+                    // Sprint 4: Distribute reward among provers who submitted correct hash
+                    let prover_count = self.job_prover_count.entry(job_id).read();
+                    let reward_per_prover = job_reward / new_count.into();
+
+                    let mut i: u8 = 0;
+                    loop {
+                        if i >= prover_count {
+                            break;
+                        }
+
+                        let prover_addr = self.job_provers.entry((job_id, i)).read();
+                        let prover_submission = self.job_prover_submissions.entry((job_id, prover_addr)).read();
+
+                        // Only reward provers who submitted the winning hash
+                        if prover_submission.has_submitted && prover_submission.result_hash == result_hash {
+                            let mut prover = self.registered_provers.entry(prover_addr).read();
+                            prover.jobs_completed += 1;
+                            prover.total_earnings += reward_per_prover;
+                            self.registered_provers.entry(prover_addr).write(prover);
+                        } else if prover_submission.has_submitted {
+                            // Prover submitted wrong hash - count as failed
+                            let mut prover = self.registered_provers.entry(prover_addr).read();
+                            prover.jobs_failed += 1;
+                            self.registered_provers.entry(prover_addr).write(prover);
+                        }
+
+                        i += 1;
+                    };
 
                     self.emit(JobCompleted {
                         job_id,

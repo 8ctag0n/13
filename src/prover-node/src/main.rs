@@ -51,6 +51,7 @@ use core::{CircuitRegistry, JobProcessor};
 use gateway::GatewayClient;
 use halo2_prover::Halo2Prover;
 use roi_calculator::ROICalculator;
+use services::{StarknetEventListener, StarknetEventListenerConfig};
 use witness_encryption::WitnessEncryption;
 use witness_fetcher::WitnessFetcher;
 
@@ -114,6 +115,7 @@ struct ProverNode {
     job_processor: Arc<JobProcessor>,
     tui_state: Option<Arc<tui::TUIState>>,
     start_time: std::time::Instant,
+    starknet_event_configs: Vec<StarknetEventListenerConfig>,
 }
 
 impl ProverNode {
@@ -235,6 +237,7 @@ impl ProverNode {
             job_processor,
             tui_state,
             start_time: std::time::Instant::now(),
+            starknet_event_configs: Vec::new(),
         })
     }
 
@@ -268,6 +271,7 @@ impl ProverNode {
 
         // Create marketplaces for all enabled chains
         let mut marketplaces = std::collections::HashMap::new();
+        let mut starknet_event_configs = Vec::new();
 
         for (chain_name, chain_config) in config_file.enabled_chains() {
             info!("Initializing marketplace for chain: {}", chain_name);
@@ -280,6 +284,16 @@ impl ProverNode {
 
             marketplaces.insert(chain_name.clone(), marketplace);
             info!("Marketplace ready for chain: {}", chain_name);
+
+            if let ChainConfig::Starknet(starknet) = chain_config {
+                if starknet.enabled {
+                    starknet_event_configs.push(StarknetEventListenerConfig {
+                        rpc_url: starknet.rpc_url.clone(),
+                        contract_address: starknet.contract_address.clone(),
+                        poll_interval: Duration::from_secs(config_file.prover.poll_interval_secs),
+                    });
+                }
+            }
         }
 
         if marketplaces.is_empty() {
@@ -386,6 +400,7 @@ impl ProverNode {
             job_processor,
             tui_state,
             start_time: std::time::Instant::now(),
+            starknet_event_configs,
         })
     }
 
@@ -454,6 +469,22 @@ impl ProverNode {
         info!("Poll Interval: {:?}", self.config.poll_interval);
         info!("Min Price: {} lamports", self.config.min_price);
         info!("Max Concurrent Jobs: {}", self.config.max_concurrent_jobs);
+
+        for config in &self.starknet_event_configs {
+            let config = config.clone();
+            tokio::spawn(async move {
+                match StarknetEventListener::new(config).await {
+                    Ok(listener) => {
+                        if let Err(e) = listener.run().await {
+                            log::warn!("Starknet event listener stopped: {}", e);
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!("Failed to start Starknet event listener: {}", e);
+                    }
+                }
+            });
+        }
 
         loop {
             if let Err(e) = self.poll_and_process_jobs().await {

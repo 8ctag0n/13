@@ -12238,6 +12238,7 @@ dependencies = [
  "solana-program",
  "solana-sdk",
  "thiserror 1.0.69",
+ "tiny-keccak",
  "tokio",
  "toml 0.8.23",
  "url",

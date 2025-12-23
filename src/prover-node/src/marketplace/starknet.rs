@@ -25,6 +25,7 @@ use super::{
 };
 use async_trait::async_trait;
 use std::sync::Arc;
+use tiny_keccak::{Hasher, Keccak};
 use zyberlink_chain_client::{ChainClient, StarknetClient};
 use zyberlink_types::{CircuitType, JobStatus};
 
@@ -94,6 +95,18 @@ mod selectors {
     /// get_loan_job_execution(loan_id: u256) -> JobExecution
     pub const GET_LOAN_JOB_EXECUTION: &str =
         "0x09c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8";
+
+    // ========== Sprint 3: Multi-Prover Consensus Interface ==========
+
+    /// enable_consensus(job_id: u256, required_provers: u8, consensus_threshold: u8)
+    pub const ENABLE_CONSENSUS: &str =
+        "0x00a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1";
+    /// get_consensus_data(job_id: u256) -> FheConsensusData
+    pub const GET_CONSENSUS_DATA: &str =
+        "0x00b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2";
+    /// is_consensus_enabled(job_id: u256) -> bool
+    pub const IS_CONSENSUS_ENABLED: &str =
+        "0x00c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3";
 }
 
 /// Starknet marketplace wrapper
@@ -126,6 +139,16 @@ pub struct StarknetMarketplace {
     /// Sprint 1: Keeping as String for MVP compatibility with StarknetClient
     /// Sprint 2: Will migrate to LocalWallet from starknet-signers
     private_key: Option<String>,
+}
+
+struct StarknetFheConsensusData {
+    job_id: u64,
+    required_provers: u8,
+    consensus_threshold: u8,
+    claimed_count: u8,
+    submitted_count: u8,
+    consensus_reached: bool,
+    consensus_hash: [u8; 32],
 }
 
 impl StarknetMarketplace {
@@ -234,6 +257,13 @@ impl StarknetMarketplace {
             .map_err(|e| MarketplaceError::Other(format!("Failed to parse felt {}: {}", felt, e)))
     }
 
+    fn parse_felt_to_u8(felt: &str) -> std::result::Result<u8, MarketplaceError> {
+        let value = Self::parse_felt_to_u64(felt)?;
+        u8::try_from(value).map_err(|_| {
+            MarketplaceError::Other(format!("Failed to parse felt {} as u8", felt))
+        })
+    }
+
     /// Parse a felt252 hex string to [u8; 32] (right-aligned)
     fn parse_felt_to_bytes32(felt: &str) -> [u8; 32] {
         let s = felt.trim_start_matches("0x");
@@ -254,6 +284,156 @@ impl StarknetMarketplace {
     /// Convert u256 to calldata (low, high as felt252)
     fn u256_to_calldata(value: u64) -> Vec<String> {
         vec![format!("0x{:x}", value), "0x0".to_string()]
+    }
+
+    fn selector_from_name(name: &str) -> String {
+        let mut hasher = Keccak::v256();
+        let mut output = [0u8; 32];
+        hasher.update(name.as_bytes());
+        hasher.finalize(&mut output);
+        output[0] &= 0x03;
+        format!("0x{}", hex::encode(output))
+    }
+
+    fn parse_consensus_data(data: &[String]) -> Result<StarknetFheConsensusData> {
+        if data.len() < 8 {
+            return Err(MarketplaceError::Deserialization(format!(
+                "Invalid consensus data length: expected 8, got {}",
+                data.len()
+            )));
+        }
+
+        let job_id = Self::parse_u256(&data[0], &data[1])?;
+        let required_provers = Self::parse_felt_to_u8(&data[2])?;
+        let consensus_threshold = Self::parse_felt_to_u8(&data[3])?;
+        let claimed_count = Self::parse_felt_to_u8(&data[4])?;
+        let submitted_count = Self::parse_felt_to_u8(&data[5])?;
+        let consensus_reached = Self::parse_felt_to_u64(&data[6]).unwrap_or(0) != 0;
+        let consensus_hash = Self::parse_felt_to_bytes32(&data[7]);
+
+        Ok(StarknetFheConsensusData {
+            job_id,
+            required_provers,
+            consensus_threshold,
+            claimed_count,
+            submitted_count,
+            consensus_reached,
+            consensus_hash,
+        })
+    }
+
+    async fn get_consensus_data(
+        &self,
+        job_id: u64,
+    ) -> Result<Option<StarknetFheConsensusData>> {
+        let calldata = Self::u256_to_calldata(job_id);
+        let result = self.call_view(selectors::GET_CONSENSUS_DATA, calldata).await?;
+        let consensus = Self::parse_consensus_data(&result)?;
+        Ok(Some(consensus))
+    }
+
+    /// Check if consensus is enabled for a job
+    pub async fn is_consensus_enabled(&self, job_id: u64) -> Result<bool> {
+        let calldata = Self::u256_to_calldata(job_id);
+        let result = self.call_view(selectors::IS_CONSENSUS_ENABLED, calldata).await;
+
+        match result {
+            Ok(data) if !data.is_empty() => {
+                let enabled = Self::parse_felt_to_u64(&data[0]).unwrap_or(0) != 0;
+                Ok(enabled)
+            }
+            Ok(_) => Ok(false),
+            Err(e) => {
+                log::debug!("is_consensus_enabled({}) failed: {}", job_id, e);
+                Ok(false)
+            }
+        }
+    }
+
+    /// Enable multi-prover consensus for a job
+    ///
+    /// Must be called by job creator after job creation.
+    ///
+    /// # Arguments
+    /// * `job_id` - The job to enable consensus for
+    /// * `required_provers` - Number of provers that must claim (e.g., 3)
+    /// * `consensus_threshold` - Number that must agree (e.g., 2 for 2/3 majority)
+    pub async fn enable_consensus(
+        &self,
+        job_id: u64,
+        required_provers: u8,
+        consensus_threshold: u8,
+    ) -> Result<TransactionResult> {
+        let private_key = match &self.private_key {
+            Some(pk) => pk.clone(),
+            None => {
+                return Err(Self::not_implemented_write("enable_consensus (no private key)"));
+            }
+        };
+
+        // Validate inputs
+        if consensus_threshold > required_provers {
+            return Err(MarketplaceError::Other(
+                "consensus_threshold cannot exceed required_provers".to_string()
+            ));
+        }
+        if required_provers == 0 {
+            return Err(MarketplaceError::Other(
+                "required_provers must be at least 1".to_string()
+            ));
+        }
+
+        // Build calldata: job_id (u256), required_provers (u8), consensus_threshold (u8)
+        let mut calldata = Self::u256_to_calldata(job_id);
+        calldata.push(format!("0x{:x}", required_provers));
+        calldata.push(format!("0x{:x}", consensus_threshold));
+
+        let args = serde_json::json!({
+            "calldata": calldata,
+            "private_key": private_key
+        });
+
+        let args_bytes = serde_json::to_vec(&args)
+            .map_err(|e| MarketplaceError::Other(format!("Failed to serialize args: {}", e)))?;
+
+        let tx_hash = self
+            .client
+            .execute_contract(
+                &self.contract_address,
+                selectors::ENABLE_CONSENSUS,
+                &args_bytes,
+                &self.prover_address,
+            )
+            .await
+            .map_err(|e| MarketplaceError::Other(format!("enable_consensus failed: {}", e)))?;
+
+        log::info!(
+            "enable_consensus({}, {}/{}) tx submitted: {}",
+            job_id, consensus_threshold, required_provers, tx_hash
+        );
+
+        Ok(TransactionResult {
+            signature: tx_hash,
+            success: true,
+            error: None,
+            block_height: None,
+        })
+    }
+
+    fn normalize_required_provers(required_provers: u8) -> u8 {
+        if required_provers == 0 {
+            1
+        } else {
+            required_provers
+        }
+    }
+
+    fn normalize_consensus_threshold(consensus_threshold: u8) -> u8 {
+        if consensus_threshold == 0 {
+            1
+        } else {
+            consensus_threshold
+        }
     }
 
     /// Get job status (for pre-claim verification)
@@ -298,8 +478,66 @@ impl MarketplaceOperations for StarknetMarketplace {
         _stake: u64,
         _encryption_pubkey: Option<[u8; 32]>,
     ) -> Result<TransactionResult> {
-        // Write operation - requires transaction signing
-        Err(Self::not_implemented_write("register_prover"))
+        // Check if we have a private key for signing
+        let private_key = match &self.private_key {
+            Some(pk) => pk.clone(),
+            None => {
+                log::warn!(
+                    "register_prover() requires private key - call set_private_key() first"
+                );
+                return Err(Self::not_implemented_write("register_prover (no private key)"));
+            }
+        };
+
+        // Check if already registered (avoid wasted tx)
+        if self.is_registered().await.unwrap_or(false) {
+            log::info!("register_prover() skipped: prover already registered");
+            return Ok(TransactionResult {
+                signature: "already_registered".to_string(),
+                success: true,
+                error: None,
+                block_height: None,
+            });
+        }
+
+        // Build args for execute_contract (register_prover takes no arguments)
+        let args = serde_json::json!({
+            "calldata": [],  // No arguments for register_prover()
+            "private_key": private_key
+        });
+
+        let args_bytes = serde_json::to_vec(&args)
+            .map_err(|e| MarketplaceError::Other(format!("Failed to serialize args: {}", e)))?;
+
+        // Execute the transaction
+        let tx_hash = self
+            .client
+            .execute_contract(
+                &self.contract_address,
+                selectors::REGISTER_PROVER,
+                &args_bytes,
+                &self.prover_address,
+            )
+            .await
+            .map_err(|e| {
+                let err_str = e.to_string();
+                // Detect "already registered" error from Cairo contract
+                if err_str.contains("already registered") {
+                    log::info!("register_prover() race condition: prover was already registered");
+                    MarketplaceError::Other("Prover already registered".to_string())
+                } else {
+                    MarketplaceError::Other(format!("register_prover failed: {}", e))
+                }
+            })?;
+
+        log::info!("register_prover() tx submitted: {}", tx_hash);
+
+        Ok(TransactionResult {
+            signature: tx_hash,
+            success: true,
+            error: None,
+            block_height: None,
+        })
     }
 
     async fn get_prover(&self, authority: &str) -> Result<Option<ProverData>> {
@@ -414,8 +652,34 @@ impl MarketplaceOperations for StarknetMarketplace {
     }
 
     async fn find_fhe_jobs_needing_provers(&self) -> Result<Vec<JobData>> {
-        // PbtcfiJobs doesn't have FHE-specific jobs, use regular pending jobs
-        self.find_pending_jobs().await
+        let pending_jobs = self.find_pending_jobs().await?;
+        let mut needing_provers = Vec::new();
+
+        for job in pending_jobs {
+            let consensus = match self.get_consensus_data(job.id).await {
+                Ok(Some(consensus)) => consensus,
+                Ok(None) => {
+                    needing_provers.push(job);
+                    continue;
+                }
+                Err(e) => {
+                    log::debug!(
+                        "find_fhe_jobs_needing_provers: failed to fetch consensus for job {}: {}",
+                        job.id,
+                        e
+                    );
+                    needing_provers.push(job);
+                    continue;
+                }
+            };
+
+            let required_provers = Self::normalize_required_provers(consensus.required_provers);
+            if consensus.claimed_count < required_provers && !consensus.consensus_reached {
+                needing_provers.push(job);
+            }
+        }
+
+        Ok(needing_provers)
     }
 
     async fn get_job(&self, job_id: u64, _creator: &str) -> Result<Option<JobData>> {
@@ -530,6 +794,19 @@ impl MarketplaceOperations for StarknetMarketplace {
                 job_id, job_status
             );
             return Err(MarketplaceError::JobAlreadyClaimed);
+        }
+
+        if let Ok(Some(consensus)) = self.get_consensus_data(job_id).await {
+            let required_provers = Self::normalize_required_provers(consensus.required_provers);
+            if consensus.claimed_count >= required_provers || consensus.consensus_reached {
+                log::info!(
+                    "claim_job({}) skipped: consensus already filled ({}/{})",
+                    job_id,
+                    consensus.claimed_count,
+                    required_provers
+                );
+                return Err(MarketplaceError::JobAlreadyClaimed);
+            }
         }
 
         // Build calldata for claim_job(loan_id: u256)
@@ -665,9 +942,21 @@ impl MarketplaceOperations for StarknetMarketplace {
 
     // ========== FHE Consensus ==========
 
-    async fn get_fhe_consensus_config(&self, _job_id: u64) -> Result<Option<FheConsensusConfig>> {
-        // PbtcfiJobs doesn't have FHE consensus - return None
-        Ok(None)
+    async fn get_fhe_consensus_config(&self, job_id: u64) -> Result<Option<FheConsensusConfig>> {
+        let consensus = self.get_consensus_data(job_id).await?;
+        let consensus = match consensus {
+            Some(consensus) => consensus,
+            None => return Ok(None),
+        };
+
+        let required_provers = Self::normalize_required_provers(consensus.required_provers);
+        let consensus_threshold =
+            Self::normalize_consensus_threshold(consensus.consensus_threshold);
+
+        Ok(Some(FheConsensusConfig {
+            required_provers,
+            consensus_threshold,
+        }))
     }
 
     // ========== Metadata ==========
@@ -769,7 +1058,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_write_operations_return_error() {
+    async fn test_write_operations_without_signer_return_error() {
         let client = create_test_client();
         let marketplace = StarknetMarketplace::new(
             client,
@@ -777,13 +1066,13 @@ mod tests {
             "0xdef456".to_string(),
         );
 
-        // Write operations should return informative errors
+        // Write operations without private key should return informative errors
         let result = marketplace.register_prover(1000, None).await;
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
             .to_string()
-            .contains("transaction signing"));
+            .contains("no private key"));
 
         let result = marketplace.claim_job(1, "0xabc").await;
         assert!(result.is_err());
