@@ -1,0 +1,29 @@
+# ZyberLink Prover Node - pBTCFi Test Configuration
+
+[prover]
+max_concurrent_jobs = 3
+poll_interval_secs = 10
+min_roi_threshold = -10000.0
+cost_multiplier = 1.0
+mock_proving_time_secs = 2
+zk_circuits_path = "./prover-circuits"
+
+[witness]
+base_url = "http://localhost:3001"
+blink_backend_url = "http://localhost:3001"
+
+# Solana (required for encryption seed derivation)
+[chains.solana]
+type = "solana"
+enabled = true
+rpc_url = "https://api.devnet.solana.com"
+keypair_path = "~/.config/solana/id.json"
+program_id = "11111111111111111111111111111111"
+
+# Starknet pBTCFi
+[chains.starknet]
+type = "starknet"
+enabled = true
+rpc_url = "http://localhost:5050"
+contract_address = "0x01cdd543e696f8013cd8cdc41fe7d105776108fc4dd81f4fdded7f6b9cbe17e2"
+prover_address = "0x0557ba9ef60b52dad611d79b60563901458f2476a5c1002a8b4869fcb6654c7e"

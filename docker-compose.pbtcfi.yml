@@ -1,0 +1,139 @@
+# pBTCFi Full Stack - Starknet E2E Testing
+# ==========================================
+# Stack paralelo para testing de pBTCFi sin interferir con otros ambientes
+#
+# Uso:
+#   podman-compose -f docker-compose.pbtcfi.yml up -d
+#   podman-compose -f docker-compose.pbtcfi.yml logs -f
+#   podman-compose -f docker-compose.pbtcfi.yml down
+#
+# Puertos (evitando colisiones con stack principal):
+#   - Starknet devnet: 5050
+#   - PostgreSQL: 5433 (en lugar de 5432)
+#   - Public API: 3001 (en lugar de 3000)
+
+services:
+  # ─────────────────────────────────────────────────────────────────────────
+  # Starknet Devnet (validador local)
+  # ─────────────────────────────────────────────────────────────────────────
+  devnet:
+    image: docker.io/shardlabs/starknet-devnet-rs:latest
+    container_name: pbtcfi-devnet
+    command: ["--seed", "0", "--port", "5050"]
+    ports:
+      - "5050:5050"
+    networks:
+      - pbtcfi-network
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Cairo Development Environment
+  # ─────────────────────────────────────────────────────────────────────────
+  cairo-dev:
+    build: ./docker/starknet
+    container_name: pbtcfi-cairo-dev
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    command: sleep infinity
+    networks:
+      - pbtcfi-network
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # PostgreSQL Database (puerto 5433 para evitar colisión)
+  # ─────────────────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    container_name: pbtcfi-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pbtcfi
+      POSTGRES_USER: pbtcfi
+      POSTGRES_PASSWORD: pbtcfi_dev
+    volumes:
+      - pbtcfi_postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    networks:
+      - pbtcfi-network
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Blink Server (Backend interno)
+  # ─────────────────────────────────────────────────────────────────────────
+  blink:
+    build:
+      context: .
+      dockerfile: src/blink-server/Dockerfile
+    container_name: pbtcfi-blink
+    restart: unless-stopped
+    environment:
+      RUST_LOG: info,blink_server=debug
+      DATABASE_URL: postgresql://pbtcfi:pbtcfi_dev@postgres:5432/pbtcfi
+      CHAIN_TYPE: starknet
+      STARKNET_RPC_URL: http://devnet:5050
+      STARKNET_CONTRACT_ADDRESS: ${PBTCFI_CONTRACT_ADDRESS:-pending}
+      PORT: 8080
+      HOST: 0.0.0.0
+    expose:
+      - "8080"
+    networks:
+      - pbtcfi-network
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # X402 Anti-Spam Gateway
+  # ─────────────────────────────────────────────────────────────────────────
+  x402:
+    build:
+      context: .
+      dockerfile: src/x402-server/Dockerfile
+    container_name: pbtcfi-x402
+    restart: unless-stopped
+    environment:
+      RUST_LOG: info
+      DATABASE_URL: postgresql://pbtcfi:pbtcfi_dev@postgres:5432/pbtcfi
+      BLINK_URL: http://blink:8080
+      PORT: 8081
+      HOST: 0.0.0.0
+    expose:
+      - "8081"
+    networks:
+      - pbtcfi-network
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Public API Gateway (puerto 3001)
+  # ─────────────────────────────────────────────────────────────────────────
+  public-api:
+    build:
+      context: .
+      dockerfile: src/public-api/Dockerfile
+    container_name: pbtcfi-public-api
+    restart: unless-stopped
+    environment:
+      RUST_LOG: info
+      X402_URL: http://x402:8081
+      BLINK_URL: http://blink:8080
+      PORT: 3000
+      HOST: 0.0.0.0
+      RATE_LIMIT_PER_MIN: 100
+    ports:
+      - "3001:3000"
+    networks:
+      - pbtcfi-network
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Prover Node - RUN FROM HOST (no Dockerfile yet)
+  # ─────────────────────────────────────────────────────────────────────────
+  # cargo run --manifest-path src/prover-node/Cargo.toml -- \
+  #   --chain starknet \
+  #   --starknet-rpc-url http://localhost:5050 \
+  #   --starknet-contract-address $PBTCFI_CONTRACT_ADDRESS \
+  #   --starknet-prover-address $STARKNET_PROVER_ADDRESS \
+  #   --starknet-private-key $STARKNET_PRIVATE_KEY
+
+networks:
+  pbtcfi-network:
+    driver: bridge
+    name: pbtcfi-e2e-net
+
+volumes:
+  pbtcfi_postgres_data:
+    name: pbtcfi-e2e-postgres
