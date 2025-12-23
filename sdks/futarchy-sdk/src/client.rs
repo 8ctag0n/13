@@ -103,11 +103,13 @@ impl FutarchyClient {
     /// Build ClaimPayout instruction.
     ///
     /// Uses NullifierAccount PDA for unlimited scalability.
+    /// Requires bet_commitment to derive Position PDA for verification.
     pub fn claim_payout(
         &self,
         user: &Pubkey,
         market_id: u64,
         claim_nullifier: [u8; 32],
+        bet_commitment: [u8; 32],
         proof: Vec<u8>,
         public_inputs: Vec<u8>,
         payout_amount: u64,
@@ -118,6 +120,7 @@ impl FutarchyClient {
             user,
             market_id,
             claim_nullifier,
+            bet_commitment,
             proof,
             public_inputs,
             payout_amount,

@@ -1303,7 +1303,6 @@ pub async fn validate_claim_payout(
         public_inputs_bytes,
         body.payout_amount,
         &zk_generator_program,
-        body.include_position.unwrap_or(true),
     ) {
         Ok(ix) => ix,
         Err(e) => {

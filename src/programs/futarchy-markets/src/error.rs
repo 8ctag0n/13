@@ -73,6 +73,12 @@ pub enum FutarchyError {
 
     #[error("Invalid governance action")]
     InvalidAction,
+
+    #[error("Invalid owner")]
+    InvalidOwner,
+
+    #[error("Position already claimed")]
+    PositionAlreadyClaimed,
 }
 
 impl From<FutarchyError> for ProgramError {

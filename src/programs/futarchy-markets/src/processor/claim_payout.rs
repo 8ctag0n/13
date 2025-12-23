@@ -17,7 +17,7 @@ use solana_program::{
 use crate::{
     cpi::verify_market_claim_proof,
     error::FutarchyError,
-    state::{Market, Nullifier, NULLIFIER_SEED},
+    state::{Market, Nullifier, Position, NULLIFIER_SEED, POSITION_SEED},
 };
 
 /// Process ClaimPayout instruction
@@ -29,9 +29,10 @@ use crate::{
 /// 0. `[writable, signer]` User claiming payout
 /// 1. `[]` Market account (PDA)
 /// 2. `[writable]` Nullifier account (PDA) - will be created
-/// 3. `[writable]` Escrow account (PDA)
-/// 4. `[]` ZK-generator program
-/// 5. `[]` System program
+/// 3. `[writable]` Position account (PDA) - will be verified and closed
+/// 4. `[writable]` Escrow account (PDA)
+/// 5. `[]` ZK-generator program
+/// 6. `[]` System program
 #[allow(clippy::too_many_arguments)]
 pub fn process_claim_payout(
     program_id: &Pubkey,
@@ -47,6 +48,7 @@ pub fn process_claim_payout(
     let user_info = next_account_info(account_info_iter)?;
     let market_info = next_account_info(account_info_iter)?;
     let nullifier_info = next_account_info(account_info_iter)?;
+    let position_info = next_account_info(account_info_iter)?;
     let escrow_info = next_account_info(account_info_iter)?;
     let zk_program_info = next_account_info(account_info_iter)?;
     let system_program_info = next_account_info(account_info_iter)?;
@@ -102,6 +104,54 @@ pub fn process_claim_payout(
     // Verify ZK proof
     verify_market_claim_proof(zk_program_info, &proof, &public_inputs)?;
     msg!("ZK claim proof verified successfully");
+
+    // Extract bet_commitment from public_inputs[65..97] (32 bytes)
+    if public_inputs.len() < 97 {
+        msg!("Invalid public_inputs length: {} < 97", public_inputs.len());
+        return Err(ProgramError::InvalidInstructionData);
+    }
+    let bet_commitment: [u8; 32] = public_inputs[65..97]
+        .try_into()
+        .map_err(|_| ProgramError::InvalidInstructionData)?;
+
+    msg!("Extracted bet_commitment: {:?}", &bet_commitment[..8]);
+
+    // Verify Position PDA
+    let (position_pda, _position_bump) = crate::cpi::derive_position_pda(
+        program_id,
+        user_info.key,
+        market_id,
+        &bet_commitment,
+    );
+    if position_pda != *position_info.key {
+        msg!("Invalid position PDA");
+        return Err(ProgramError::InvalidSeeds);
+    }
+
+    // Load and verify Position account
+    let position_data = position_info.try_borrow_data()?;
+    let position = Position::deserialize(&mut &position_data[..])?;
+    drop(position_data);
+
+    // Verify position belongs to user
+    if position.user != *user_info.key {
+        msg!("Position does not belong to user");
+        return Err(FutarchyError::InvalidOwner.into());
+    }
+
+    // Verify bet_commitment matches
+    if position.bet_commitment != bet_commitment {
+        msg!("Position bet_commitment mismatch");
+        return Err(ProgramError::InvalidAccountData);
+    }
+
+    // Verify position has not been claimed
+    if position.claimed {
+        msg!("Position already claimed");
+        return Err(FutarchyError::PositionAlreadyClaimed.into());
+    }
+
+    msg!("Position verified successfully");
 
     // Verify escrow has sufficient balance
     let escrow_balance = escrow_info.lamports();
@@ -170,11 +220,30 @@ pub fn process_claim_payout(
         .checked_add(payout_amount)
         .ok_or(FutarchyError::Overflow)?;
 
+    // Close Position account - transfer all lamports to user
+    let position_lamports = position_info.lamports();
+    msg!("Closing position account, reclaiming {} lamports", position_lamports);
+
+    **position_info.try_borrow_mut_lamports()? = 0;
+    **user_info.try_borrow_mut_lamports()? = user_info
+        .lamports()
+        .checked_add(position_lamports)
+        .ok_or(FutarchyError::Overflow)?;
+
+    // Zero out position data
+    let mut position_data = position_info.try_borrow_mut_data()?;
+    position_data.fill(0);
+    drop(position_data);
+
+    msg!("Position account closed successfully");
+
     msg!("Payout claimed successfully");
     msg!("  Market ID: {}", market_id);
     msg!("  User: {}", user_info.key);
-    msg!("  Amount: {}", payout_amount);
+    msg!("  Payout Amount: {}", payout_amount);
+    msg!("  Rent Reclaimed: {}", position_lamports);
     msg!("  Nullifier: {:?}", &claim_nullifier[..8]);
+    msg!("  Bet Commitment: {:?}", &bet_commitment[..8]);
 
     Ok(())
 }
