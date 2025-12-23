@@ -616,10 +616,38 @@ fn start_futarchy_poller(args: &ProverArgs) -> Result<std::thread::JoinHandle<()
     info!("  Server URL: {}", args.futarchy_server_url);
     info!("  Poll Interval: {} seconds", args.poll_interval);
 
-    // Create FHE client (this takes a few seconds for key generation)
-    info!("Initializing Futarchy FHE client (this may take 10-30 seconds)...");
-    let fhe_client = FutarchyFheClient::new()
-        .map_err(|e| anyhow::anyhow!("Failed to create Futarchy FHE client: {}", e))?;
+    // Create FHE client - either from file or generate new keys
+    let fhe_client = if let Some(ref key_path) = args.fhe_server_key_path {
+        let key_dir = std::path::Path::new(key_path)
+            .parent()
+            .unwrap_or(std::path::Path::new("."));
+
+        let server_key_path = key_dir.join("fhe_server_key.bin");
+        let client_key_path = key_dir.join("fhe_client_key.bin");
+
+        info!("Loading FHE keys from: {:?}", key_dir);
+
+        if server_key_path.exists() && client_key_path.exists() {
+            let server_key_bytes = std::fs::read(&server_key_path)
+                .context("Failed to read FHE server key")?;
+            let client_key_bytes = std::fs::read(&client_key_path)
+                .context("Failed to read FHE client key")?;
+
+            info!("  Server key: {} bytes", server_key_bytes.len());
+            info!("  Client key: {} bytes", client_key_bytes.len());
+
+            FutarchyFheClient::from_keys(&client_key_bytes, &server_key_bytes)
+                .map_err(|e| anyhow::anyhow!("Failed to load FHE keys: {:?}", e))?
+        } else {
+            warn!("FHE key files not found, generating new keys...");
+            FutarchyFheClient::new()
+                .map_err(|e| anyhow::anyhow!("Failed to create FHE client: {}", e))?
+        }
+    } else {
+        info!("Initializing Futarchy FHE client (this may take 10-30 seconds)...");
+        FutarchyFheClient::new()
+            .map_err(|e| anyhow::anyhow!("Failed to create Futarchy FHE client: {}", e))?
+    };
     info!("Futarchy FHE client initialized");
 
     // Create worker with the FHE client
@@ -628,14 +656,54 @@ fn start_futarchy_poller(args: &ProverArgs) -> Result<std::thread::JoinHandle<()
         &args.futarchy_server_url,
     ));
 
+    // Parse program IDs from args or env
+    let futarchy_program_id = args
+        .futarchy_program_id
+        .as_ref()
+        .map(|s| s.parse::<Pubkey>())
+        .transpose()
+        .map_err(|e| anyhow::anyhow!("Invalid FUTARCHY_PROGRAM_ID: {}", e))?
+        .unwrap_or_else(|| {
+            warn!("FUTARCHY_PROGRAM_ID not set, using default (poller may not find jobs)");
+            Pubkey::default()
+        });
+
+    let fhe_program_id = args
+        .fhe_generator_program
+        .as_ref()
+        .map(|s| s.parse::<Pubkey>())
+        .transpose()
+        .map_err(|e| anyhow::anyhow!("Invalid FHE_GENERATOR_PROGRAM_ID: {}", e))?
+        .unwrap_or_else(|| {
+            warn!("FHE_GENERATOR_PROGRAM_ID not set, using default");
+            Pubkey::default()
+        });
+
+    info!("  Futarchy Program: {}", futarchy_program_id);
+    info!("  FHE Generator Program: {}", fhe_program_id);
+
+    // Load prover keypair for signing transactions
+    let keypair_path = shellexpand::tilde(&args.keypair).into_owned();
+    let prover_keypair = match read_keypair_file(&keypair_path) {
+        Ok(kp) => {
+            info!("  Prover Keypair: {} (from {})", kp.pubkey(), keypair_path);
+            Some(Arc::new(kp))
+        }
+        Err(e) => {
+            warn!("Failed to load prover keypair from {}: {}. On-chain submission disabled.", keypair_path, e);
+            None
+        }
+    };
+
     // Configure poller
     let config = FutarchyPollerConfig {
         solana_rpc_url: args.rpc_url.clone(),
-        // TODO: Make these configurable via CLI args
-        futarchy_program_id: Pubkey::default(), // Placeholder
-        fhe_program_id: Pubkey::default(),      // Placeholder
+        futarchy_program_id,
+        fhe_program_id,
         poll_interval: Duration::from_secs(args.poll_interval),
         max_jobs_per_poll: 5,
+        prover_keypair,
+        api_server_url: Some(args.futarchy_server_url.clone()),
     };
 
     // Create poller

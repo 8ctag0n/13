@@ -78,6 +78,10 @@ pub struct ProverArgs {
     /// FHE Generator program ID (for new architecture)
     #[arg(long, env = "FHE_GENERATOR_PROGRAM_ID", global = true)]
     pub fhe_generator_program: Option<String>,
+
+    /// Futarchy Markets program ID
+    #[arg(long, env = "FUTARCHY_PROGRAM_ID", global = true)]
+    pub futarchy_program_id: Option<String>,
 }
 
 #[derive(Parser, Debug)]
