@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 /// Devnet configuration (from session logs)
 const DEVNET_RPC_URL: &str = "http://localhost:5050";
-const CONTRACT_ADDRESS: &str = "0x0587f1e2a4494f7d72ea0811a4c20185f2e2b12e05b6d8bc8948847e2cf709bd";
+const CONTRACT_ADDRESS: &str = "0x01cdd543e696f8013cd8cdc41fe7d105776108fc4dd81f4fdded7f6b9cbe17e2";
 const PROVER_ADDRESS: &str = "0x0557ba9ef60b52dad611d79b60563901458f2476a5c1002a8b4869fcb6654c7e";
 const PRIVATE_KEY: &str = "0x0000000000000000000000000000000015b5e3013d752c909988204714f1ff35";
 
@@ -121,4 +121,69 @@ async fn test_claim_and_submit() {
         println!("Job {} final status: {:?}", job_id, job.status);
         assert_eq!(job.status, zyberlink_types::JobStatus::Completed);
     }
+}
+
+/// Test: Verify JobAlreadyClaimed error handling (race condition fix)
+///
+/// This test verifies that attempting to claim an already-claimed job
+/// returns a proper JobAlreadyClaimed error instead of crashing.
+#[tokio::test]
+#[ignore] // Requires devnet running
+async fn test_claim_already_claimed_job() {
+    use prover_node::marketplace::MarketplaceError;
+
+    let marketplace = MarketplaceFactory::create_starknet(
+        DEVNET_RPC_URL,
+        CONTRACT_ADDRESS,
+        PROVER_ADDRESS,
+        Some(PRIVATE_KEY),
+    ).expect("Failed to create marketplace");
+
+    // 1. Find pending jobs
+    let jobs = marketplace.find_pending_jobs().await
+        .expect("Failed to find pending jobs");
+
+    if jobs.is_empty() {
+        println!("No pending jobs found - create one first with sncast");
+        return;
+    }
+
+    let job_id = jobs[0].id;
+    println!("Testing race condition handling with job: {}", job_id);
+
+    // 2. First claim should succeed
+    let first_claim = marketplace.claim_job(job_id, CONTRACT_ADDRESS).await;
+    println!("First claim result: {:?}", first_claim);
+    assert!(first_claim.is_ok(), "First claim should succeed");
+
+    // 3. Second claim should return JobAlreadyClaimed (not crash)
+    let second_claim = marketplace.claim_job(job_id, CONTRACT_ADDRESS).await;
+    println!("Second claim result: {:?}", second_claim);
+
+    match second_claim {
+        Err(MarketplaceError::JobAlreadyClaimed) => {
+            println!("Race condition handled correctly: JobAlreadyClaimed");
+        }
+        Err(e) => {
+            // Check if error message indicates already claimed
+            let err_str = e.to_string();
+            assert!(
+                err_str.contains("already claimed") || err_str.contains("not available"),
+                "Expected JobAlreadyClaimed error, got: {}", err_str
+            );
+            println!("Race condition handled (via error message): {}", err_str);
+        }
+        Ok(_) => {
+            panic!("Second claim should have failed!");
+        }
+    }
+
+    // 4. Submit result to complete the job (cleanup)
+    let result_hash = [0xCA, 0xFE, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02];
+
+    let _ = marketplace.submit_proof(job_id, CONTRACT_ADDRESS, result_hash, 0, None).await;
+    println!("Test completed successfully!");
 }

@@ -210,6 +210,11 @@ impl SolanaMarketplace {
             address: job_pda.to_string(),
             source: JobSource::Legacy,
             program_id: None,
+            // Starknet-specific fields (not used for Solana)
+            starknet_job_type: None,
+            encrypted_c1: None,
+            encrypted_c2: None,
+            payload_hash: None,
         }
     }
 
@@ -429,6 +434,11 @@ impl MarketplaceOperations for SolanaMarketplace {
                             address: job.address().to_string(),
                             source,
                             program_id: Some(job.program_id().to_string()),
+                            // Starknet-specific fields (not used for Solana)
+                            starknet_job_type: None,
+                            encrypted_c1: None,
+                            encrypted_c2: None,
+                            payload_hash: None,
                         });
                     }
                     log::info!("Found {} FHE jobs from unified SDK", all_jobs.len());

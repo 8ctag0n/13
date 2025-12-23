@@ -103,6 +103,10 @@ impl MockMarketplace {
             address: format!("JobPDA{}", id),
             source: JobSource::Legacy,
             program_id: None,
+            starknet_job_type: None,
+            encrypted_c1: None,
+            encrypted_c2: None,
+            payload_hash: None,
         });
     }
 
@@ -122,6 +126,10 @@ impl MockMarketplace {
             address: format!("FheJobPDA{}", id),
             source: JobSource::Legacy,
             program_id: None,
+            starknet_job_type: None,
+            encrypted_c1: None,
+            encrypted_c2: None,
+            payload_hash: None,
         });
     }
 

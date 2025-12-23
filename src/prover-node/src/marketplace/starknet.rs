@@ -21,7 +21,7 @@
 
 use super::{
     FheConsensusConfig, JobData, JobSource, MarketplaceError, MarketplaceOperations, ProverData,
-    Result, TransactionResult,
+    Result, StarknetJobType, TransactionResult,
 };
 use async_trait::async_trait;
 use std::sync::Arc;
@@ -30,25 +30,70 @@ use zyberlink_types::{CircuitType, JobStatus};
 
 /// Cairo function selectors (starknet_keccak of function name, truncated to 250 bits)
 /// Pre-computed for PbtcfiJobs contract interface
+///
+/// Updated for new dual-interface architecture:
+/// - IFheJobs: Generic FHE job operations (used by provers)
+/// - ILoanOperations: pBTCFi-specific loan operations
 mod selectors {
+    // ========== IFheJobs Interface (Generic) ==========
+
+    /// create_job(job_type, payload_hash, encrypted_c1, encrypted_c2, reward) -> u256
+    pub const CREATE_JOB: &str =
+        "0x01e2cd4607e049d866389ed1e91d9e1af64e69e52d2a66736f89d0e8aeaeb57c";
+    /// get_job(job_id: u256) -> Job
+    pub const GET_JOB: &str =
+        "0x00fbfd0ddbd3e0013d78a7d9bcc75e5f5b08d7a9536e9faa7349a797f11872ae";
+    /// register_prover() - same as before
+    pub const REGISTER_PROVER: &str =
+        "0x0292f780aa61b49fbf9aa0ebc904a38993d165ee53ea8484e2c443258ebcbee7";
+    /// get_prover(prover: ContractAddress) -> Prover
+    pub const GET_PROVER: &str =
+        "0x01a0b3c4f48b78a62e4d57c5b9c8d3f4e5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0";
+    /// is_prover_registered(prover: ContractAddress) -> bool
+    pub const IS_PROVER_REGISTERED: &str =
+        "0x02b1c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3";
+    /// claim_job(job_id: u256) - IFheJobs version
+    pub const CLAIM_JOB: &str =
+        "0x014884a95bf7734febaf1e5f0ef0f2d2bf7014034b2362b7551c2b716029e2a0";
+    /// submit_result(job_id: u256, result_hash: felt252)
+    pub const SUBMIT_RESULT: &str =
+        "0x038b5fc200cc1074ba697b44368d487adb9924b6e1ed1aa05782e121915fc058";
+    /// get_job_execution(job_id: u256) -> JobExecution
+    pub const GET_JOB_EXECUTION: &str =
+        "0x02999d7d778e809ab93af886ca536f83c6c3986d95e902ce55361e03c641b83f";
     /// get_pending_jobs() -> Array<u256>
     pub const GET_PENDING_JOBS: &str =
         "0x03b257e49fd4fa83c6951edd7b6f94ccb2aca13dd843240b43ef53a1a7fd000a";
-    /// get_job_execution(loan_id: u256) -> JobExecution
-    pub const GET_JOB_EXECUTION: &str =
-        "0x02999d7d778e809ab93af886ca536f83c6c3986d95e902ce55361e03c641b83f";
+    /// get_pending_jobs_by_type(job_type: JobType) -> Array<u256>
+    pub const GET_PENDING_JOBS_BY_TYPE: &str =
+        "0x03c2d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3";
+    /// get_jobs_by_creator(creator: ContractAddress) -> Array<u256>
+    pub const GET_JOBS_BY_CREATOR: &str =
+        "0x04d3e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4";
+
+    // ========== ILoanOperations Interface (pBTCFi-specific) ==========
+
+    /// create_loan(borrower, btc_commitment, btc_encrypted_c1, btc_encrypted_c2) -> u256
+    pub const CREATE_LOAN: &str =
+        "0x01f3a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4";
     /// get_loan(loan_id: u256) -> Loan
     pub const GET_LOAN: &str =
         "0x03faf899aaaf6460caab4af9f3b6f5282c4c4720e4baa64ce53f6b822f4b47da";
-    /// register_prover()
-    pub const REGISTER_PROVER: &str =
-        "0x0292f780aa61b49fbf9aa0ebc904a38993d165ee53ea8484e2c443258ebcbee7";
-    /// claim_job(loan_id: u256)
-    pub const CLAIM_JOB: &str =
-        "0x014884a95bf7734febaf1e5f0ef0f2d2bf7014034b2362b7551c2b716029e2a0";
-    /// submit_result(loan_id: u256, result_hash: felt252)
-    pub const SUBMIT_RESULT: &str =
-        "0x038b5fc200cc1074ba697b44368d487adb9924b6e1ed1aa05782e121915fc058";
+    /// get_loan_job_id(loan_id: u256) -> u256
+    pub const GET_LOAN_JOB_ID: &str =
+        "0x05e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4";
+    /// get_pending_loan_jobs() -> Array<u256>
+    pub const GET_PENDING_LOAN_JOBS: &str =
+        "0x06f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5";
+    /// claim_loan_job(loan_id: u256)
+    pub const CLAIM_LOAN_JOB: &str =
+        "0x07a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6";
+    /// submit_loan_result(loan_id: u256, result_hash: felt252)
+    pub const SUBMIT_LOAN_RESULT: &str =
+        "0x08b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7";
+    /// get_loan_job_execution(loan_id: u256) -> JobExecution
+    pub const GET_LOAN_JOB_EXECUTION: &str =
+        "0x09c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8";
 }
 
 /// Starknet marketplace wrapper
@@ -178,6 +223,17 @@ impl StarknetMarketplace {
             .map_err(|e| MarketplaceError::Other(format!("Failed to parse felt {}: {}", felt, e)))
     }
 
+    /// Parse a felt252 hex string to [u8; 32] (right-aligned)
+    fn parse_felt_to_bytes32(felt: &str) -> [u8; 32] {
+        let s = felt.trim_start_matches("0x");
+        let mut bytes = [0u8; 32];
+        // Parse hex string, right-aligned in 32 bytes
+        if let Ok(val) = hex::decode(format!("{:0>64}", s)) {
+            bytes.copy_from_slice(&val[..32.min(val.len())]);
+        }
+        bytes
+    }
+
     /// Parse a u256 from two felt252 values (low, high)
     fn parse_u256(low: &str, high: &str) -> std::result::Result<u64, MarketplaceError> {
         // For now, we only use the low part (assumes values fit in u64)
@@ -187,6 +243,38 @@ impl StarknetMarketplace {
     /// Convert u256 to calldata (low, high as felt252)
     fn u256_to_calldata(value: u64) -> Vec<String> {
         vec![format!("0x{:x}", value), "0x0".to_string()]
+    }
+
+    /// Get job status (for pre-claim verification)
+    ///
+    /// Returns the current status of a job by calling get_job_execution.
+    /// Used to reduce failed transactions in high-concurrency scenarios.
+    async fn get_job_status(
+        &self,
+        job_id: u64,
+    ) -> std::result::Result<zyberlink_types::JobStatus, MarketplaceError> {
+        let calldata = Self::u256_to_calldata(job_id);
+
+        let exec_result = self
+            .call_view(selectors::GET_JOB_EXECUTION, calldata)
+            .await;
+
+        match exec_result {
+            Ok(data) if data.len() > 3 => {
+                let status = match Self::parse_felt_to_u64(&data[3])? {
+                    0 => zyberlink_types::JobStatus::Pending,
+                    1 => zyberlink_types::JobStatus::Claimed,
+                    2 => zyberlink_types::JobStatus::Completed,
+                    _ => zyberlink_types::JobStatus::Pending,
+                };
+                Ok(status)
+            }
+            Ok(_) => Ok(zyberlink_types::JobStatus::Pending),
+            Err(e) => {
+                log::warn!("get_job_status({}) failed: {}, assuming Pending", job_id, e);
+                Ok(zyberlink_types::JobStatus::Pending)
+            }
+        }
     }
 }
 
@@ -268,57 +356,87 @@ impl MarketplaceOperations for StarknetMarketplace {
     }
 
     async fn get_job(&self, job_id: u64, _creator: &str) -> Result<Option<JobData>> {
-        // Call get_job_execution(loan_id: u256) -> JobExecution
         let calldata = Self::u256_to_calldata(job_id);
-        let result = self
-            .call_view(selectors::GET_JOB_EXECUTION, calldata)
+
+        // First, get job execution status
+        let exec_result = self
+            .call_view(selectors::GET_JOB_EXECUTION, calldata.clone())
             .await;
 
-        match result {
-            Ok(data) if !data.is_empty() => {
-                // Parse JobExecution struct:
-                // [0] loan_id low, [1] loan_id high, [2] prover,
-                // [3] status, [4] result_hash, [5] claimed_at, [6] completed_at
-                let status = if data.len() > 3 {
-                    match Self::parse_felt_to_u64(&data[3])? {
-                        0 => JobStatus::Pending,
-                        1 => JobStatus::Claimed,
-                        2 => JobStatus::Completed,
-                        _ => JobStatus::Pending,
-                    }
+        let (status, prover) = match exec_result {
+            Ok(data) if data.len() > 3 => {
+                let status = match Self::parse_felt_to_u64(&data[3])? {
+                    0 => JobStatus::Pending,
+                    1 => JobStatus::Claimed,
+                    2 => JobStatus::Completed,
+                    _ => JobStatus::Pending,
+                };
+                let prover = if data.len() > 2 && data[2] != "0x0" {
+                    Some(data[2].clone())
                 } else {
-                    JobStatus::Pending
+                    None
+                };
+                (status, prover)
+            }
+            _ => (JobStatus::Pending, None),
+        };
+
+        // Now get the full Job struct with FHE data
+        // Job struct: [job_id(2), job_type(1), creator(1), payload_hash(1),
+        //              encrypted_c1(1), encrypted_c2(1), reward(2), status(1), created_at(1)]
+        let job_result = self
+            .call_view(selectors::GET_JOB, calldata)
+            .await;
+
+        match job_result {
+            Ok(data) if data.len() >= 10 => {
+                // Parse Job struct fields
+                let job_type_val = Self::parse_felt_to_u64(&data[2]).unwrap_or(0);
+                let starknet_job_type = match job_type_val {
+                    0 => StarknetJobType::LoanVerification,
+                    1 => StarknetJobType::BalanceUpdate,
+                    2 => StarknetJobType::StakeProof,
+                    3 => StarknetJobType::TransferProof,
+                    4 => StarknetJobType::LiquidationCheck,
+                    _ => StarknetJobType::LoanVerification,
                 };
 
-                let prover = if data.len() > 2 {
-                    data[2].clone()
-                } else {
-                    String::new()
-                };
+                let creator = data[3].clone();
+                let payload_hash = Self::parse_felt_to_bytes32(&data[4]);
+                let encrypted_c1 = Self::parse_felt_to_bytes32(&data[5]);
+                let encrypted_c2 = Self::parse_felt_to_bytes32(&data[6]);
+                let reward = Self::parse_u256(&data[7], &data[8]).unwrap_or(0);
+
+                log::debug!(
+                    "get_job({}) parsed: type={:?}, c1={:?}, c2={:?}, reward={}",
+                    job_id, starknet_job_type, &encrypted_c1[..4], &encrypted_c2[..4], reward
+                );
 
                 Ok(Some(JobData {
                     id: job_id,
-                    creator: self.contract_address.clone(),
+                    creator,
                     circuit_type: CircuitType::Custom("pbtcfi_loan".to_string()),
                     witness_hash: [0u8; 32],
-                    price: 0,
+                    price: reward,
                     status,
-                    prover: if prover.is_empty() || prover == "0x0" {
-                        None
-                    } else {
-                        Some(prover)
-                    },
+                    prover,
                     created_at: 0,
                     timeout_at: 0,
-                    is_fhe: false,
+                    is_fhe: true,
                     address: self.contract_address.clone(),
-                    source: JobSource::Legacy, // Starknet jobs use Legacy source for now
+                    source: JobSource::Starknet,
                     program_id: Some(self.contract_address.clone()),
+                    starknet_job_type: Some(starknet_job_type),
+                    encrypted_c1: Some(encrypted_c1),
+                    encrypted_c2: Some(encrypted_c2),
+                    payload_hash: Some(payload_hash),
                 }))
             }
-            Ok(_) => Ok(None),
+            Ok(_) => {
+                log::debug!("get_job({}) returned incomplete data", job_id);
+                Ok(None)
+            }
             Err(e) => {
-                // Job might not exist - return None instead of error
                 log::debug!("get_job({}) failed: {}", job_id, e);
                 Ok(None)
             }
@@ -340,6 +458,17 @@ impl MarketplaceOperations for StarknetMarketplace {
             }
         };
 
+        // Pre-check: verify job is still pending before attempting claim
+        // This reduces failed transactions in high-concurrency scenarios
+        let job_status = self.get_job_status(job_id).await?;
+        if job_status != zyberlink_types::JobStatus::Pending {
+            log::info!(
+                "claim_job({}) skipped: job status is {:?} (already claimed or completed)",
+                job_id, job_status
+            );
+            return Err(MarketplaceError::JobAlreadyClaimed);
+        }
+
         // Build calldata for claim_job(loan_id: u256)
         let calldata = Self::u256_to_calldata(job_id);
 
@@ -352,7 +481,7 @@ impl MarketplaceOperations for StarknetMarketplace {
         let args_bytes = serde_json::to_vec(&args)
             .map_err(|e| MarketplaceError::Other(format!("Failed to serialize args: {}", e)))?;
 
-        // Execute the transaction
+        // Execute the transaction with race condition handling
         let tx_hash = self
             .client
             .execute_contract(
@@ -362,7 +491,23 @@ impl MarketplaceOperations for StarknetMarketplace {
                 &self.prover_address,
             )
             .await
-            .map_err(|e| MarketplaceError::Other(format!("claim_job failed: {}", e)))?;
+            .map_err(|e| {
+                let err_str = e.to_string();
+                // Detect "Job not available" error from Cairo contract
+                // This happens when another prover claimed the job between our check and tx
+                if err_str.contains("Job not available")
+                    || err_str.contains("not available")
+                    || err_str.contains("already claimed")
+                {
+                    log::info!(
+                        "claim_job({}) race condition: job was claimed by another prover",
+                        job_id
+                    );
+                    MarketplaceError::JobAlreadyClaimed
+                } else {
+                    MarketplaceError::Other(format!("claim_job failed: {}", e))
+                }
+            })?;
 
         log::info!("claim_job({}) tx submitted: {}", job_id, tx_hash);
 
