@@ -6,6 +6,7 @@
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand, ValueEnum};
 use colored::Colorize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fs;
 use std::path::PathBuf;
@@ -23,6 +24,28 @@ const CIRCUIT_FHE_BET: u8 = 35;
 pub enum BetSide {
     Yes,
     No,
+}
+
+/// Bet witness data saved locally for later claim
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BetWitness {
+    pub market_id: u64,
+    pub secret: String,          // hex 32 bytes
+    pub blinding: String,         // hex 32 bytes
+    pub bet_amount: u64,
+    pub bet_side: u8,             // 0=NO, 1=YES
+    pub bet_commitment: String,   // hex 32 bytes
+}
+
+/// Market data response from server
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MarketData {
+    pub market_id: u64,
+    pub total_pool: u64,
+    pub winning_pool: u64,
+    pub resolution: Option<u8>,  // 0 = NO won, 1 = YES won
+    pub total_yes_bets: u64,
+    pub total_no_bets: u64,
 }
 
 #[derive(Subcommand, Debug)]
@@ -161,6 +184,22 @@ pub struct ClaimArgs {
     /// Skip payment confirmation
     #[arg(long)]
     pub skip_confirm: bool,
+
+    /// Path to bet witness file (contains secret, blinding, bet data)
+    #[arg(long)]
+    pub bet_witness: Option<PathBuf>,
+
+    /// Path to circuit WASM file
+    #[arg(long, default_value = "circuits/market/market_claim_js/market_claim.wasm")]
+    pub circuit_wasm: PathBuf,
+
+    /// Path to circuit zkey file
+    #[arg(long, default_value = "circuits/market/market_claim_final.zkey")]
+    pub circuit_zkey: PathBuf,
+
+    /// Generate proof locally (vs delegate to prover)
+    #[arg(long)]
+    pub local_proof: bool,
 }
 
 #[derive(Args, Debug)]
@@ -509,6 +548,172 @@ async fn claim_winnings(args: ClaimArgs) -> Result<()> {
     println!("{}", "Claiming market winnings...".cyan().bold());
     println!();
     println!("Market ID: {}", args.market_id);
+
+    if args.local_proof {
+        claim_winnings_local(args).await
+    } else {
+        claim_winnings_delegated(args).await
+    }
+}
+
+/// Generate proof locally and submit to claim endpoint directly
+async fn claim_winnings_local(args: ClaimArgs) -> Result<()> {
+    use futarchy_sdk::claim::{
+        generate_market_claim_proof, MarketClaimWitness, MarketClaimProofPaths, SnarkjsCommand,
+    };
+
+    println!("{}", "Mode: Local proof generation".cyan());
+    println!();
+
+    // Step 1: Load bet witness
+    let bet_witness_path = args.bet_witness.as_ref().ok_or_else(|| {
+        anyhow::anyhow!("--bet-witness is required for local proof generation")
+    })?;
+
+    println!("{}", format!("Loading bet witness from: {:?}", bet_witness_path).cyan());
+    let bet_witness_data = fs::read_to_string(bet_witness_path)
+        .context("Failed to read bet witness file")?;
+    let bet_witness: BetWitness = serde_json::from_str(&bet_witness_data)
+        .context("Failed to parse bet witness JSON")?;
+
+    println!("{}", "Bet witness loaded.".green());
+    println!();
+
+    // Step 2: Fetch market data from server
+    println!("{}", "Fetching market data...".cyan());
+    let market_id = args.market_id.parse::<u64>()
+        .context("Invalid market_id format")?;
+
+    let client = reqwest::Client::new();
+    let market_url = format!("{}/api/futarchy/markets/{}", args.server, market_id);
+
+    let market_data: MarketData = client
+        .get(&market_url)
+        .send()
+        .await
+        .context("Failed to fetch market data")?
+        .json()
+        .await
+        .context("Failed to parse market data response")?;
+
+    println!("Market data fetched:");
+    println!("  Total pool: {} lamports", market_data.total_pool);
+    println!("  Winning pool: {} lamports", market_data.winning_pool);
+    println!("  Resolution: {:?}", market_data.resolution);
+    println!();
+
+    // Validate market is resolved
+    let resolution = market_data.resolution.ok_or_else(|| {
+        anyhow::anyhow!("Market {} is not resolved yet", market_id)
+    })?;
+
+    // Step 3: Parse bet witness fields
+    let secret = hex::decode(&bet_witness.secret)
+        .context("Invalid secret hex")?;
+    let secret_bytes: [u8; 32] = secret.try_into()
+        .map_err(|_| anyhow::anyhow!("Secret must be 32 bytes"))?;
+
+    let blinding = hex::decode(&bet_witness.blinding)
+        .context("Invalid blinding hex")?;
+    let blinding_bytes: [u8; 32] = blinding.try_into()
+        .map_err(|_| anyhow::anyhow!("Blinding must be 32 bytes"))?;
+
+    let bet_commitment = hex::decode(&bet_witness.bet_commitment)
+        .context("Invalid bet_commitment hex")?;
+    let bet_commitment_bytes: [u8; 32] = bet_commitment.try_into()
+        .map_err(|_| anyhow::anyhow!("Bet commitment must be 32 bytes"))?;
+
+    // Step 4: Calculate payout
+    println!("{}", "Calculating payout...".cyan());
+    let payout_amount = futarchy_sdk::claim::calculate_payout(
+        bet_witness.bet_amount,
+        market_data.total_yes_bets,
+        market_data.total_no_bets,
+        resolution == 1,
+        bet_witness.bet_side == 1,
+    ).ok_or_else(|| anyhow::anyhow!("You didn't win this bet"))?;
+
+    println!("Payout calculated: {} lamports", payout_amount);
+    println!();
+
+    // Step 5: Generate nullifier
+    let nullifier = futarchy_sdk::claim::generate_nullifier(&secret_bytes, &bet_commitment_bytes);
+
+    // Step 6: Build circuit witness
+    println!("{}", "Building circuit witness...".cyan());
+    let timestamp = chrono::Utc::now().timestamp();
+
+    let circuit_witness = MarketClaimWitness {
+        market_id,
+        nullifier,
+        payout_amount,
+        resolution,
+        total_pool: market_data.total_pool,
+        winning_pool: market_data.winning_pool,
+        bet_commitment: bet_commitment_bytes,
+        timestamp,
+        secret: secret_bytes,
+        bet_amount: bet_witness.bet_amount,
+        bet_side: bet_witness.bet_side,
+        blinding: blinding_bytes,
+    };
+
+    println!("{}", "Witness built.".green());
+    println!();
+
+    // Step 7: Generate proof with snarkjs
+    println!("{}", "Generating ZK proof locally (this may take 10-30s)...".cyan());
+
+    let snarkjs = SnarkjsCommand::npx();
+    let paths = MarketClaimProofPaths {
+        wasm_path: args.circuit_wasm.clone(),
+        zkey_path: args.circuit_zkey.clone(),
+    };
+
+    let proof = generate_market_claim_proof(&snarkjs, &paths, &circuit_witness)
+        .context("Failed to generate proof")?;
+
+    println!("{}", "Proof generated successfully!".green());
+    println!("  Proof size: {} bytes", proof.proof.len());
+    println!("  Public inputs size: {} bytes", proof.public_inputs.len());
+    println!();
+
+    // Step 8: Submit to claim endpoint
+    println!("{}", "Submitting claim to server...".cyan());
+
+    let claim_request = json!({
+        "market_id": market_id,
+        "proof": encode_base64(&proof.proof),
+        "public_inputs": encode_base64(&proof.public_inputs),
+        "claimer": args.claimer,
+        "nullifier": hex::encode(nullifier),
+        "payout_amount": payout_amount,
+    });
+
+    let response = client
+        .post(&format!("{}/api/futarchy/claim", args.server))
+        .json(&claim_request)
+        .send()
+        .await
+        .context("Failed to submit claim")?;
+
+    if !response.status().is_success() {
+        let error_text = response.text().await.unwrap_or_default();
+        anyhow::bail!("Claim submission failed: {}", error_text);
+    }
+
+    let response_data: serde_json::Value = response.json().await?;
+
+    println!();
+    println!("{}", "Claim submitted successfully!".green().bold());
+    println!();
+    println!("Response: {}", serde_json::to_string_pretty(&response_data)?);
+
+    Ok(())
+}
+
+/// Delegate proof generation to ZK server (original flow)
+async fn claim_winnings_delegated(args: ClaimArgs) -> Result<()> {
     println!("Bet ID: {}", args.bet_id);
     println!("Circuit: MarketSettlement (32)");
     println!();
