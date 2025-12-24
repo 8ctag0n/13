@@ -181,6 +181,14 @@ pub struct ClaimArgs {
     #[arg(long, default_value = "https://api.devnet.solana.com")]
     pub rpc_url: String,
 
+    /// Futarchy Markets program ID
+    #[arg(long, default_value = "FutMkts111111111111111111111111111111111111")]
+    pub futarchy_program: String,
+
+    /// ZK Generator program ID
+    #[arg(long, default_value = "ZkGenerator11111111111111111111111111111111")]
+    pub zk_generator_program: String,
+
     /// Skip payment confirmation
     #[arg(long)]
     pub skip_confirm: bool,
@@ -298,12 +306,38 @@ async fn place_bet_fhe(args: BetArgs) -> Result<()> {
     let side_bool = matches!(side, BetSide::Yes);
 
     let market_id = args.market_id.clone();
+    let market_id_u64: u64 = market_id.parse()
+        .context("Invalid market_id format (must be numeric)")?;
 
     println!("Market ID: {}", market_id);
     println!("Side: {}", if side_bool { "YES" } else { "NO" });
     println!("Amount: {} lamports", args.amount);
     println!("Mode: FHE encrypted");
     println!();
+
+    // Generate cryptographic secrets for claim proof (32 bytes each)
+    use rand::RngCore;
+    let mut rng = rand::thread_rng();
+
+    let mut secret = [0u8; 32];
+    let mut blinding = [0u8; 32];
+    rng.fill_bytes(&mut secret);
+    rng.fill_bytes(&mut blinding);
+
+    // Calculate bet_commitment = hash(secret || amount || side || blinding)
+    // Note: Production should use Poseidon hash to match circom circuit
+    let bet_commitment = {
+        use sha3::{Digest, Keccak256};
+        let mut hasher = Keccak256::new();
+        hasher.update(&secret);
+        hasher.update(&args.amount.to_le_bytes());
+        hasher.update(&[if side_bool { 1u8 } else { 0u8 }]);
+        hasher.update(&blinding);
+        let result = hasher.finalize();
+        let mut commitment = [0u8; 32];
+        commitment.copy_from_slice(&result);
+        commitment
+    };
 
     // Require keypair for FHE mode (needed to sign TX)
     let keypair_path = args.keypair.as_ref().ok_or_else(|| {
@@ -384,8 +418,7 @@ async fn place_bet_fhe(args: BetArgs) -> Result<()> {
     let proof_placeholder = encode_base64(&[0u8; 256]);
     let public_inputs_placeholder = encode_base64(&[0u8; 80]);
 
-    // Save market_id as u64 for later use in submit request
-    let market_id_u64: Option<u64> = market_id.parse().ok();
+    // market_id_u64 already parsed at the start of function
 
     let prepare_req = PrepareBetRequest {
         market_id,
@@ -433,7 +466,7 @@ async fn place_bet_fhe(args: BetArgs) -> Result<()> {
         signed_tx: encode_base64(&signed_tx_bytes),
         ciphertext: encode_base64(&encrypted_bet.ciphertext),
         server_key: Some(encode_base64(&server_key_bytes)),
-        market_id: market_id_u64,
+        market_id: Some(market_id_u64),
         side: Some(side_bool),
     };
 
@@ -450,8 +483,28 @@ async fn place_bet_fhe(args: BetArgs) -> Result<()> {
     println!("{}", "The bet amount is encrypted. Provers will aggregate it".cyan());
     println!("{}", "to the pool using homomorphic encryption.".cyan());
     println!();
-    println!("{}", format!("Keys saved at: {}", key_file).yellow());
-    println!("{}", "Keep these keys safe - needed for claiming winnings!".yellow().bold());
+
+    // Save bet witness for later claim (contains private data for ZK proof)
+    let bet_witness = BetWitness {
+        market_id: market_id_u64,
+        secret: hex::encode(secret),
+        blinding: hex::encode(blinding),
+        bet_amount: args.amount,
+        bet_side: if side_bool { 1 } else { 0 },
+        bet_commitment: hex::encode(bet_commitment),
+    };
+
+    let witness_json = serde_json::to_string_pretty(&bet_witness)?;
+    fs::write(&args.witness_output, &witness_json)?;
+
+    println!("{}", "Bet witness saved:".green());
+    println!("  {:?}", args.witness_output);
+    println!();
+    println!("{}", format!("FHE keys saved: {}", key_file).yellow());
+    println!();
+    println!("{}", "IMPORTANT: Keep both files safe!".yellow().bold());
+    println!("  - bet_witness.json → needed for claim proof");
+    println!("  - FHE keys → needed for decryption");
 
     Ok(())
 }
@@ -678,36 +731,67 @@ async fn claim_winnings_local(args: ClaimArgs) -> Result<()> {
     println!("  Public inputs size: {} bytes", proof.public_inputs.len());
     println!();
 
-    // Step 8: Submit to claim endpoint
-    println!("{}", "Submitting claim to server...".cyan());
+    // Step 8: Build and send transaction directly to Solana
+    use solana_sdk::signature::{read_keypair_file, Signer};
+    use solana_sdk::transaction::Transaction;
+    use solana_sdk::pubkey::Pubkey;
+    use std::str::FromStr;
 
-    let claim_request = json!({
-        "market_id": market_id,
-        "proof": encode_base64(&proof.proof),
-        "public_inputs": encode_base64(&proof.public_inputs),
-        "claimer": args.claimer,
-        "nullifier": hex::encode(nullifier),
-        "payout_amount": payout_amount,
-    });
+    println!("{}", "Building claim transaction...".cyan());
 
-    let response = client
-        .post(&format!("{}/api/futarchy/claim", args.server))
-        .json(&claim_request)
-        .send()
-        .await
-        .context("Failed to submit claim")?;
+    // Require keypair
+    let keypair_path = args.keypair.as_ref().ok_or_else(|| {
+        anyhow::anyhow!("--keypair is required to sign the claim transaction")
+    })?;
 
-    if !response.status().is_success() {
-        let error_text = response.text().await.unwrap_or_default();
-        anyhow::bail!("Claim submission failed: {}", error_text);
-    }
+    let keypair = read_keypair_file(keypair_path)
+        .map_err(|e| anyhow::anyhow!("Failed to read keypair: {}", e))?;
 
-    let response_data: serde_json::Value = response.json().await?;
+    let user_pubkey = keypair.pubkey();
+    println!("Claimer: {}", user_pubkey);
+
+    // Parse program IDs
+    let futarchy_program = Pubkey::from_str(&args.futarchy_program)
+        .context("Invalid futarchy program ID")?;
+    let zk_generator_program = Pubkey::from_str(&args.zk_generator_program)
+        .context("Invalid zk generator program ID")?;
+
+    // Build the claim instruction
+    let claim_ix = futarchy_sdk::instructions::build_claim_payout_ix(
+        &futarchy_program,
+        &user_pubkey,
+        market_id,
+        nullifier,
+        bet_commitment_bytes,
+        proof.proof.clone(),
+        proof.public_inputs.clone(),
+        payout_amount,
+        &zk_generator_program,
+    ).context("Failed to build claim instruction")?;
+
+    // Create and sign transaction
+    let rpc_client = solana_client::rpc_client::RpcClient::new(&args.rpc_url);
+    let blockhash = rpc_client.get_latest_blockhash()
+        .context("Failed to get recent blockhash")?;
+
+    let mut tx = Transaction::new_with_payer(&[claim_ix], Some(&user_pubkey));
+    tx.sign(&[&keypair], blockhash);
+
+    println!("{}", "Transaction signed.".green());
+    println!();
+
+    // Send transaction
+    println!("{}", "Sending transaction to Solana...".cyan());
+
+    let signature = rpc_client.send_and_confirm_transaction(&tx)
+        .context("Failed to send transaction")?;
 
     println!();
-    println!("{}", "Claim submitted successfully!".green().bold());
+    println!("{}", "Claim successful!".green().bold());
     println!();
-    println!("Response: {}", serde_json::to_string_pretty(&response_data)?);
+    println!("TX Signature: {}", signature.to_string().yellow().bold());
+    println!("Payout: {} lamports", payout_amount);
+    println!("Nullifier: {}", hex::encode(nullifier));
 
     Ok(())
 }
