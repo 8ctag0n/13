@@ -66,28 +66,32 @@ pub struct CreateArgs {
     #[arg(long)]
     pub question: String,
 
-    /// Outcome options (comma-separated)
-    #[arg(long, value_delimiter = ',')]
-    pub outcomes: Vec<String>,
-
-    /// Resolution date (Unix timestamp)
+    /// Numeric market ID (u64)
     #[arg(long)]
-    pub resolution_date: u64,
+    pub market_id: u64,
 
-    /// Minimum bet amount
-    #[arg(long, default_value = "1000")]
-    pub min_bet: u64,
-
-    /// Maximum bet amount
+    /// Oracle public key (who can settle the market)
     #[arg(long)]
-    pub max_bet: Option<u64>,
+    pub oracle: Option<String>,
 
-    /// Creator public key
+    /// Resolution window in seconds (default: 1 day)
+    #[arg(long, default_value = "86400")]
+    pub resolution_window: i64,
+
+    /// Maximum bet amount in lamports
+    #[arg(long, default_value = "1000000000")]
+    pub max_bet: u64,
+
+    /// Path to Solana keypair for signing
     #[arg(long)]
-    pub creator: String,
+    pub keypair: PathBuf,
 
-    /// Server URL
-    #[arg(long, default_value = "http://localhost:3000")]
+    /// Solana RPC URL
+    #[arg(long, default_value = "http://localhost:8899")]
+    pub rpc_url: String,
+
+    /// Futarchy server URL
+    #[arg(long, default_value = "http://localhost:9000")]
     pub server: String,
 }
 
@@ -230,46 +234,96 @@ pub fn handle_market_command(cmd: MarketCommands) -> Result<()> {
     }
 }
 
-fn create_market(args: CreateArgs) -> Result<()> {
-    println!("{}", "Creating prediction market...".cyan().bold());
+#[tokio::main]
+async fn create_market(args: CreateArgs) -> Result<()> {
+    use solana_sdk::signature::{read_keypair_file, Signer};
+    use solana_sdk::transaction::Transaction;
+
+    println!("{}", "Creating prediction market on-chain...".cyan().bold());
     println!();
     println!("Question: {}", args.question.green());
-    println!("Outcomes: {}", args.outcomes.join(", "));
-    println!("Resolution date: {}", args.resolution_date);
-    println!("Min bet: {} lamports", args.min_bet);
-    if let Some(max) = args.max_bet {
-        println!("Max bet: {} lamports", max);
-    }
-    println!("Creator: {}", args.creator);
+    println!("Market ID: {}", args.market_id);
+    println!("Max bet: {} lamports", args.max_bet);
     println!();
 
-    // Validate outcomes
-    if args.outcomes.is_empty() {
-        anyhow::bail!("Must provide at least one outcome");
+    // Load keypair
+    let keypair = read_keypair_file(&args.keypair)
+        .map_err(|e| anyhow::anyhow!("Failed to read keypair: {}", e))?;
+    let creator = keypair.pubkey();
+    let creator_str = creator.to_string();
+    let oracle = args.oracle
+        .as_ref()
+        .map(|s| s.as_str())
+        .unwrap_or(&creator_str);
+
+    println!("Creator: {}", creator);
+    println!("Oracle: {}", oracle);
+    println!();
+
+    // Step 1: Request unsigned transaction from server
+    println!("{}", "Requesting transaction from server...".cyan());
+
+    let client = reqwest::Client::new();
+    let request_body = serde_json::json!({
+        "question": args.question,
+        "creator": creator.to_string(),
+        "oracle": oracle,
+        "market_id": args.market_id,
+        "max_bet_lamports": args.max_bet as i64,
+        "resolution_window_secs": args.resolution_window,
+    });
+
+    let response = client
+        .post(&format!("{}/api/futarchy/markets/validate-and-build", args.server))
+        .json(&request_body)
+        .send()
+        .await
+        .context("Failed to request transaction")?;
+
+    if !response.status().is_success() {
+        let error_text = response.text().await.unwrap_or_default();
+        anyhow::bail!("Server error: {}", error_text);
     }
 
-    if args.outcomes.len() > 10 {
-        anyhow::bail!("Maximum 10 outcomes allowed");
-    }
+    let resp_data: serde_json::Value = response.json().await?;
+    let unsigned_tx_b64 = resp_data["unsigned_transaction"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("Missing unsigned_transaction in response"))?;
 
-    if args.min_bet == 0 {
-        anyhow::bail!("Minimum bet must be greater than 0");
-    }
+    println!("{}", "Transaction received.".green());
 
-    if let Some(max) = args.max_bet {
-        if max < args.min_bet {
-            anyhow::bail!("Maximum bet must be greater than or equal to minimum bet");
-        }
-    }
+    // Step 2: Decode and sign transaction
+    println!("{}", "Signing transaction...".cyan());
 
+    let unsigned_tx_bytes = crate::client::futarchy::decode_base64(unsigned_tx_b64)
+        .context("Failed to decode transaction")?;
+    let mut tx: Transaction = bincode::deserialize(&unsigned_tx_bytes)
+        .context("Failed to deserialize transaction")?;
+
+    let rpc_client = solana_client::rpc_client::RpcClient::new(&args.rpc_url);
+    let blockhash = rpc_client.get_latest_blockhash()
+        .context("Failed to get blockhash")?;
+
+    tx.sign(&[&keypair], blockhash);
+
+    println!("{}", "Transaction signed.".green());
+
+    // Step 3: Send transaction
+    println!("{}", "Sending transaction to Solana...".cyan());
+
+    let signature = rpc_client.send_and_confirm_transaction(&tx)
+        .context("Failed to send transaction")?;
+
+    println!();
     println!("{}", "Market created successfully!".green().bold());
     println!();
-    println!("{}", "Next steps:".cyan().bold());
-    println!("  1. Share market ID with participants");
-    println!("  2. Participants place bets with: zyb market bet --market-id <ID>");
-    println!("  3. After resolution, winners claim with: zyb market claim");
+    println!("TX Signature: {}", signature.to_string().yellow().bold());
+    println!("Market ID: {}", args.market_id);
     println!();
-    println!("{}", "Note: Market metadata stored locally. Share market ID securely.".yellow());
+    println!("{}", "Next steps:".cyan());
+    println!("  1. Place bets: zyb market bet --market-id {} --use-fhe", args.market_id);
+    println!("  2. Settle: POST /api/futarchy/markets/{}/settle", args.market_id);
+    println!("  3. Claim: zyb market claim --market-id {} --local-proof", args.market_id);
 
     Ok(())
 }
