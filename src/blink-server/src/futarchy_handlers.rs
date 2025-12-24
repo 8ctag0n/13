@@ -381,6 +381,62 @@ pub async fn get_market(
     }
 }
 
+/// GET /api/futarchy/markets/{id}/claim-data
+/// Get market data formatted for claim proof generation
+#[get("/api/futarchy/markets/{id}/claim-data")]
+pub async fn get_market_claim_data(
+    pool: web::Data<PgPool>,
+    path: web::Path<String>,
+) -> impl Responder {
+    let market_id = path.into_inner();
+
+    match FutarchyQueries::get_market(&pool, &market_id).await {
+        Ok(Some(m)) => {
+            // Parse market_id as u64
+            let market_id_u64: u64 = match market_id.parse() {
+                Ok(id) => id,
+                Err(_) => {
+                    return HttpResponse::BadRequest().json(json!({
+                        "error": "Invalid market_id format",
+                    }));
+                }
+            };
+
+            let yes_pool = m.yes_pool_lamports as u64;
+            let no_pool = m.no_pool_lamports as u64;
+            let total_pool = yes_pool + no_pool;
+
+            // Calculate winning_pool and resolution based on outcome
+            let (winning_pool, resolution) = match m.outcome {
+                Some(true) => (yes_pool, Some(1u8)),   // YES won
+                Some(false) => (no_pool, Some(0u8)),   // NO won
+                None => (0u64, None),                   // Not settled
+            };
+
+            HttpResponse::Ok().json(json!({
+                "market_id": market_id_u64,
+                "total_pool": total_pool,
+                "winning_pool": winning_pool,
+                "resolution": resolution,
+                "total_yes_bets": yes_pool,
+                "total_no_bets": no_pool,
+            }))
+        }
+        Ok(None) => {
+            HttpResponse::NotFound().json(json!({
+                "error": "Market not found",
+                "market_id": market_id,
+            }))
+        }
+        Err(e) => {
+            log::error!("Failed to get market claim data {}: {}", market_id, e);
+            HttpResponse::InternalServerError().json(json!({
+                "error": format!("Failed to fetch market: {}", e),
+            }))
+        }
+    }
+}
+
 /// POST /api/futarchy/markets
 /// Create a new prediction market
 #[post("/api/futarchy/markets")]
@@ -2025,6 +2081,7 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         // Markets
         .service(list_markets)
         .service(get_market)
+        .service(get_market_claim_data)
         .service(create_market)
         .service(validate_create_market)
         .service(place_bet)

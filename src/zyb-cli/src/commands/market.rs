@@ -638,7 +638,7 @@ async fn claim_winnings_local(args: ClaimArgs) -> Result<()> {
         .context("Invalid market_id format")?;
 
     let client = reqwest::Client::new();
-    let market_url = format!("{}/api/futarchy/markets/{}", args.server, market_id);
+    let market_url = format!("{}/api/futarchy/markets/{}/claim-data", args.server, market_id);
 
     let market_data: MarketData = client
         .get(&market_url)
