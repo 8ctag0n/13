@@ -21,7 +21,7 @@ blink_backend_url = "http://localhost:8080"
 
 [chains.solana]
 type = "solana"
-enabled = true
+enabled = false  # Disabled - running in Starknet-only mode
 rpc_url = "https://api.devnet.solana.com"
 keypair_path = "~/.config/solana/id.json"
 program_id = "11111111111111111111111111111111"

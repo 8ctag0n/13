@@ -244,23 +244,11 @@ impl ProverNode {
         info!("Loading multi-chain configuration from: {}", config_path);
         let config_file = ProverConfigFile::load_from_file(config_path)?;
 
-        // Get first enabled Solana chain for keypair (required for encryption)
-        let solana_keypair_path = config_file.chains.iter()
-            .find_map(|(_, chain_config)| {
-                if let ChainConfig::Solana(ref sol) = chain_config {
-                    if sol.enabled {
-                        return sol.keypair_path.clone();
-                    }
-                }
-                None
-            })
-            .context("At least one enabled Solana chain with keypair_path is required")?;
+        // Get keypair from enabled chains (Solana preferred, Starknet fallback)
+        // For multi-chain support, we try Solana first, then derive from Starknet if needed
+        let (keypair_arc, prover_authority) = Self::get_keypair_from_config(&config_file)?;
 
-        let keypair = read_keypair_file(&solana_keypair_path)
-            .map_err(|e| anyhow::anyhow!("Failed to read keypair file: {}", e))?;
-        let keypair_arc = Arc::new(keypair);
-
-        info!("Prover Authority: {}", keypair_arc.pubkey());
+        info!("Prover Authority: {}", prover_authority);
 
         // Create marketplaces for all enabled chains
         let mut marketplaces = std::collections::HashMap::new();
@@ -369,10 +357,11 @@ impl ProverNode {
         ));
 
         // Create legacy ProverConfig for compatibility
+        // Use prover_authority as keypair path placeholder in multi-chain mode
         let legacy_config = ProverConfig::new(
             "multi-chain".to_string(),
             Pubkey::default(), // Not used in multi-chain mode
-            solana_keypair_path,
+            prover_authority.clone(), // Use authority string as placeholder
             Duration::from_secs(config_file.prover.poll_interval_secs),
             0, // Deprecated
             config_file.prover.min_roi_threshold,
@@ -398,6 +387,81 @@ impl ProverNode {
             start_time: std::time::Instant::now(),
             starknet_event_configs,
         })
+    }
+
+    /// Get keypair from configuration - supports Solana keypair file or Starknet private key
+    ///
+    /// For multi-chain mode:
+    /// - If Solana is enabled: use Solana keypair file
+    /// - If only Starknet: derive keypair from STARKNET_PRIVATE_KEY env var
+    /// - Returns (keypair, prover_authority_string) for logging
+    fn get_keypair_from_config(
+        config_file: &config::ProverConfigFile,
+    ) -> Result<(Arc<Keypair>, String)> {
+        use config::ChainConfig;
+
+        // Try Solana keypair first
+        let solana_keypair_path = config_file.chains.iter()
+            .find_map(|(_, chain_config)| {
+                if let ChainConfig::Solana(ref sol) = chain_config {
+                    if sol.enabled {
+                        return sol.keypair_path.clone();
+                    }
+                }
+                None
+            });
+
+        if let Some(keypair_path) = solana_keypair_path {
+            // Solana mode: read keypair from file
+            let keypair = read_keypair_file(&keypair_path)
+                .map_err(|e| anyhow::anyhow!("Failed to read Solana keypair file: {}", e))?;
+            let pubkey = keypair.pubkey().to_string();
+            return Ok((Arc::new(keypair), pubkey));
+        }
+
+        // Try Starknet private key
+        let starknet_config = config_file.chains.iter()
+            .find_map(|(_, chain_config)| {
+                if let ChainConfig::Starknet(ref stark) = chain_config {
+                    if stark.enabled {
+                        return Some(stark);
+                    }
+                }
+                None
+            });
+
+        if let Some(stark_config) = starknet_config {
+            // Starknet-only mode: derive keypair from private key or generate placeholder
+            let private_key = std::env::var("STARKNET_PRIVATE_KEY")
+                .context("STARKNET_PRIVATE_KEY environment variable required for Starknet-only mode")?;
+
+            // Use Starknet prover address as authority identifier
+            let prover_authority = stark_config.prover_address.clone();
+
+            // Derive a deterministic Solana keypair from Starknet private key
+            // This is used for internal signing (witness encryption, gateway auth)
+            let seed = derive_seed_from_hex(&private_key)?;
+
+            // Create ed25519 keypair from seed (Solana uses ed25519)
+            // Keypair::from_bytes expects 64 bytes: [secret_key (32) || public_key (32)]
+            use ed25519_dalek::{SigningKey, VerifyingKey};
+            let signing_key = SigningKey::from_bytes(&seed);
+            let verifying_key = VerifyingKey::from(&signing_key);
+
+            let mut keypair_bytes = [0u8; 64];
+            keypair_bytes[..32].copy_from_slice(signing_key.as_bytes());
+            keypair_bytes[32..].copy_from_slice(verifying_key.as_bytes());
+
+            let keypair = Keypair::from_bytes(&keypair_bytes)
+                .map_err(|e| anyhow::anyhow!("Failed to create keypair from Starknet seed: {}", e))?;
+
+            info!("Running in Starknet-only mode (no Solana chain configured)");
+            return Ok((Arc::new(keypair), prover_authority));
+        }
+
+        // No valid chain configuration
+        anyhow::bail!("No enabled chain with valid keypair configuration found. \
+            Either configure a Solana chain with keypair_path, or a Starknet chain with STARKNET_PRIVATE_KEY env var.")
     }
 
     /// Create a marketplace client from chain configuration
@@ -895,6 +959,26 @@ fn derive_encryption_seed(keypair: &Keypair) -> [u8; 32] {
 
     let hash_result = hash(&seed_material);
     hash_result.to_bytes()
+}
+
+/// Derive a 32-byte seed from a hex string (for Starknet private key)
+/// This allows Starknet-only mode to derive deterministic keys
+fn derive_seed_from_hex(hex_key: &str) -> Result<[u8; 32]> {
+    use solana_sdk::hash::hash;
+
+    // Strip 0x prefix if present
+    let hex_clean = hex_key.strip_prefix("0x").unwrap_or(hex_key);
+
+    // Parse hex to bytes
+    let key_bytes = hex::decode(hex_clean)
+        .context("Invalid hex format for private key")?;
+
+    // Hash with domain separation to get 32 bytes
+    let mut seed_material = b"ZYBERLINK_STARKNET_KEYPAIR_V1:".to_vec();
+    seed_material.extend_from_slice(&key_bytes);
+
+    let hash_result = hash(&seed_material);
+    Ok(hash_result.to_bytes())
 }
 
 /// Show the encryption public key for this prover
