@@ -10,6 +10,17 @@ use crate::{ChainClient, ChainClientError, Result, TransactionStatus};
 use crate::signature::SignatureVerifier;
 use async_trait::async_trait;
 
+/// Normalize a Starknet hex address to exactly 64 hex characters (32 bytes)
+/// This handles addresses that may be missing leading zeros
+fn normalize_starknet_hex(hex: &str) -> String {
+    let hex = hex.strip_prefix("0x").unwrap_or(hex);
+    if hex.len() < 64 {
+        format!("0x{:0>64}", hex)
+    } else {
+        format!("0x{}", hex)
+    }
+}
+
 #[cfg(feature = "starknet")]
 use starknet_core::types::{Felt, Call, BlockId, BlockTag};
 #[cfg(feature = "starknet")]
@@ -305,11 +316,12 @@ impl ChainClient for StarknetClient {
                 .map_err(|e| ChainClientError::Generic(format!("Invalid calldata: {}", e)))?;
 
             // Parse contract address, method selector, and signer address
-            let contract_address = Felt::from_hex(program_address)
+            // Normalize addresses to ensure proper 64-char hex format
+            let contract_address = Felt::from_hex(&normalize_starknet_hex(program_address))
                 .map_err(|e| ChainClientError::Generic(format!("Invalid contract address: {}", e)))?;
             let selector = Felt::from_hex(method)
                 .map_err(|e| ChainClientError::Generic(format!("Invalid method selector: {}", e)))?;
-            let signer_address = Felt::from_hex(signer)
+            let signer_address = Felt::from_hex(&normalize_starknet_hex(signer))
                 .map_err(|e| ChainClientError::Generic(format!("Invalid signer address: {}", e)))?;
 
             // Parse private key and create signing key
