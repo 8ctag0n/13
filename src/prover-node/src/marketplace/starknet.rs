@@ -977,6 +977,144 @@ impl MarketplaceOperations for StarknetMarketplace {
     }
 }
 
+// ============================================================================
+// ECDSA Signing Module for FHE Results (Sprint 2)
+// ============================================================================
+/// Signs the combination of ciphertext_hash and result_hash to prove
+/// that the prover computed this specific result from this specific input.
+pub mod signing {
+    use anyhow::{anyhow, Result};
+    use k256::ecdsa::{signature::Signer, Signature, SigningKey};
+    use tiny_keccak::{Hasher, Keccak};
+
+    /// Sign an FHE computation result
+    ///
+    /// # Arguments
+    /// * `private_key` - Prover's ECDSA private key (32 bytes)
+    /// * `ciphertext_hash` - Hash of the input FHE ciphertext (32 bytes)
+    /// * `result_hash` - Hash of the computed result (32 bytes)
+    ///
+    /// # Returns
+    /// ECDSA signature (r, s) as 64 bytes
+    pub fn sign_fhe_result(
+        private_key: &[u8; 32],
+        ciphertext_hash: &[u8; 32],
+        result_hash: &[u8; 32],
+    ) -> Result<Signature> {
+        // 1. Compute message: keccak256(ciphertext_hash || result_hash)
+        let message = compute_message_hash(ciphertext_hash, result_hash);
+
+        // 2. Create signing key from private key bytes
+        let signing_key = SigningKey::from_bytes(private_key.into())
+            .map_err(|e| anyhow!("Invalid private key: {}", e))?;
+
+        // 3. Sign the message
+        let signature: Signature = signing_key.sign(&message);
+
+        Ok(signature)
+    }
+
+    /// Compute keccak256(ciphertext_hash || result_hash)
+    /// Same hash computation as Cairo side for verification.
+    pub fn compute_message_hash(ciphertext_hash: &[u8; 32], result_hash: &[u8; 32]) -> [u8; 32] {
+        let mut hasher = Keccak::v256();
+        hasher.update(ciphertext_hash);
+        hasher.update(result_hash);
+        let mut output = [0u8; 32];
+        hasher.finalize(&mut output);
+        output
+    }
+
+    /// Convert ECDSA signature to Cairo-compatible felt252 pair (r, s)
+    pub fn signature_to_felts(signature: &Signature) -> (String, String) {
+        let sig_bytes = signature.to_bytes();
+
+        // Split into r and s (32 bytes each)
+        let r_bytes = &sig_bytes[0..32];
+        let s_bytes = &sig_bytes[32..64];
+
+        // Mask top 5 bits to ensure < 2^251 (Starknet prime)
+        let mut r_masked = [0u8; 32];
+        let mut s_masked = [0u8; 32];
+        r_masked.copy_from_slice(r_bytes);
+        s_masked.copy_from_slice(s_bytes);
+        r_masked[0] &= 0x07;
+        s_masked[0] &= 0x07;
+
+        let sig_r = format!("0x{}", hex::encode(r_masked));
+        let sig_s = format!("0x{}", hex::encode(s_masked));
+
+        (sig_r, sig_s)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn test_sign_fhe_result() {
+            let private_key = [0x42; 32];
+            let ciphertext_hash = [0xaa; 32];
+            let result_hash = [0xbb; 32];
+
+            let signature = sign_fhe_result(&private_key, &ciphertext_hash, &result_hash);
+            assert!(signature.is_ok(), "Signing should succeed");
+
+            let sig = signature.unwrap();
+            assert_eq!(sig.to_bytes().len(), 64, "Signature should be 64 bytes");
+        }
+
+        #[test]
+        fn test_signature_deterministic() {
+            let private_key = [0x42; 32];
+            let ciphertext_hash = [0xaa; 32];
+            let result_hash = [0xbb; 32];
+
+            let sig1 = sign_fhe_result(&private_key, &ciphertext_hash, &result_hash).unwrap();
+            let sig2 = sign_fhe_result(&private_key, &ciphertext_hash, &result_hash).unwrap();
+
+            assert_eq!(sig1.to_bytes(), sig2.to_bytes(), "Signatures should be deterministic");
+        }
+
+        #[test]
+        fn test_invalid_private_key_error() {
+            let invalid_key = [0x00; 32];
+            let ciphertext_hash = [0xaa; 32];
+            let result_hash = [0xbb; 32];
+
+            let result = sign_fhe_result(&invalid_key, &ciphertext_hash, &result_hash);
+            assert!(result.is_err(), "Should reject invalid private key");
+        }
+
+        #[test]
+        fn test_signature_to_felts() {
+            let private_key = [0x42; 32];
+            let ciphertext_hash = [0xaa; 32];
+            let result_hash = [0xbb; 32];
+
+            let signature = sign_fhe_result(&private_key, &ciphertext_hash, &result_hash).unwrap();
+            let (sig_r, sig_s) = signature_to_felts(&signature);
+
+            assert!(sig_r.starts_with("0x"), "sig_r should be hex");
+            assert!(sig_s.starts_with("0x"), "sig_s should be hex");
+            assert_eq!(sig_r.len(), 66, "sig_r should be 0x + 64 hex chars");
+            assert_eq!(sig_s.len(), 66, "sig_s should be 0x + 64 hex chars");
+        }
+
+        #[test]
+        fn test_compute_message_hash() {
+            let ciphertext_hash = [0xaa; 32];
+            let result_hash = [0xbb; 32];
+
+            let hash = compute_message_hash(&ciphertext_hash, &result_hash);
+            assert_eq!(hash.len(), 32);
+
+            let hash2 = compute_message_hash(&ciphertext_hash, &result_hash);
+            assert_eq!(hash, hash2, "Hash should be deterministic");
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
