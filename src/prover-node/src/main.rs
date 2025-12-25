@@ -191,10 +191,14 @@ impl ProverNode {
             None
         };
 
-        // Initialize ROI calculator
-        let roi_calculator = ROICalculator::new(config.min_roi, config.cost_multiplier);
+        // Initialize ROI calculator (legacy mode uses default Profit mode)
+        let roi_calculator = ROICalculator::new(
+            config.min_roi,
+            config.cost_multiplier,
+            roi_calculator::OperationMode::default(),
+        );
         info!(
-            "ROI calculator initialized - Min ROI: {:.1}%, Cost multiplier: {:.1}x",
+            "ROI calculator initialized - Mode: profit, Min ROI: {:.1}%, Cost multiplier: {:.1}x",
             config.min_roi, config.cost_multiplier
         );
 
@@ -332,13 +336,16 @@ impl ProverNode {
             None
         };
 
-        // Initialize ROI calculator
+        // Initialize ROI calculator with operation mode
         let roi_calculator = ROICalculator::new(
             config_file.prover.min_roi_threshold,
             config_file.prover.cost_multiplier,
+            config_file.prover.mode,
         );
         info!(
-            "ROI calculator initialized - Min ROI: {:.1}%, Cost multiplier: {:.1}x",
+            "ROI calculator initialized - Mode: {} ({}), Min ROI: {:.1}%, Cost multiplier: {:.1}x",
+            config_file.prover.mode,
+            config_file.prover.mode.description(),
             config_file.prover.min_roi_threshold,
             config_file.prover.cost_multiplier
         );

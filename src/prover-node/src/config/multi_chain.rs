@@ -9,6 +9,8 @@ use solana_sdk::pubkey::Pubkey;
 use std::collections::HashMap;
 use std::path::Path;
 
+use crate::roi_calculator::OperationMode;
+
 /// Top-level prover configuration file
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProverConfigFile {
@@ -96,7 +98,14 @@ pub struct ProverSettings {
     #[serde(default = "default_poll_interval")]
     pub poll_interval_secs: u64,
 
-    /// Minimum ROI threshold (percentage)
+    /// Operation mode: "profit", "contributor", or "subsidize"
+    /// - profit: Only accept jobs with ROI >= min_roi_threshold
+    /// - contributor: Accept jobs that at least break even (ROI >= 0%)
+    /// - subsidize: Accept all jobs regardless of profitability
+    #[serde(default)]
+    pub mode: OperationMode,
+
+    /// Minimum ROI threshold (percentage) - only used in "profit" mode
     #[serde(default = "default_min_roi")]
     pub min_roi_threshold: f64,
 

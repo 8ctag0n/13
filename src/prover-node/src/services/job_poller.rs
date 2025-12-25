@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use solana_sdk::pubkey::Pubkey;
 use zyberlink_sdk::MarketplaceClient;
-use crate::roi_calculator::ROICalculator;
+use crate::roi_calculator::{ROICalculator, OperationMode};
 
 /// Represents a discovered job ready to be processed
 #[derive(Debug, Clone)]
@@ -42,7 +42,8 @@ impl JobPoller {
         min_roi: f64,
         cost_multiplier: f64,
     ) -> Self {
-        let roi_calculator = ROICalculator::new(min_roi, cost_multiplier);
+        // JobPoller uses default Profit mode - for full mode support use ROICalculator directly
+        let roi_calculator = ROICalculator::new(min_roi, cost_multiplier, OperationMode::default());
 
         Self {
             client,
