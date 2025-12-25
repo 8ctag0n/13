@@ -12,6 +12,8 @@ min_roi_threshold = 0.0
 cost_multiplier = 1.0
 mock_proving_time_secs = 2
 zk_circuits_path = "./prover-circuits"
+# FHE server key for real TFHE operations (generated via generate-fhe-keys)
+fhe_server_key_path = "./fhe-keys/fhe_server_key.bin"
 
 [witness]
 base_url = "http://localhost:8080"

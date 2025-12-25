@@ -282,6 +282,8 @@ impl JobProcessor {
             current_encrypted,
             delta_encrypted: None, // Could be fetched from additional contract data
             params,
+            tfhe_current: None, // TODO: Fetch from off-chain storage using payload_hash
+            tfhe_delta: None,
         })
     }
 

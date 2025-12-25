@@ -271,6 +271,9 @@ src/prover-node/runtime/
 src/prover-node/jobs/
 src/prover-node/state/
 
+# FHE keys (large binary files, generated via generate-fhe-keys)
+src/prover-node/fhe-keys/
+
 # Prover configuration (may contain sensitive data)
 src/prover-node/config.local.toml
 

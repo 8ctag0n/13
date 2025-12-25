@@ -1,7 +1,8 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use zyberlink_fhe::FheEngine;
 
 // ============================================================================
 // JobType mapping from Cairo contracts (jobs.cairo)
@@ -84,12 +85,18 @@ pub struct FheBalanceInput {
     pub job_id: u64,
     /// Type of job to process
     pub job_type: JobType,
-    /// Current encrypted balance (or collateral)
+    /// Current encrypted balance (or collateral) - ElGamal format for Cairo compatibility
     pub current_encrypted: EncryptedValue,
-    /// Delta to add (for BalanceUpdate) or amount to verify (for others)
+    /// Delta to add (for BalanceUpdate) or amount to verify (for others) - ElGamal format
     pub delta_encrypted: Option<EncryptedValue>,
     /// Additional parameters
     pub params: FheJobParams,
+    /// Real TFHE ciphertext for current value (optional, ~65KB when present)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tfhe_current: Option<TfheCiphertext>,
+    /// Real TFHE ciphertext for delta value (optional, ~65KB when present)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tfhe_delta: Option<TfheCiphertext>,
 }
 
 /// Parameters specific to each job type
@@ -156,12 +163,30 @@ pub trait FheBalanceProcessor: Send + Sync {
 // FHE Balance Engine Implementation
 // ============================================================================
 
+/// TFHE ciphertext wrapper for real FHE operations
+///
+/// TFHE ciphertexts are ~65KB when serialized with bincode.
+/// This is different from the 64-byte ElGamal format used in Cairo contracts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TfheCiphertext {
+    /// Serialized TFHE FheUint8 ciphertext
+    pub data: Vec<u8>,
+}
+
+impl TfheCiphertext {
+    /// Check if this is a valid TFHE ciphertext (based on size)
+    /// Real TFHE ciphertexts are ~65KB, mock ones are 64 bytes
+    pub fn is_real_tfhe(&self) -> bool {
+        self.data.len() > 1000 // Real TFHE ciphertexts are >> 1KB
+    }
+}
+
 /// Main FHE Balance Engine
 pub struct FheBalanceEngine {
     /// Mock mode for testing
     mock_mode: bool,
     /// Real FHE engine from zyberlink-fhe (optional)
-    fhe_engine: Option<Arc<zyberlink_fhe::FheEngine>>,
+    fhe_engine: Option<Arc<FheEngine>>,
 }
 
 impl FheBalanceEngine {
@@ -169,7 +194,7 @@ impl FheBalanceEngine {
     ///
     /// # Arguments
     /// * `fhe_engine` - Real FHE engine from zyberlink-fhe with server key loaded
-    pub fn new(fhe_engine: Arc<zyberlink_fhe::FheEngine>) -> Self {
+    pub fn new(fhe_engine: Arc<FheEngine>) -> Self {
         Self {
             mock_mode: false,
             fhe_engine: Some(fhe_engine),
@@ -244,25 +269,54 @@ impl FheBalanceEngine {
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("BalanceUpdate requires delta_encrypted"))?;
 
-        // Perform homomorphic addition
-        let new_encrypted = if self.is_real_fhe() {
-            // Use real FHE engine for homomorphic addition
-            if let Some(ref fhe_engine) = self.fhe_engine {
-                // Convert EncryptedValue (c1, c2) to Vec<u8> for FHE engine
-                let current_bytes = self.encrypted_value_to_bytes(&input.current_encrypted);
-                let delta_bytes = self.encrypted_value_to_bytes(delta);
+        // Check if we have real TFHE ciphertexts (stored in tfhe_ciphertext field)
+        // Real TFHE ciphertexts are ~65KB, ElGamal format is 64 bytes
+        let new_encrypted = if self.is_real_fhe() && input.tfhe_current.is_some() && input.tfhe_delta.is_some() {
+            // Use real FHE engine with actual TFHE ciphertexts
+            if let (Some(ref fhe_engine), Some(ref current_tfhe), Some(ref delta_tfhe)) =
+                (&self.fhe_engine, &input.tfhe_current, &input.tfhe_delta)
+            {
+                log::info!(
+                    "[Job {}] Processing real TFHE addition: current={} bytes, delta={} bytes",
+                    input.job_id,
+                    current_tfhe.data.len(),
+                    delta_tfhe.data.len()
+                );
 
-                // Perform real homomorphic addition using zyberlink-fhe
-                let result_bytes = fhe_engine.compute_add_encrypted(&current_bytes, &delta_bytes)?;
+                // Perform real homomorphic addition using spawn_blocking for CPU-intensive work
+                let engine = fhe_engine.clone();
+                let current_data = current_tfhe.data.clone();
+                let delta_data = delta_tfhe.data.clone();
 
-                // Convert back to EncryptedValue
-                self.bytes_to_encrypted_value(&result_bytes)?
+                let result_bytes = tokio::task::spawn_blocking(move || {
+                    engine.set_key_for_thread();
+                    engine.compute_add_encrypted(&current_data, &delta_data)
+                })
+                .await
+                .context("FHE task panicked")?
+                .context("TFHE addition failed")?;
+
+                log::info!(
+                    "[Job {}] TFHE addition complete: result={} bytes",
+                    input.job_id,
+                    result_bytes.len()
+                );
+
+                // For compatibility, store hash of TFHE result in EncryptedValue
+                // The actual result would be stored off-chain
+                let result_hash = FheEngine::hash_result(&result_bytes);
+                EncryptedValue {
+                    c1: result_hash,
+                    c2: [0u8; 32], // Mark as TFHE result
+                }
             } else {
                 // Fallback to mock mode if FHE engine not available
+                log::warn!("[Job {}] FHE engine not available, using mock", input.job_id);
                 input.current_encrypted.add(delta)
             }
         } else {
-            // Mock mode: simple byte addition
+            // Mock mode: simple byte addition (ElGamal format)
+            log::debug!("[Job {}] Using mock FHE (ElGamal format)", input.job_id);
             input.current_encrypted.add(delta)
         };
 
@@ -465,6 +519,8 @@ mod tests {
                 c2: [1u8; 32],
             }),
             params: FheJobParams::BalanceUpdate { is_mint: true },
+            tfhe_current: None,
+            tfhe_delta: None,
         };
 
         let result = engine.process(&input).await.unwrap();
@@ -490,6 +546,8 @@ mod tests {
                 min_collateral_ratio: 150,
                 btc_price_oracle: 50000,
             },
+            tfhe_current: None,
+            tfhe_delta: None,
         };
 
         let result = engine.process(&input).await.unwrap();
@@ -511,6 +569,8 @@ mod tests {
                 liquidation_threshold: 110,
                 current_price: 48000,
             },
+            tfhe_current: None,
+            tfhe_delta: None,
         };
 
         let result = engine.process(&input).await.unwrap();
@@ -587,5 +647,70 @@ mod tests {
         // Test error on invalid bytes
         let short_bytes = vec![0u8; 32];
         assert!(engine.bytes_to_encrypted_value(&short_bytes).is_err());
+    }
+
+    #[test]
+    fn test_tfhe_ciphertext_detection() {
+        // Small data is not real TFHE
+        let small = TfheCiphertext { data: vec![0u8; 64] };
+        assert!(!small.is_real_tfhe());
+
+        // Large data (>1KB) is real TFHE
+        let large = TfheCiphertext { data: vec![0u8; 65856] };
+        assert!(large.is_real_tfhe());
+    }
+
+    /// Integration test with real TFHE operations
+    /// Requires FHE keys to be generated (run generate-fhe-keys first)
+    #[tokio::test]
+    #[ignore] // Run with: cargo test test_real_tfhe_balance_update -- --ignored
+    async fn test_real_tfhe_balance_update() {
+        use zyberlink_fhe::{generate_keys, encrypt_value, FheUint8};
+        use zyberlink_fhe::prelude::*;
+
+        // Generate keys
+        let (client_key, server_key) = generate_keys().unwrap();
+        let engine = Arc::new(FheEngine::new(server_key));
+        let balance_engine = FheBalanceEngine::new(engine.clone());
+
+        // Encrypt test values
+        let current_value = 42u8;
+        let delta_value = 10u8;
+
+        let current_encrypted = FheUint8::try_encrypt(current_value, &client_key).unwrap();
+        let delta_encrypted = FheUint8::try_encrypt(delta_value, &client_key).unwrap();
+
+        let current_bytes = bincode::serialize(&current_encrypted).unwrap();
+        let delta_bytes = bincode::serialize(&delta_encrypted).unwrap();
+
+        println!("Encrypted current: {} bytes", current_bytes.len());
+        println!("Encrypted delta: {} bytes", delta_bytes.len());
+
+        // Create input with real TFHE ciphertexts
+        let input = FheBalanceInput {
+            job_id: 100,
+            job_type: JobType::BalanceUpdate,
+            current_encrypted: EncryptedValue {
+                c1: [0u8; 32], // Placeholder for Cairo compatibility
+                c2: [0u8; 32],
+            },
+            delta_encrypted: Some(EncryptedValue {
+                c1: [0u8; 32],
+                c2: [0u8; 32],
+            }),
+            params: FheJobParams::BalanceUpdate { is_mint: false },
+            tfhe_current: Some(TfheCiphertext { data: current_bytes }),
+            tfhe_delta: Some(TfheCiphertext { data: delta_bytes }),
+        };
+
+        // Process with real FHE
+        let result = balance_engine.process(&input).await.unwrap();
+
+        assert!(result.success);
+        assert!(result.new_encrypted.is_some());
+
+        // The result_hash should be deterministic for same inputs
+        println!("Result hash: {}", hex::encode(result.result_hash));
+        println!("Real FHE balance update test PASSED!");
     }
 }
