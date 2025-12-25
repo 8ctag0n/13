@@ -8,10 +8,10 @@ use std::sync::Arc;
 use zyberlink_types::{CircuitType, FheOperation, JobStatus};
 
 use crate::circuits::{CensusCircuit, DemographicsCircuit, PassportCircuit, VotingCircuit};
-use crate::core::CircuitRegistry;
+use crate::core::{CiphertextFetcher, CircuitRegistry};
 use crate::engines::{
     FheBalanceEngine, FheBalanceInput, FheBalanceProcessor, FheJobParams,
-    JobType as FheJobType, EncryptedValue,
+    JobType as FheJobType, EncryptedValue, TfheCiphertext,
 };
 use crate::gateway::GatewayClient;
 use crate::halo2_prover::{Halo2Prover, OrchardWitness};
@@ -23,7 +23,7 @@ use zyberlink_fhe::{deserialize_server_key, FheEngine};
 
 // Futarchy FHE imports
 use fhe_client_sdk::FutarchyFheClient;
-use crate::futarchy::{FutarchyPoolWorker, FutarchyPoolJob, CiphertextFetcher};
+use crate::futarchy::{FutarchyPoolWorker, FutarchyPoolJob, CiphertextFetcher as FutarchyCiphertextFetcher};
 
 /// Job processor handles claiming, processing, and submitting proofs for jobs
 ///
@@ -43,6 +43,8 @@ pub struct JobProcessor {
     futarchy_app_server_url: Option<String>,
     /// FHE Balance Engine for Starknet jobs (pBTCFi, pLST)
     fhe_balance_engine: Arc<FheBalanceEngine>,
+    /// Blink server URL for fetching off-chain TFHE ciphertexts
+    blink_server_url: Option<String>,
 }
 
 impl JobProcessor {
@@ -74,7 +76,14 @@ impl JobProcessor {
             futarchy_worker: None,
             futarchy_app_server_url: None,
             fhe_balance_engine,
+            blink_server_url: None,
         }
+    }
+
+    /// Configure blink server URL for fetching off-chain TFHE ciphertexts
+    pub fn with_blink_server(mut self, url: String) -> Self {
+        self.blink_server_url = Some(url);
+        self
     }
 
     /// Configure Futarchy FHE support
@@ -186,8 +195,14 @@ impl JobProcessor {
         };
         info!("[Job {}] Claimed (tx: {})", job_id, claim_result.signature);
 
-        // Step 2: Build FHE input and process with engine
-        let fhe_input = self.build_fhe_balance_input(job_id, starknet_job_type, encrypted_c1, encrypted_c2)?;
+        // Step 2: Build FHE input (fetches TFHE ciphertexts if available)
+        let fhe_input = self.build_fhe_balance_input(
+            job_id,
+            starknet_job_type,
+            encrypted_c1,
+            encrypted_c2,
+            job.payload_hash,
+        ).await?;
 
         let engine = Arc::clone(&self.fhe_balance_engine);
         let fhe_result = tokio::task::spawn_blocking(move || {
@@ -239,12 +254,16 @@ impl JobProcessor {
     }
 
     /// Build FheBalanceInput from Starknet job data
-    fn build_fhe_balance_input(
+    ///
+    /// If `payload_hash` is provided and blink_server_url is configured,
+    /// fetches real TFHE ciphertexts from off-chain storage.
+    async fn build_fhe_balance_input(
         &self,
         job_id: u64,
         starknet_job_type: StarknetJobType,
         encrypted_c1: [u8; 32],
         encrypted_c2: [u8; 32],
+        payload_hash: Option<[u8; 32]>,
     ) -> Result<FheBalanceInput> {
         let job_type = match starknet_job_type {
             StarknetJobType::LoanVerification => FheJobType::LoanVerification,
@@ -276,14 +295,53 @@ impl JobProcessor {
             },
         };
 
+        // Fetch real TFHE ciphertexts if payload_hash is available
+        let (tfhe_current, tfhe_delta) = match (&self.blink_server_url, payload_hash) {
+            (Some(url), Some(hash)) => {
+                info!("[Job {}] Fetching TFHE ciphertext from blink-server...", job_id);
+                let fetcher = CiphertextFetcher::new(url.clone());
+
+                match fetcher.fetch_with_retry(&hash, 3).await {
+                    Ok(ciphertext) => {
+                        info!(
+                            "[Job {}] Fetched TFHE ciphertext: {} bytes",
+                            job_id,
+                            ciphertext.data.len()
+                        );
+                        // For now, we only fetch the current balance ciphertext
+                        // Delta would require a separate hash (future enhancement)
+                        (Some(ciphertext), None)
+                    }
+                    Err(e) => {
+                        warn!(
+                            "[Job {}] Failed to fetch TFHE ciphertext: {}. Falling back to mock mode.",
+                            job_id, e
+                        );
+                        (None, None)
+                    }
+                }
+            }
+            (None, Some(_)) => {
+                warn!(
+                    "[Job {}] payload_hash present but blink_server_url not configured. Using mock mode.",
+                    job_id
+                );
+                (None, None)
+            }
+            _ => {
+                info!("[Job {}] No payload_hash, using mock FHE mode.", job_id);
+                (None, None)
+            }
+        };
+
         Ok(FheBalanceInput {
             job_id,
             job_type,
             current_encrypted,
-            delta_encrypted: None, // Could be fetched from additional contract data
+            delta_encrypted: None,
             params,
-            tfhe_current: None, // TODO: Fetch from off-chain storage using payload_hash
-            tfhe_delta: None,
+            tfhe_current,
+            tfhe_delta,
         })
     }
 
@@ -836,7 +894,7 @@ impl JobProcessor {
         // For now, we'll still use the app server fetcher (legacy flow)
         // TODO: Migrate to direct blockchain fetch when poller is fully integrated
 
-        let fetcher = CiphertextFetcher::new(app_server_url);
+        let fetcher = FutarchyCiphertextFetcher::new(app_server_url);
 
         let pool_ciphertext = fetcher
             .fetch_by_hash(pool_ciphertext_hash)
