@@ -50,10 +50,10 @@ mod selectors {
         "0x0292f780aa61b49fbf9aa0ebc904a38993d165ee53ea8484e2c443258ebcbee7";
     /// get_prover(prover: ContractAddress) -> Prover
     pub const GET_PROVER: &str =
-        "0x01a0b3c4f48b78a62e4d57c5b9c8d3f4e5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0";
+        "0x02ae524ab42a6911c6fd10fec394645820f348a2ffffe39df3b18a26b74bdbe7";
     /// is_prover_registered(prover: ContractAddress) -> bool
     pub const IS_PROVER_REGISTERED: &str =
-        "0x02b1c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3";
+        "0x028fdd8502f6e13942c6d906b00a664792a742d6587adff955161b574315b99d";
     /// claim_job(job_id: u256) - IFheJobs version
     pub const CLAIM_JOB: &str =
         "0x014884a95bf7734febaf1e5f0ef0f2d2bf7014034b2362b7551c2b716029e2a0";
@@ -68,46 +68,46 @@ mod selectors {
         "0x03b257e49fd4fa83c6951edd7b6f94ccb2aca13dd843240b43ef53a1a7fd000a";
     /// get_pending_jobs_by_type(job_type: JobType) -> Array<u256>
     pub const GET_PENDING_JOBS_BY_TYPE: &str =
-        "0x03c2d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3";
+        "0x01903934f7f8c9d6f6c44356df8d25827be772f093bf8e826c635ef5ad9735a1";
     /// get_jobs_by_creator(creator: ContractAddress) -> Array<u256>
     pub const GET_JOBS_BY_CREATOR: &str =
-        "0x04d3e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4";
+        "0x033f0ab5ff50fa94ba520845c268ac64ad6b23301fc9af6733296e6d5c16fcd2";
 
     // ========== ILoanOperations Interface (pBTCFi-specific) ==========
 
     /// create_loan(borrower, btc_commitment, btc_encrypted_c1, btc_encrypted_c2) -> u256
     pub const CREATE_LOAN: &str =
-        "0x01f3a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4";
+        "0x01fcec13468534e890d7564c66153dd615f0f66af495aeb0184d7b857f49bfb5";
     /// get_loan(loan_id: u256) -> Loan
     pub const GET_LOAN: &str =
         "0x03faf899aaaf6460caab4af9f3b6f5282c4c4720e4baa64ce53f6b822f4b47da";
     /// get_loan_job_id(loan_id: u256) -> u256
     pub const GET_LOAN_JOB_ID: &str =
-        "0x05e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4";
+        "0x01b86bbf935fcce24fe51ad562dd8acac684459c64cb8257bf6019769fe3fb25";
     /// get_pending_loan_jobs() -> Array<u256>
     pub const GET_PENDING_LOAN_JOBS: &str =
-        "0x06f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5";
+        "0x02aadbe238f4541584ba2170367eb44f7681944383a6608b35638d4bd9987eea";
     /// claim_loan_job(loan_id: u256)
     pub const CLAIM_LOAN_JOB: &str =
-        "0x07a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6";
+        "0x00d96cb4b4cb445bebb03da9a9c444a5e1da7118d293a712d64664e5e3f4c100";
     /// submit_loan_result(loan_id: u256, result_hash: felt252)
     pub const SUBMIT_LOAN_RESULT: &str =
-        "0x08b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7";
+        "0x02b6fb7b75cf2761bde815cf3824c2cd1dc59940e347a7b61c1f7031f8225e1e";
     /// get_loan_job_execution(loan_id: u256) -> JobExecution
     pub const GET_LOAN_JOB_EXECUTION: &str =
-        "0x09c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8";
+        "0x01422e1e8c6f58b4d20096a2e77d85f4670457abc4919667a85f6a7f6a988260";
 
     // ========== Sprint 3: Multi-Prover Consensus Interface ==========
 
     /// enable_consensus(job_id: u256, required_provers: u8, consensus_threshold: u8)
     pub const ENABLE_CONSENSUS: &str =
-        "0x00a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1";
+        "0x024c3c718d888650cf67d301deaef4e620713c4e6eebe5318b06ac44fc42d8f9";
     /// get_consensus_data(job_id: u256) -> FheConsensusData
     pub const GET_CONSENSUS_DATA: &str =
-        "0x00b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2";
+        "0x033a2430c23d5eb9548ea5e816d6ccd9b649ebff247a23b2f4468556289f64e4";
     /// is_consensus_enabled(job_id: u256) -> bool
     pub const IS_CONSENSUS_ENABLED: &str =
-        "0x00c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3";
+        "0x03a9084189bbf3c248a282c4656006154df109a32b8ad424546303f127e5972c";
 }
 
 /// Starknet marketplace wrapper
