@@ -12308,6 +12308,7 @@ dependencies = [
  "solana-client",
  "solana-program",
  "solana-sdk",
+ "starknet-crypto",
  "thiserror 1.0.69",
  "tiny-keccak",
  "tokio",

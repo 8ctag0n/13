@@ -70,22 +70,21 @@ pub mod FheVerifier {
             signature_s: felt252,
             prover: ContractAddress,
         ) -> bool {
-            // 1. Retrieve prover's public key
-            let (pubkey_x, pubkey_y) = self.prover_pubkeys.entry(prover).read();
+            // 1. Retrieve prover's public key (x-coordinate for STARK curve)
+            let (pubkey_x, _pubkey_y) = self.prover_pubkeys.entry(prover).read();
 
             // Check if prover is registered
-            if pubkey_x == 0 && pubkey_y == 0 {
+            if pubkey_x == 0 {
                 return false;
             }
 
             // 2. Compute message hash: keccak256(ciphertext_hash || result_hash)
             let message = compute_message_hash(ciphertext_hash, result_hash);
 
-            // 3. Verify ECDSA signature
+            // 3. Verify ECDSA signature using STARK curve (4 params)
             check_ecdsa_signature(
                 message,
                 pubkey_x,
-                pubkey_y,
                 signature_r,
                 signature_s
             )

@@ -55,6 +55,22 @@ pub trait IFheJobs<TContractState> {
     fn submit_result(ref self: TContractState, job_id: u256, result_hash: felt252);
     fn get_job_execution(self: @TContractState, job_id: u256) -> JobExecution;
 
+    // Sprint 3: Verified result submission with ECDSA signature
+    fn submit_verified_result(
+        ref self: TContractState,
+        job_id: u256,
+        result_hash: felt252,
+        ciphertext_hash: felt252,
+        signature_r: felt252,
+        signature_s: felt252,
+    );
+    fn register_prover_pubkey(
+        ref self: TContractState,
+        pubkey_x: felt252,
+        pubkey_y: felt252,
+    );
+    fn get_prover_pubkey(self: @TContractState, prover: ContractAddress) -> (felt252, felt252);
+
     // Queries
     fn get_pending_jobs(self: @TContractState) -> Array<u256>;
     fn get_pending_jobs_by_type(self: @TContractState, job_type: JobType) -> Array<u256>;
@@ -181,6 +197,8 @@ pub mod PbtcfiJobs {
     use super::{Loan, LoanStatus, JobStatus, Prover, JobExecution, Job, JobType, FheConsensusData, ProverSubmission};
     use starknet::{ContractAddress, get_block_timestamp, get_caller_address};
     use starknet::storage::{Map, StoragePathEntry, StoragePointerReadAccess, StoragePointerWriteAccess};
+    use core::ecdsa::check_ecdsa_signature;
+    use core::keccak::keccak_u256s_be_inputs;
 
     #[storage]
     struct Storage {
@@ -207,6 +225,9 @@ pub mod PbtcfiJobs {
         // Sprint 4: Prover tracking for reward splitting
         job_provers: Map<(u256, u8), ContractAddress>,  // (job_id, index) -> prover address
         job_prover_count: Map<u256, u8>,  // job_id -> count of provers who claimed
+
+        // Sprint 3: ECDSA public keys for signature verification
+        prover_pubkeys: Map<ContractAddress, (felt252, felt252)>,  // prover -> (pubkey_x, pubkey_y)
     }
 
     #[event]
@@ -711,6 +732,72 @@ pub mod PbtcfiJobs {
             let consensus = self.fhe_consensus.entry(job_id).read();
             consensus.required_provers > 0
         }
+
+        // Sprint 3: ECDSA-verified result submission
+        // Uses STARK curve (native Cairo ECDSA) for efficient on-chain verification
+        fn submit_verified_result(
+            ref self: ContractState,
+            job_id: u256,
+            result_hash: felt252,
+            ciphertext_hash: felt252,
+            signature_r: felt252,
+            signature_s: felt252,
+        ) {
+            let caller = get_caller_address();
+
+            // 1. Retrieve prover's public key (x-coordinate only for STARK curve)
+            let (pubkey_x, _pubkey_y) = self.prover_pubkeys.entry(caller).read();
+            assert(pubkey_x != 0, 'Prover pubkey not registered');
+
+            // 2. Compute message hash: keccak256(ciphertext_hash || result_hash)
+            let message = compute_message_hash(ciphertext_hash, result_hash);
+
+            // 3. Verify ECDSA signature using STARK curve (4 params)
+            let is_valid = check_ecdsa_signature(
+                message,
+                pubkey_x,
+                signature_r,
+                signature_s
+            );
+            assert(is_valid, 'Invalid ECDSA signature');
+
+            // 4. Delegate to regular submit_result
+            self.submit_result(job_id, result_hash);
+        }
+
+        fn register_prover_pubkey(
+            ref self: ContractState,
+            pubkey_x: felt252,
+            pubkey_y: felt252,
+        ) {
+            let caller = get_caller_address();
+
+            // Verify caller is a registered prover
+            let prover = self.registered_provers.entry(caller).read();
+            assert(prover.registered_at > 0, 'Prover not registered');
+
+            // Store pubkey
+            self.prover_pubkeys.entry(caller).write((pubkey_x, pubkey_y));
+        }
+
+        fn get_prover_pubkey(self: @ContractState, prover: ContractAddress) -> (felt252, felt252) {
+            self.prover_pubkeys.entry(prover).read()
+        }
+    }
+
+    /// Helper: Compute keccak256(ciphertext_hash || result_hash)
+    fn compute_message_hash(ciphertext_hash: felt252, result_hash: felt252) -> felt252 {
+        // Convert felts to u256 for keccak
+        let ciphertext_u256: u256 = ciphertext_hash.into();
+        let result_u256: u256 = result_hash.into();
+
+        // Keccak of both values concatenated
+        let hash = keccak_u256s_be_inputs(
+            array![ciphertext_u256, result_u256].span()
+        );
+
+        // Convert u256 hash to felt252 (take low part)
+        hash.low.into()
     }
 
     // ========================================================================

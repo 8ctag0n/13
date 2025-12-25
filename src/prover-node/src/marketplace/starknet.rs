@@ -108,6 +108,18 @@ mod selectors {
     /// is_consensus_enabled(job_id: u256) -> bool
     pub const IS_CONSENSUS_ENABLED: &str =
         "0x03a9084189bbf3c248a282c4656006154df109a32b8ad424546303f127e5972c";
+
+    // ========== Sprint 3: ECDSA Verified Submission Interface ==========
+
+    /// submit_verified_result(job_id: u256, result_hash: felt252, ciphertext_hash: felt252, signature_r: felt252, signature_s: felt252)
+    pub const SUBMIT_VERIFIED_RESULT: &str =
+        "0x014f25cd07508365018b418f95e5fafddc7b875fddf338b72ba4efc73b6f1982";
+    /// register_prover_pubkey(pubkey_x: felt252, pubkey_y: felt252)
+    pub const REGISTER_PROVER_PUBKEY: &str =
+        "0x00f6b626d2575429724c01eb895e165218dd8cd915a49b57c6866daff4ac6423";
+    /// get_prover_pubkey(prover: ContractAddress) -> (felt252, felt252)
+    pub const GET_PROVER_PUBKEY: &str =
+        "0x001af949b2eca3b88e5b94cacc375e75a2d38a2f5cd560971944c4149641f973";
 }
 
 /// Starknet marketplace wrapper
@@ -978,39 +990,264 @@ impl MarketplaceOperations for StarknetMarketplace {
 }
 
 // ============================================================================
-// ECDSA Signing Module for FHE Results (Sprint 2)
+// Sprint 3: Starknet-specific ECDSA Verified Submission
+// ============================================================================
+impl StarknetMarketplace {
+    /// Submit FHE result with ECDSA signature verification
+    ///
+    /// This function signs the result using the STARK curve and submits
+    /// to `submit_verified_result` on the Cairo contract for on-chain verification.
+    ///
+    /// # Arguments
+    /// * `job_id` - Job ID
+    /// * `result_hash` - Hash of the computed FHE result
+    /// * `ciphertext_hash` - Hash of the original FHE ciphertext input
+    ///
+    /// # Returns
+    /// Transaction result with submission signature
+    pub async fn submit_verified_fhe_result(
+        &self,
+        job_id: u64,
+        result_hash: [u8; 32],
+        ciphertext_hash: [u8; 32],
+    ) -> Result<TransactionResult> {
+        // 1. Check if we have a private key for signing
+        let private_key_hex = match &self.private_key {
+            Some(pk) => pk.as_str(),
+            None => {
+                log::warn!(
+                    "submit_verified_fhe_result({}) requires private key - falling back to unverified",
+                    job_id
+                );
+                return self.submit_fhe_result(job_id, "", result_hash).await;
+            }
+        };
+
+        // 2. Convert private key from hex to bytes
+        let private_key_bytes: [u8; 32] = hex::decode(private_key_hex.trim_start_matches("0x"))
+            .map_err(|e| MarketplaceError::Other(format!("Invalid private key hex: {}", e)))?
+            .try_into()
+            .map_err(|_| MarketplaceError::Other("Private key must be 32 bytes".to_string()))?;
+
+        // 3. Sign the FHE result using STARK curve
+        let signature = signing::sign_fhe_result_stark(
+            &private_key_bytes,
+            &ciphertext_hash,
+            &result_hash,
+        ).map_err(|e| MarketplaceError::Other(format!("Signing failed: {}", e)))?;
+
+        // 4. Build calldata for submit_verified_result
+        // (job_id: u256, result_hash: felt252, ciphertext_hash: felt252, signature_r: felt252, signature_s: felt252)
+        let mut calldata = Self::u256_to_calldata(job_id);
+
+        // Mask hashes to ensure < 2^251
+        let mut result_masked = result_hash;
+        result_masked[0] &= 0x07;
+        let result_hash_felt = format!("0x{}", hex::encode(result_masked));
+
+        let mut cipher_masked = ciphertext_hash;
+        cipher_masked[0] &= 0x07;
+        let ciphertext_hash_felt = format!("0x{}", hex::encode(cipher_masked));
+
+        calldata.push(result_hash_felt.clone());
+        calldata.push(ciphertext_hash_felt);
+        calldata.push(signature.r.clone());
+        calldata.push(signature.s.clone());
+
+        // 5. Build args for execute_contract
+        let args = serde_json::json!({
+            "calldata": calldata,
+            "private_key": private_key_hex
+        });
+
+        let args_bytes = serde_json::to_vec(&args)
+            .map_err(|e| MarketplaceError::Other(format!("Failed to serialize args: {}", e)))?;
+
+        // 6. Execute the transaction
+        let tx_hash = self
+            .client
+            .execute_contract(
+                &self.contract_address,
+                selectors::SUBMIT_VERIFIED_RESULT,
+                &args_bytes,
+                &self.prover_address,
+            )
+            .await
+            .map_err(|e| MarketplaceError::Other(format!("submit_verified_result failed: {}", e)))?;
+
+        log::info!(
+            "submit_verified_fhe_result({}) tx submitted: {} with result_hash {} sig_r {}",
+            job_id,
+            tx_hash,
+            result_hash_felt,
+            signature.r
+        );
+
+        Ok(TransactionResult {
+            signature: tx_hash,
+            success: true,
+            error: None,
+            block_height: None,
+        })
+    }
+
+    /// Register prover's ECDSA public key for signature verification
+    ///
+    /// Must be called once before submitting verified results.
+    pub async fn register_prover_pubkey(&self) -> Result<TransactionResult> {
+        let private_key_hex = match &self.private_key {
+            Some(pk) => pk.as_str(),
+            None => {
+                return Err(MarketplaceError::Other(
+                    "register_prover_pubkey requires private key".to_string(),
+                ));
+            }
+        };
+
+        // Convert private key from hex to bytes
+        let private_key_bytes: [u8; 32] = hex::decode(private_key_hex.trim_start_matches("0x"))
+            .map_err(|e| MarketplaceError::Other(format!("Invalid private key hex: {}", e)))?
+            .try_into()
+            .map_err(|_| MarketplaceError::Other("Private key must be 32 bytes".to_string()))?;
+
+        // Get STARK public key
+        let pubkey_x = signing::get_stark_pubkey(&private_key_bytes)
+            .map_err(|e| MarketplaceError::Other(format!("Failed to get pubkey: {}", e)))?;
+
+        // For STARK curve, we only need x-coordinate (pubkey_y = 0 for MVP)
+        let pubkey_y = "0x0".to_string();
+
+        let calldata = vec![pubkey_x.clone(), pubkey_y];
+
+        let args = serde_json::json!({
+            "calldata": calldata,
+            "private_key": private_key_hex
+        });
+
+        let args_bytes = serde_json::to_vec(&args)
+            .map_err(|e| MarketplaceError::Other(format!("Failed to serialize args: {}", e)))?;
+
+        let tx_hash = self
+            .client
+            .execute_contract(
+                &self.contract_address,
+                selectors::REGISTER_PROVER_PUBKEY,
+                &args_bytes,
+                &self.prover_address,
+            )
+            .await
+            .map_err(|e| MarketplaceError::Other(format!("register_prover_pubkey failed: {}", e)))?;
+
+        log::info!(
+            "register_prover_pubkey tx submitted: {} with pubkey_x {}",
+            tx_hash,
+            pubkey_x
+        );
+
+        Ok(TransactionResult {
+            signature: tx_hash,
+            success: true,
+            error: None,
+            block_height: None,
+        })
+    }
+}
+
+// ============================================================================
+// ECDSA Signing Module for FHE Results (Sprint 2/3)
 // ============================================================================
 /// Signs the combination of ciphertext_hash and result_hash to prove
 /// that the prover computed this specific result from this specific input.
+///
+/// Sprint 3: Added STARK curve support for native Cairo verification.
+/// The STARK curve is more efficient on Starknet than secp256k1.
 pub mod signing {
     use anyhow::{anyhow, Result};
     use k256::ecdsa::{signature::Signer, Signature, SigningKey};
+    use starknet_crypto::{sign, get_public_key, Felt};
     use tiny_keccak::{Hasher, Keccak};
 
-    /// Sign an FHE computation result
+    /// STARK curve signature (r, s) as hex strings for Cairo
+    #[derive(Debug, Clone)]
+    pub struct StarkSignature {
+        pub r: String,
+        pub s: String,
+    }
+
+    /// Sign an FHE result using STARK curve (native Cairo ECDSA)
     ///
     /// # Arguments
-    /// * `private_key` - Prover's ECDSA private key (32 bytes)
+    /// * `private_key` - Prover's private key (32 bytes, STARK curve)
     /// * `ciphertext_hash` - Hash of the input FHE ciphertext (32 bytes)
     /// * `result_hash` - Hash of the computed result (32 bytes)
     ///
     /// # Returns
-    /// ECDSA signature (r, s) as 64 bytes
+    /// StarkSignature with r and s as hex strings for Cairo calldata
+    pub fn sign_fhe_result_stark(
+        private_key: &[u8; 32],
+        ciphertext_hash: &[u8; 32],
+        result_hash: &[u8; 32],
+    ) -> Result<StarkSignature> {
+        // 1. Compute message: keccak256(ciphertext_hash || result_hash)
+        let message_bytes = compute_message_hash(ciphertext_hash, result_hash);
+
+        // 2. Convert to Felt (mask to ensure < prime)
+        let mut masked_message = message_bytes;
+        masked_message[0] &= 0x07; // Ensure < 2^251
+        let message = Felt::from_bytes_be_slice(&masked_message);
+
+        // 3. Convert private key to Felt
+        let mut masked_key = *private_key;
+        masked_key[0] &= 0x07; // Ensure < 2^251
+        let priv_key = Felt::from_bytes_be_slice(&masked_key);
+
+        // 4. Generate random k for signing (use hash of message + private key for determinism)
+        let mut k_input = [0u8; 64];
+        k_input[..32].copy_from_slice(&message_bytes);
+        k_input[32..].copy_from_slice(private_key);
+        let k_hash = compute_message_hash(&k_input[..32].try_into().unwrap(), &k_input[32..].try_into().unwrap());
+        let mut k_masked = k_hash;
+        k_masked[0] &= 0x07;
+        let k = Felt::from_bytes_be_slice(&k_masked);
+
+        // 5. Sign with STARK curve
+        let signature = sign(&priv_key, &message, &k)
+            .map_err(|e| anyhow!("Signing failed: {:?}", e))?;
+
+        // 6. Convert to hex strings for Cairo calldata
+        let r_bytes = signature.r.to_bytes_be();
+        let s_bytes = signature.s.to_bytes_be();
+
+        Ok(StarkSignature {
+            r: format!("0x{}", hex::encode(r_bytes)),
+            s: format!("0x{}", hex::encode(s_bytes)),
+        })
+    }
+
+    /// Get public key x-coordinate for STARK curve (for Cairo registration)
+    pub fn get_stark_pubkey(private_key: &[u8; 32]) -> Result<String> {
+        let mut masked_key = *private_key;
+        masked_key[0] &= 0x07;
+        let priv_key = Felt::from_bytes_be_slice(&masked_key);
+
+        let pubkey = get_public_key(&priv_key);
+        let pubkey_bytes = pubkey.to_bytes_be();
+
+        Ok(format!("0x{}", hex::encode(pubkey_bytes)))
+    }
+
+    // ========== Legacy secp256k1 functions (for backwards compatibility) ==========
+
+    /// Sign an FHE computation result (secp256k1 - LEGACY)
     pub fn sign_fhe_result(
         private_key: &[u8; 32],
         ciphertext_hash: &[u8; 32],
         result_hash: &[u8; 32],
     ) -> Result<Signature> {
-        // 1. Compute message: keccak256(ciphertext_hash || result_hash)
         let message = compute_message_hash(ciphertext_hash, result_hash);
-
-        // 2. Create signing key from private key bytes
         let signing_key = SigningKey::from_bytes(private_key.into())
             .map_err(|e| anyhow!("Invalid private key: {}", e))?;
-
-        // 3. Sign the message
         let signature: Signature = signing_key.sign(&message);
-
         Ok(signature)
     }
 
@@ -1025,15 +1262,12 @@ pub mod signing {
         output
     }
 
-    /// Convert ECDSA signature to Cairo-compatible felt252 pair (r, s)
+    /// Convert ECDSA signature to Cairo-compatible felt252 pair (r, s) - LEGACY
     pub fn signature_to_felts(signature: &Signature) -> (String, String) {
         let sig_bytes = signature.to_bytes();
-
-        // Split into r and s (32 bytes each)
         let r_bytes = &sig_bytes[0..32];
         let s_bytes = &sig_bytes[32..64];
 
-        // Mask top 5 bits to ensure < 2^251 (Starknet prime)
         let mut r_masked = [0u8; 32];
         let mut s_masked = [0u8; 32];
         r_masked.copy_from_slice(r_bytes);
@@ -1041,10 +1275,7 @@ pub mod signing {
         r_masked[0] &= 0x07;
         s_masked[0] &= 0x07;
 
-        let sig_r = format!("0x{}", hex::encode(r_masked));
-        let sig_s = format!("0x{}", hex::encode(s_masked));
-
-        (sig_r, sig_s)
+        (format!("0x{}", hex::encode(r_masked)), format!("0x{}", hex::encode(s_masked)))
     }
 
     #[cfg(test)]
@@ -1111,6 +1342,57 @@ pub mod signing {
 
             let hash2 = compute_message_hash(&ciphertext_hash, &result_hash);
             assert_eq!(hash, hash2, "Hash should be deterministic");
+        }
+
+        // ========== STARK curve tests (Sprint 3) ==========
+
+        #[test]
+        fn test_sign_fhe_result_stark() {
+            let private_key = [0x42; 32];
+            let ciphertext_hash = [0xaa; 32];
+            let result_hash = [0xbb; 32];
+
+            let signature = sign_fhe_result_stark(&private_key, &ciphertext_hash, &result_hash);
+            assert!(signature.is_ok(), "STARK signing should succeed");
+
+            let sig = signature.unwrap();
+            assert!(sig.r.starts_with("0x"), "sig.r should be hex");
+            assert!(sig.s.starts_with("0x"), "sig.s should be hex");
+        }
+
+        #[test]
+        fn test_stark_signature_deterministic() {
+            let private_key = [0x42; 32];
+            let ciphertext_hash = [0xaa; 32];
+            let result_hash = [0xbb; 32];
+
+            let sig1 = sign_fhe_result_stark(&private_key, &ciphertext_hash, &result_hash).unwrap();
+            let sig2 = sign_fhe_result_stark(&private_key, &ciphertext_hash, &result_hash).unwrap();
+
+            assert_eq!(sig1.r, sig2.r, "STARK signatures should be deterministic (r)");
+            assert_eq!(sig1.s, sig2.s, "STARK signatures should be deterministic (s)");
+        }
+
+        #[test]
+        fn test_get_stark_pubkey() {
+            let private_key = [0x42; 32];
+
+            let pubkey = get_stark_pubkey(&private_key);
+            assert!(pubkey.is_ok(), "Should generate pubkey");
+
+            let pk = pubkey.unwrap();
+            assert!(pk.starts_with("0x"), "Pubkey should be hex");
+            assert_eq!(pk.len(), 66, "Pubkey should be 0x + 64 hex chars");
+        }
+
+        #[test]
+        fn test_stark_pubkey_deterministic() {
+            let private_key = [0x42; 32];
+
+            let pk1 = get_stark_pubkey(&private_key).unwrap();
+            let pk2 = get_stark_pubkey(&private_key).unwrap();
+
+            assert_eq!(pk1, pk2, "Pubkey generation should be deterministic");
         }
     }
 }
