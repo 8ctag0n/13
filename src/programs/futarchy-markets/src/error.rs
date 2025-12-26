@@ -79,6 +79,24 @@ pub enum FutarchyError {
 
     #[error("Position already claimed")]
     PositionAlreadyClaimed,
+
+    #[error("Already claimed (nullifier exists)")]
+    AlreadyClaimed,
+
+    #[error("Unauthorized oracle")]
+    UnauthorizedOracle,
+
+    #[error("Betting period not closed")]
+    BettingNotClosed,
+
+    #[error("Market is not a governance market")]
+    NotGovernanceMarket,
+
+    #[error("Unauthorized authority")]
+    UnauthorizedAuthority,
+
+    #[error("No winners in market")]
+    NoWinners,
 }
 
 impl From<FutarchyError> for ProgramError {

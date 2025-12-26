@@ -11556,10 +11556,12 @@ name = "zyb-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "ark-bn254",
  "atty",
  "base64 0.22.1",
  "bincode",
  "blake2",
+ "borsh 1.6.0",
  "bs58",
  "chrono",
  "clap",
@@ -11573,7 +11575,9 @@ dependencies = [
  "futarchy-sdk",
  "hex",
  "indicatif",
+ "light-poseidon",
  "log",
+ "num-bigint 0.4.6",
  "rand 0.8.5",
  "reqwest 0.11.27",
  "serde",

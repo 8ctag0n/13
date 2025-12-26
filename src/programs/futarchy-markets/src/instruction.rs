@@ -264,6 +264,7 @@ mod tests {
             public_inputs: vec![1u8; 80],
             amount: 500_000_000,
             circuit_type: 30,
+            ciphertext_hash: None,
             encrypted_bet_amount: None,
             side: None,
         };

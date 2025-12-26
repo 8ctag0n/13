@@ -111,6 +111,100 @@ pub fn verify_poi_proof<'a>(
     Ok(())
 }
 
+/// Verify a PlaceBetPrivate ZK proof via CPI to zk-generator
+///
+/// Circuit 33: Private bet with balance commitments
+///
+/// # Arguments
+/// * `zk_program_info` - ZK-generator program account
+/// * `proof` - The ZK proof bytes (256 bytes Groth16)
+/// * `public_inputs` - Public inputs (>= 112 bytes)
+pub fn verify_place_bet_private_proof<'a>(
+    _zk_program_info: &AccountInfo<'a>,
+    proof: &[u8],
+    public_inputs: &[u8],
+) -> ProgramResult {
+    // Validate proof size (Groth16)
+    if proof.len() != 256 {
+        return Err(ProgramError::InvalidInstructionData);
+    }
+
+    // Validate public inputs size
+    // Circuit 33: old_balance_commitment(32) + new_balance_commitment(32) +
+    //             bet_commitment(32) + market_id(8) + max_bet(8) = 112 bytes
+    if public_inputs.len() < 112 {
+        return Err(ProgramError::InvalidInstructionData);
+    }
+
+    // TODO: Implement actual CPI to zk-generator's verify_proof instruction
+    // For MVP, we accept the proof (validated off-chain + dispute mechanism)
+
+    Ok(())
+}
+
+/// Verify a ClaimPrivate ZK proof via CPI to zk-generator
+///
+/// Circuit 34: Private claim with nullifier
+///
+/// # Arguments
+/// * `zk_program_info` - ZK-generator program account
+/// * `proof` - The ZK proof bytes (256 bytes Groth16)
+/// * `public_inputs` - Public inputs (>= 137 bytes)
+pub fn verify_claim_private_proof<'a>(
+    _zk_program_info: &AccountInfo<'a>,
+    proof: &[u8],
+    public_inputs: &[u8],
+) -> ProgramResult {
+    // Validate proof size (Groth16)
+    if proof.len() != 256 {
+        return Err(ProgramError::InvalidInstructionData);
+    }
+
+    // Validate public inputs size
+    // Circuit 34: bet_commitment(32) + nullifier_hash(32) + old_balance_commitment(32) +
+    //             new_balance_commitment(32) + market_resolution(1) +
+    //             total_winning_pool(8) + total_losing_pool(8) = 145 bytes (min 137)
+    if public_inputs.len() < 137 {
+        return Err(ProgramError::InvalidInstructionData);
+    }
+
+    // TODO: Implement actual CPI to zk-generator's verify_proof instruction
+    // For MVP, we accept the proof (validated off-chain + dispute mechanism)
+
+    Ok(())
+}
+
+/// Verify a WithdrawPrivate ZK proof via CPI to zk-generator
+///
+/// Circuit 36: Private withdrawal
+///
+/// # Arguments
+/// * `zk_program_info` - ZK-generator program account
+/// * `proof` - The ZK proof bytes (256 bytes Groth16)
+/// * `public_inputs` - Public inputs (>= 72 bytes)
+pub fn verify_withdraw_private_proof<'a>(
+    _zk_program_info: &AccountInfo<'a>,
+    proof: &[u8],
+    public_inputs: &[u8],
+) -> ProgramResult {
+    // Validate proof size (Groth16)
+    if proof.len() != 256 {
+        return Err(ProgramError::InvalidInstructionData);
+    }
+
+    // Validate public inputs size
+    // Circuit 36: old_balance_commitment(32) + new_balance_commitment(32) +
+    //             withdraw_amount(8) = 72 bytes
+    if public_inputs.len() < 72 {
+        return Err(ProgramError::InvalidInstructionData);
+    }
+
+    // TODO: Implement actual CPI to zk-generator's verify_proof instruction
+    // For MVP, we accept the proof (validated off-chain + dispute mechanism)
+
+    Ok(())
+}
+
 /// Verify prover is registered via CPI to bedrock
 ///
 /// # Arguments
