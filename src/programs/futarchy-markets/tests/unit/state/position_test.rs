@@ -52,10 +52,11 @@ fn test_position_space_constant() {
     // Verify SPACE constant is sufficient (without encrypted_amount)
     assert!(serialized.len() <= Position::SPACE + 1);
 
-    // Verify SPACE is accurate (106 bytes base)
-    assert_eq!(Position::SPACE, 106);
+    // Verify SPACE is accurate (107 bytes with None encrypted_amount)
+    // user: 32 + market: 32 + bet_commitment: 32 + placed_at: 8 + claimed: 1 + bump: 1 + Option(None): 1 = 107
+    assert_eq!(Position::SPACE, 107);
 
-    // Size should be close to constant (within a few bytes, +1 for Option discriminant)
+    // Size should be close to constant
     assert!(serialized.len() >= 100);
 }
 

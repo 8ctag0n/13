@@ -58,6 +58,18 @@ mod helpers {
         )
     }
 
+    /// Derive nullifier PDA for claim tracking
+    pub fn derive_nullifier_pda(
+        program_id: &Pubkey,
+        market_id: u64,
+        nullifier_hash: &[u8; 32],
+    ) -> (Pubkey, u8) {
+        Pubkey::find_program_address(
+            &[b"nullifier", &market_id.to_le_bytes(), nullifier_hash],
+            program_id,
+        )
+    }
+
     /// Derive position PDA
     pub fn derive_position_pda(
         program_id: &Pubkey,
@@ -2376,6 +2388,7 @@ mod place_bet_tests {
             public_inputs,
             amount,
             circuit_type: 30, // MarketBet circuit
+            ciphertext_hash: None,
             encrypted_bet_amount: None,
             side: None,
         };
@@ -2638,6 +2651,7 @@ mod full_lifecycle_tests {
             public_inputs,
             amount,
             circuit_type: 30,
+            ciphertext_hash: None,
             encrypted_bet_amount: None,
             side: None,
         };
@@ -2662,18 +2676,32 @@ mod full_lifecycle_tests {
     }
 
     /// Helper to build ClaimPayout instruction
+    /// Accounts order:
+    /// 0. user (signer)
+    /// 1. market (readonly)
+    /// 2. nullifier (PDA, writable - will be created)
+    /// 3. position (PDA, writable)
+    /// 4. escrow (PDA, writable)
+    /// 5. zk_program (readonly)
+    /// 6. system_program (readonly)
     fn claim_payout_instruction(
         program_id: &Pubkey,
         user: &Pubkey,
         market_id: u64,
         claim_nullifier: [u8; 32],
+        bet_commitment: [u8; 32],
         payout_amount: u64,
     ) -> Instruction {
         let (market_pda, _) = derive_market_pda(program_id, market_id);
         let (escrow_pda, _) = derive_escrow_pda(program_id, market_id);
+        let (nullifier_pda, _) = derive_nullifier_pda(program_id, market_id, &claim_nullifier);
+        let (position_pda, _) = derive_position_pda(program_id, user, market_id, &bet_commitment);
 
         let proof = vec![0u8; 256];
-        let public_inputs = vec![0u8; 105]; // Circuit 32 needs 105 bytes
+        // Build public_inputs with bet_commitment at offset 65..97
+        // Layout: [0..32] nullifier, [32..64] balance_commitment, [64] side, [65..97] bet_commitment, ...
+        let mut public_inputs = vec![0u8; 105];
+        public_inputs[65..97].copy_from_slice(&bet_commitment);
 
         let instruction = FutarchyInstruction::ClaimPayout {
             market_id,
@@ -2686,18 +2714,16 @@ mod full_lifecycle_tests {
         let data = instruction.pack().unwrap();
         let zk_program = Pubkey::new_unique();
 
-        // Position is optional but still needs to be passed (can use a dummy)
-        let dummy_position = Pubkey::new_unique();
-
         Instruction {
             program_id: *program_id,
             accounts: vec![
-                AccountMeta::new(*user, true),
-                AccountMeta::new(market_pda, false),
-                AccountMeta::new(dummy_position, false), // Position (optional)
-                AccountMeta::new(escrow_pda, false),
-                AccountMeta::new_readonly(zk_program, false),
-                AccountMeta::new_readonly(system_program::id(), false),
+                AccountMeta::new(*user, true),              // 0. User
+                AccountMeta::new(market_pda, false),        // 1. Market
+                AccountMeta::new(nullifier_pda, false),     // 2. Nullifier PDA
+                AccountMeta::new(position_pda, false),      // 3. Position PDA
+                AccountMeta::new(escrow_pda, false),        // 4. Escrow
+                AccountMeta::new_readonly(zk_program, false), // 5. ZK program
+                AccountMeta::new_readonly(system_program::id(), false), // 6. System program
             ],
             data,
         }
@@ -2836,6 +2862,7 @@ mod full_lifecycle_tests {
             &user.pubkey(),
             market_id,
             claim_nullifier,
+            bet_commitment, // Use the same bet_commitment from PlaceBet
             payout_amount,
         );
 
@@ -2856,9 +2883,10 @@ mod full_lifecycle_tests {
         let market_escrow_balance = get_balance(&mut context, &market_escrow_pda).await;
         assert!(market_escrow_balance < bet_amount); // Should have paid out
 
-        // Verify claim nullifier was recorded
-        let market_after_claim = get_market_account(&mut context, &market_pda).await;
-        assert!(market_after_claim.claim_nullifiers.contains(&claim_nullifier));
+        // Verify claim nullifier PDA was created (new model uses PDAs instead of vector)
+        let (nullifier_pda, _) = derive_nullifier_pda(&program_id, market_id, &claim_nullifier);
+        let nullifier_account = context.banks_client.get_account(nullifier_pda).await.unwrap();
+        assert!(nullifier_account.is_some(), "Nullifier PDA should exist after claim");
     }
 
     #[tokio::test]
@@ -2977,6 +3005,7 @@ mod full_lifecycle_tests {
             &user.pubkey(),
             market_id,
             claim_nullifier,
+            bet_commitment,
             payout_amount,
         );
 
@@ -2995,6 +3024,7 @@ mod full_lifecycle_tests {
             &user.pubkey(),
             market_id,
             claim_nullifier,
+            bet_commitment,
             payout_amount,
         );
 
