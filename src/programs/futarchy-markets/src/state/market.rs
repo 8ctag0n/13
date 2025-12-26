@@ -240,3 +240,160 @@ pub enum MarketStatus {
     /// Market was cancelled (refunds possible)
     Cancelled = 3,
 }
+
+// ============================================================================
+// V2: Minimal Market (for PrivateBalance architecture)
+// ============================================================================
+
+pub const MARKET_V2_SEED: &[u8] = b"market_v2";
+
+/// MarketV2 - Minimal market structure with vote counting
+/// Seeds: ["market_v2", market_id]
+///
+/// V2 Simple: No on-chain amount pools. Only vote counts are public.
+/// Payout = bet_amount + (vault_total / winner_count)
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
+pub struct MarketV2 {
+    /// Market creator/authority
+    pub authority: Pubkey,
+
+    /// Unique market ID
+    pub market_id: u64,
+
+    /// Oracle that can settle this market
+    pub oracle: Pubkey,
+
+    /// Market question hash
+    pub question_hash: [u8; 32],
+
+    /// Unix timestamp when betting closes
+    pub end_time: i64,
+
+    /// Market status
+    pub status: MarketStatus,
+
+    /// Maximum bet allowed per position
+    pub max_bet: u64,
+
+    /// Resolved outcome (None if not settled)
+    pub resolution: Option<bool>,
+
+    /// Number of bets on YES (public counter)
+    pub bet_count_yes: u64,
+
+    /// Number of bets on NO (public counter)
+    pub bet_count_no: u64,
+
+    /// Commitment to off-chain FHE pool state (for V3)
+    /// pool_state_root = Poseidon(encrypted_yes || encrypted_no || nonce)
+    pub pool_state_root: [u8; 32],
+
+    /// Whether this market has governance (GovernanceConfig PDA exists)
+    pub has_governance: bool,
+
+    /// Bump seed for PDA derivation
+    pub bump: u8,
+
+    /// Timestamp when market was created
+    pub created_at: i64,
+}
+
+impl MarketV2 {
+    /// Space: 32 + 8 + 32 + 32 + 8 + 1 + 8 + 2 + 8 + 8 + 32 + 1 + 1 + 8 = 181 bytes
+    /// - authority: 32
+    /// - market_id: 8
+    /// - oracle: 32
+    /// - question_hash: 32
+    /// - end_time: 8
+    /// - status: 1
+    /// - max_bet: 8
+    /// - resolution: 2 (Option<bool>)
+    /// - bet_count_yes: 8
+    /// - bet_count_no: 8
+    /// - pool_state_root: 32
+    /// - has_governance: 1
+    /// - bump: 1
+    /// - created_at: 8
+    pub const SPACE: usize = 181;
+
+    pub fn new(
+        authority: Pubkey,
+        market_id: u64,
+        oracle: Pubkey,
+        question_hash: [u8; 32],
+        end_time: i64,
+        max_bet: u64,
+        has_governance: bool,
+        bump: u8,
+        created_at: i64,
+    ) -> Self {
+        Self {
+            authority,
+            market_id,
+            oracle,
+            question_hash,
+            end_time,
+            status: MarketStatus::Active,
+            max_bet,
+            resolution: None,
+            bet_count_yes: 0,
+            bet_count_no: 0,
+            pool_state_root: [0u8; 32],
+            has_governance,
+            bump,
+            created_at,
+        }
+    }
+
+    /// Increment bet counter for the given side
+    pub fn increment_bet_count(&mut self, side: bool) {
+        if side {
+            self.bet_count_yes = self.bet_count_yes.saturating_add(1);
+        } else {
+            self.bet_count_no = self.bet_count_no.saturating_add(1);
+        }
+    }
+
+    /// Get winner count based on resolution
+    pub fn winner_count(&self) -> Option<u64> {
+        self.resolution.map(|yes_won| {
+            if yes_won {
+                self.bet_count_yes
+            } else {
+                self.bet_count_no
+            }
+        })
+    }
+
+    /// Get total bet count
+    pub fn total_bet_count(&self) -> u64 {
+        self.bet_count_yes.saturating_add(self.bet_count_no)
+    }
+
+    pub fn seeds_with_bump<'a>(market_id: &'a [u8; 8], bump: &'a [u8]) -> [&'a [u8]; 3] {
+        [MARKET_V2_SEED, market_id, bump]
+    }
+
+    pub fn is_active(&self) -> bool {
+        matches!(self.status, MarketStatus::Active)
+    }
+
+    pub fn is_settled(&self) -> bool {
+        matches!(self.status, MarketStatus::Settled)
+    }
+
+    pub fn is_betting_closed(&self, current_time: i64) -> bool {
+        current_time >= self.end_time
+    }
+
+    /// Update pool state root (called after FHE prover consensus)
+    pub fn update_pool_state_root(&mut self, new_root: [u8; 32]) {
+        self.pool_state_root = new_root;
+    }
+
+    /// Settle the market
+    pub fn settle(&mut self, resolution: bool) {
+        self.resolution = Some(resolution);
+        self.status = MarketStatus::Settled;
+    }
+}
