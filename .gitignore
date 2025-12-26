@@ -19,6 +19,11 @@ test-witnesses/
 *.dll
 *.rlib
 
+# Circuits compiled (keys + r1cs, wasm,etc)
+*.wasm
+*.r1cs
+*.tau
+*.zkey
 # Cargo local config
 .cargo/config.toml
 
