@@ -30,12 +30,13 @@ program_id = "11111111111111111111111111111111"
 type = "starknet"
 enabled = true
 rpc_url = "http://localhost:5050"
-contract_address = "0x07a2269ebeab2e81c7c59765d6fc1d72cdd6a681bfa2836de3c32594364beeee"
+contract_address = "0x044ad1e679d1d26ed75b9d743a5063eb71dc11f788e21d7251c75d3655cefdeb"
 prover_address = "0x064b48806902a367c8598f4f95c305e8c1a1acba5f082d294a43793113115691"
 
 [chains.aptos]
 type = "aptos"
-enabled = false
-rpc_url = "https://fullnode.devnet.aptoslabs.com"
-module_address = "0x0"
-prover_address = "0x0"
+enabled = true
+rpc_url = "http://localhost:8080"
+module_address = "0x8513a06eb9dcc92de56de2906c0b0ea4b99f92ac234411d2bf80c8f5bdb3fee5"
+prover_address = "0x8513a06eb9dcc92de56de2906c0b0ea4b99f92ac234411d2bf80c8f5bdb3fee5"
+private_key = "0xf69aba325061576f8816972ca86793220a4235b6183135fe7cc19e840b88ff55"

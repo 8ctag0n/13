@@ -506,14 +506,22 @@ impl ProverNode {
                 MarketplaceFactory::create(&marketplace_config, keypair)
             }
             ChainConfig::Aptos(aptos_config) => {
-                // Load private key from environment
-                let _private_key = std::env::var("APTOS_PRIVATE_KEY").ok();
+                // Load private key from config or environment
+                let private_key = aptos_config.private_key.clone()
+                    .or_else(|| std::env::var("APTOS_PRIVATE_KEY").ok());
 
-                let marketplace_config = MarketplaceConfig::aptos(
+                let mut marketplace_config = MarketplaceConfig::aptos(
                     &aptos_config.rpc_url,
                     &aptos_config.module_address,
                     &aptos_config.prover_address,
                 );
+
+                if let Some(pk) = private_key {
+                    log::info!("Aptos: Using private key for transaction signing");
+                    marketplace_config = marketplace_config.with_aptos_signer(&pk);
+                } else {
+                    log::warn!("Aptos: No private key configured (read-only mode)");
+                }
 
                 MarketplaceFactory::create(&marketplace_config, keypair)
             }

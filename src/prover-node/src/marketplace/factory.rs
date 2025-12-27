@@ -62,6 +62,8 @@ pub struct MarketplaceConfig {
     pub fhe_generator_program: Option<String>,
     /// Starknet private key for signing transactions (hex format)
     pub starknet_private_key: Option<String>,
+    /// Aptos private key for signing transactions (hex format)
+    pub aptos_private_key: Option<String>,
 }
 
 impl MarketplaceConfig {
@@ -86,6 +88,7 @@ impl MarketplaceConfig {
             zk_generator_program: None,
             fhe_generator_program: None,
             starknet_private_key: None,
+            aptos_private_key: None,
         }
     }
 
@@ -115,6 +118,7 @@ impl MarketplaceConfig {
             zk_generator_program: None,
             fhe_generator_program: None,
             starknet_private_key: None,
+            aptos_private_key: None,
         }
     }
 
@@ -137,12 +141,19 @@ impl MarketplaceConfig {
             zk_generator_program: None,
             fhe_generator_program: None,
             starknet_private_key: None,
+            aptos_private_key: None,
         }
     }
 
     /// Set Starknet private key for signing transactions (builder pattern)
     pub fn with_starknet_signer(mut self, private_key: &str) -> Self {
         self.starknet_private_key = Some(private_key.to_string());
+        self
+    }
+
+    /// Set Aptos private key for signing transactions (builder pattern)
+    pub fn with_aptos_signer(mut self, private_key: &str) -> Self {
+        self.aptos_private_key = Some(private_key.to_string());
         self
     }
 }
@@ -217,6 +228,7 @@ impl MarketplaceFactory {
                     Arc::new(client),
                     config.program_address.clone(),
                     prover_address,
+                    config.aptos_private_key.clone(),
                 );
 
                 Ok(Arc::new(marketplace))

@@ -16,6 +16,8 @@ pub enum JobSource {
     FheGenerator,
     /// Starknet FHE Jobs contract
     Starknet,
+    /// Aptos Jobs contract
+    Aptos,
 }
 
 /// Starknet-specific job type (maps to Cairo JobType enum)
