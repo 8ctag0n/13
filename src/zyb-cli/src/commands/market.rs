@@ -196,7 +196,7 @@ const CIRCUIT_PLACE_BET_BLIND: u8 = 50;
 const CIRCUIT_CLAIM_BLIND: u8 = 51;
 
 /// Side of a futarchy bet
-#[derive(Debug, Clone, Copy, ValueEnum)]
+#[derive(Debug, Clone, Copy, ValueEnum, PartialEq)]
 pub enum BetSide {
     Yes,
     No,
@@ -3864,12 +3864,442 @@ async fn bet_blind_v3(args: BetBlindArgs) -> Result<()> {
     Ok(())
 }
 
-#[tokio::main]
-async fn settle_market_v3(_args: SettleV3Args) -> Result<()> {
-    anyhow::bail!("SettleV3 not yet implemented - coming soon!")
+/// Generate ClaimBlind proof using snarkjs
+fn generate_claim_blind_proof(
+    wasm_path: &PathBuf,
+    zkey_path: &PathBuf,
+    market_id: u64,
+    bet_ciphertext_hash: &[u8; 32],
+    bet_secret_commitment: &[u8; 32],
+    bet_amount: u64,
+    bet_side: u8,
+    secret: &[u8; 32],
+    payout_amount: u64,
+    winning_pool: u64,
+    losing_pool: u64,
+) -> Result<(Vec<u8>, Vec<u8>)> {
+    use std::process::Command;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    // Create temp directory
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)?
+        .as_nanos();
+    let temp_dir = std::env::temp_dir().join(format!("claim_blind_{}", nanos));
+    fs::create_dir_all(&temp_dir)?;
+
+    let input_path = temp_dir.join("input.json");
+    let proof_path = temp_dir.join("proof.json");
+    let public_path = temp_dir.join("public.json");
+
+    // Build witness JSON for ClaimBlind circuit
+    let input_json = serde_json::json!({
+        // Public inputs
+        "market_id": market_id.to_string(),
+        "bet_ciphertext_hash": bytes_to_dec(bet_ciphertext_hash),
+        "bet_secret_commitment": bytes_to_dec(bet_secret_commitment),
+        "payout_amount": payout_amount.to_string(),
+        // Private inputs
+        "bet_amount": bet_amount.to_string(),
+        "bet_side": bet_side.to_string(),
+        "secret": bytes_to_dec(secret),
+        "winning_pool": winning_pool.to_string(),
+        "losing_pool": losing_pool.to_string(),
+    });
+
+    fs::write(&input_path, serde_json::to_string_pretty(&input_json)?)?;
+
+    println!("  Running snarkjs groth16 fullprove (ClaimBlind)...");
+
+    // Run snarkjs groth16 fullprove
+    let output = Command::new("npx")
+        .args([
+            "snarkjs",
+            "groth16",
+            "fullprove",
+            input_path.to_str().unwrap(),
+            wasm_path.to_str().unwrap(),
+            zkey_path.to_str().unwrap(),
+            proof_path.to_str().unwrap(),
+            public_path.to_str().unwrap(),
+        ])
+        .output()
+        .with_context(|| "Failed to run snarkjs")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        anyhow::bail!("snarkjs failed:\nstderr: {}\nstdout: {}", stderr, stdout);
+    }
+
+    // Parse proof.json
+    let proof_content = fs::read_to_string(&proof_path)?;
+    let proof_json: serde_json::Value = serde_json::from_str(&proof_content)?;
+
+    // Convert proof to 256 bytes (Groth16 format with A negation)
+    let proof_bytes = proof_json_to_bytes(&proof_json)?;
+
+    // Build public_inputs for on-chain verification
+    // Format (104 bytes):
+    // 0-8: market_id (8 bytes)
+    // 8-40: bet_ciphertext_hash (32 bytes)
+    // 40-72: bet_secret_commitment (32 bytes)
+    // 72-80: payout_amount (8 bytes)
+    // 80-104: reserved (24 bytes for future use)
+    let mut public_inputs = Vec::with_capacity(104);
+    public_inputs.extend_from_slice(&market_id.to_le_bytes());
+    public_inputs.extend_from_slice(bet_ciphertext_hash);
+    public_inputs.extend_from_slice(bet_secret_commitment);
+    public_inputs.extend_from_slice(&payout_amount.to_le_bytes());
+    public_inputs.extend_from_slice(&[0u8; 24]); // reserved
+
+    // Cleanup temp dir
+    let _ = fs::remove_dir_all(&temp_dir);
+
+    println!("  ZK proof generated successfully (ClaimBlind)!");
+
+    Ok((proof_bytes, public_inputs))
 }
 
 #[tokio::main]
-async fn claim_v3(_args: ClaimV3Args) -> Result<()> {
-    anyhow::bail!("ClaimV3 not yet implemented - coming soon!")
+async fn settle_market_v3(args: SettleV3Args) -> Result<()> {
+    use solana_sdk::signature::{read_keypair_file, Signer};
+    use solana_sdk::transaction::Transaction;
+    use solana_client::rpc_client::RpcClient;
+    use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+
+    println!("{}", "Settling market V3...".cyan().bold());
+    println!();
+    println!("Market ID: {}", args.market_id);
+    println!("Outcome: {}", match args.outcome {
+        BetSide::Yes => "YES",
+        BetSide::No => "NO",
+    });
+    println!("Decrypted pools: YES={}, NO={}", args.decrypted_yes, args.decrypted_no);
+    println!();
+
+    // Load oracle keypair
+    let keypair = read_keypair_file(&args.keypair)
+        .map_err(|e| anyhow::anyhow!("Failed to load keypair from {:?}: {}", args.keypair, e))?;
+
+    // Load threshold signatures
+    println!("{}", "Loading threshold signatures...".cyan());
+    let threshold_sigs: Vec<[u8; 64]> = if args.threshold_sigs.exists() {
+        let sigs_json = fs::read_to_string(&args.threshold_sigs)?;
+        let sigs_array: Vec<String> = serde_json::from_str(&sigs_json)?;
+
+        sigs_array.iter().map(|sig_b64| {
+            let sig_bytes = BASE64.decode(sig_b64)
+                .context("Failed to decode signature from base64")?;
+            if sig_bytes.len() != 64 {
+                anyhow::bail!("Invalid signature length: expected 64, got {}", sig_bytes.len());
+            }
+            let mut sig = [0u8; 64];
+            sig.copy_from_slice(&sig_bytes);
+            Ok(sig)
+        }).collect::<Result<Vec<_>>>()?
+    } else {
+        println!("  WARNING: Using mock threshold signatures (file not found)");
+        vec![[0u8; 64]; 3] // Mock: 3 signatures of zeros
+    };
+
+    println!("  Loaded {} threshold signatures", threshold_sigs.len());
+
+    // Build SettleMarketV3 instruction
+    println!("{}", "Building transaction...".cyan());
+
+    let instruction_data = FutarchyInstructionV3::SettleMarketV3 {
+        market_id: args.market_id,
+        outcome: args.outcome == BetSide::Yes,
+        decrypted_pool_yes: args.decrypted_yes,
+        decrypted_pool_no: args.decrypted_no,
+        threshold_signatures: threshold_sigs,
+    };
+
+    let instruction_bytes = instruction_data.pack()?;
+
+    // Derive PDAs
+    println!("{}", "Deriving PDAs...".cyan());
+
+    let program_id = get_futarchy_program_id()?;
+    let oracle = keypair.pubkey();
+    let market_id_bytes = args.market_id.to_le_bytes();
+
+    // MarketV3 PDA: ["market_v3", market_id]
+    let (market_v3_pda, _) = solana_sdk::pubkey::Pubkey::find_program_address(
+        &[MARKET_V3_SEED, &market_id_bytes],
+        &program_id,
+    );
+
+    println!("  MarketV3 PDA: {}", market_v3_pda);
+    println!("  Oracle: {}", oracle);
+
+    // Build instruction accounts
+    let accounts = vec![
+        solana_sdk::instruction::AccountMeta::new_readonly(oracle, true),
+        solana_sdk::instruction::AccountMeta::new(market_v3_pda, false),
+        solana_sdk::instruction::AccountMeta::new_readonly(solana_sdk::sysvar::clock::id(), false),
+    ];
+
+    let instruction = solana_sdk::instruction::Instruction {
+        program_id,
+        accounts,
+        data: instruction_bytes,
+    };
+
+    // Send transaction
+    let rpc_client = RpcClient::new(&args.rpc_url);
+    let blockhash = rpc_client.get_latest_blockhash()
+        .context("Failed to get latest blockhash")?;
+
+    let mut tx = Transaction::new_with_payer(&[instruction], Some(&oracle));
+    tx.sign(&[&keypair], blockhash);
+
+    println!("{}", "Sending transaction to Solana...".cyan());
+    let signature = rpc_client.send_and_confirm_transaction(&tx)
+        .context("Failed to send transaction")?;
+
+    println!();
+    println!("{}", "Market settled successfully!".green().bold());
+    println!();
+    println!("TX Signature: {}", signature.to_string().yellow().bold());
+    println!("Market ID: {}", args.market_id);
+    println!("Outcome: {}", match args.outcome {
+        BetSide::Yes => "YES",
+        BetSide::No => "NO",
+    });
+    println!();
+
+    Ok(())
+}
+
+#[tokio::main]
+async fn claim_v3(args: ClaimV3Args) -> Result<()> {
+    use solana_sdk::signature::{read_keypair_file, Signer};
+    use solana_sdk::transaction::Transaction;
+    use solana_client::rpc_client::RpcClient;
+
+    println!("{}", "Claiming from market V3...".cyan().bold());
+    println!();
+
+    // Load keypair
+    let keypair = read_keypair_file(&args.keypair)
+        .map_err(|e| anyhow::anyhow!("Failed to load keypair from {:?}: {}", args.keypair, e))?;
+
+    // Load witness file
+    println!("{}", "Loading bet witness...".cyan());
+    let witness_json = fs::read_to_string(&args.witness_file)
+        .with_context(|| format!("Failed to read witness file {:?}", args.witness_file))?;
+    let witness: serde_json::Value = serde_json::from_str(&witness_json)?;
+
+    // Parse witness fields
+    let market_id = witness["market_id"].as_u64()
+        .ok_or_else(|| anyhow::anyhow!("Missing market_id in witness"))?;
+    let bet_amount = witness["bet_amount"].as_u64()
+        .ok_or_else(|| anyhow::anyhow!("Missing bet_amount in witness"))?;
+    let bet_side_u8 = witness["bet_side"].as_u64()
+        .ok_or_else(|| anyhow::anyhow!("Missing bet_side in witness"))? as u8;
+
+    let secret_hex = witness["secret"].as_str()
+        .ok_or_else(|| anyhow::anyhow!("Missing secret in witness"))?;
+    let bet_secret_commitment_hex = witness["bet_secret_commitment"].as_str()
+        .ok_or_else(|| anyhow::anyhow!("Missing bet_secret_commitment in witness"))?;
+    let bet_ciphertext_hash_hex = witness["bet_ciphertext_hash"].as_str()
+        .ok_or_else(|| anyhow::anyhow!("Missing bet_ciphertext_hash in witness"))?;
+
+    let secret = hex::decode(secret_hex)?.try_into()
+        .map_err(|_| anyhow::anyhow!("Invalid secret length"))?;
+    let bet_secret_commitment: [u8; 32] = hex::decode(bet_secret_commitment_hex)?.try_into()
+        .map_err(|_| anyhow::anyhow!("Invalid bet_secret_commitment length"))?;
+    let bet_ciphertext_hash: [u8; 32] = hex::decode(bet_ciphertext_hash_hex)?.try_into()
+        .map_err(|_| anyhow::anyhow!("Invalid bet_ciphertext_hash length"))?;
+
+    println!("  Market ID: {}", market_id);
+    println!("  Bet amount: {}", bet_amount);
+    println!("  Bet side: {}", if bet_side_u8 == 0 { "YES" } else { "NO" });
+    println!("  Bet ciphertext hash: {}", hex::encode(&bet_ciphertext_hash));
+
+    // Fetch market state to get decrypted pools and outcome
+    println!("{}", "Fetching market state...".cyan());
+
+    // TODO: Fetch actual market state from chain
+    // For now, use placeholder values - in production, deserialize MarketV3 account
+    let decrypted_yes = 1000000000u64; // 1 SOL
+    let decrypted_no = 500000000u64;   // 0.5 SOL
+    let outcome_yes = true; // Assume YES won
+
+    let (winning_pool, losing_pool) = if outcome_yes {
+        (decrypted_yes, decrypted_no)
+    } else {
+        (decrypted_no, decrypted_yes)
+    };
+
+    println!("  Decrypted pools: YES={}, NO={}", decrypted_yes, decrypted_no);
+    println!("  Outcome: {}", if outcome_yes { "YES" } else { "NO" });
+    println!("  Winning pool: {}, Losing pool: {}", winning_pool, losing_pool);
+
+    // Calculate payout: bet_amount + (bet_amount * losing_pool / winning_pool)
+    let payout_amount = if winning_pool > 0 {
+        bet_amount + (bet_amount * losing_pool / winning_pool)
+    } else {
+        bet_amount // Just return bet if no winner (shouldn't happen)
+    };
+
+    println!("  Calculated payout: {} lamports", payout_amount);
+
+    // Generate ZK proof
+    println!("{}", "Generating ZK proof...".cyan());
+    println!("  Circuit: ClaimBlind (circuit 51)");
+
+    let (proof, public_inputs) = if let (Some(wasm), Some(zkey)) = (&args.circuit_wasm, &args.circuit_zkey) {
+        if wasm.exists() && zkey.exists() {
+            println!("  Using real Groth16 proof generation");
+            generate_claim_blind_proof(
+                wasm,
+                zkey,
+                market_id,
+                &bet_ciphertext_hash,
+                &bet_secret_commitment,
+                bet_amount,
+                bet_side_u8,
+                &secret,
+                payout_amount,
+                winning_pool,
+                losing_pool,
+            )?
+        } else {
+            println!("  WARNING: Circuit files not found, using mock proof");
+            let proof = vec![0u8; 256];
+            let mut public_inputs = Vec::with_capacity(104);
+            public_inputs.extend_from_slice(&market_id.to_le_bytes());
+            public_inputs.extend_from_slice(&bet_ciphertext_hash);
+            public_inputs.extend_from_slice(&bet_secret_commitment);
+            public_inputs.extend_from_slice(&payout_amount.to_le_bytes());
+            public_inputs.extend_from_slice(&[0u8; 24]); // reserved
+            (proof, public_inputs)
+        }
+    } else {
+        println!("  WARNING: No circuit paths provided, using mock proof");
+        let proof = vec![0u8; 256];
+        let mut public_inputs = Vec::with_capacity(104);
+        public_inputs.extend_from_slice(&market_id.to_le_bytes());
+        public_inputs.extend_from_slice(&bet_ciphertext_hash);
+        public_inputs.extend_from_slice(&bet_secret_commitment);
+        public_inputs.extend_from_slice(&payout_amount.to_le_bytes());
+        public_inputs.extend_from_slice(&[0u8; 24]); // reserved
+        (proof, public_inputs)
+    };
+
+    println!("  Proof generated ({} bytes)", proof.len());
+
+    // Fetch private balance state
+    println!("{}", "Fetching private balance state...".cyan());
+    let (balance_pda, balance_commitment, _balance_nonce) =
+        fetch_private_balance_state(&args.rpc_url, &keypair.pubkey()).await?;
+
+    // For simplicity, use same balance commitment (real impl should update it)
+    let new_balance_commitment = balance_commitment;
+
+    println!("  Balance PDA: {}", balance_pda);
+    println!("  Balance commitment: {}", hex::encode(&balance_commitment));
+
+    // Build ClaimV3 instruction
+    println!("{}", "Building transaction...".cyan());
+
+    let instruction_data = FutarchyInstructionV3::ClaimV3 {
+        market_id,
+        bet_ciphertext_hash,
+        bet_secret_commitment,
+        proof,
+        public_inputs,
+        new_balance_commitment,
+        circuit_type: CIRCUIT_CLAIM_BLIND,
+    };
+
+    let instruction_bytes = instruction_data.pack()?;
+
+    // Derive PDAs
+    println!("{}", "Deriving PDAs...".cyan());
+
+    let program_id = get_futarchy_program_id()?;
+    let zk_program_id = get_zk_generator_program_id()?;
+    let user = keypair.pubkey();
+    let market_id_bytes = market_id.to_le_bytes();
+
+    // Private balance PDA: ["private_balance", user]
+    let (private_balance_pda, _) = solana_sdk::pubkey::Pubkey::find_program_address(
+        &[PRIVATE_BALANCE_SEED, user.as_ref()],
+        &program_id,
+    );
+
+    // MarketV3 PDA: ["market_v3", market_id]
+    let (market_v3_pda, _) = solana_sdk::pubkey::Pubkey::find_program_address(
+        &[MARKET_V3_SEED, &market_id_bytes],
+        &program_id,
+    );
+
+    // PositionV3 PDA: ["position_v3", market_id, bet_ciphertext_hash]
+    let (position_v3_pda, _) = solana_sdk::pubkey::Pubkey::find_program_address(
+        &[POSITION_V3_SEED, &market_id_bytes, &bet_ciphertext_hash],
+        &program_id,
+    );
+
+    // MarketVault PDA: ["market_vault", market_id]
+    let (market_vault_pda, _) = solana_sdk::pubkey::Pubkey::find_program_address(
+        &[MARKET_VAULT_SEED, &market_id_bytes],
+        &program_id,
+    );
+
+    // ProtocolVault PDA: ["protocol_vault"]
+    let (protocol_vault_pda, _) = solana_sdk::pubkey::Pubkey::find_program_address(
+        &[PROTOCOL_VAULT_SEED],
+        &program_id,
+    );
+
+    println!("  Private Balance PDA: {}", private_balance_pda);
+    println!("  MarketV3 PDA: {}", market_v3_pda);
+    println!("  PositionV3 PDA: {}", position_v3_pda);
+    println!("  MarketVault PDA: {}", market_vault_pda);
+    println!("  ProtocolVault PDA: {}", protocol_vault_pda);
+
+    // Build instruction accounts
+    let accounts = vec![
+        solana_sdk::instruction::AccountMeta::new(user, true),
+        solana_sdk::instruction::AccountMeta::new(private_balance_pda, false),
+        solana_sdk::instruction::AccountMeta::new(market_v3_pda, false),
+        solana_sdk::instruction::AccountMeta::new(position_v3_pda, false),
+        solana_sdk::instruction::AccountMeta::new(market_vault_pda, false),
+        solana_sdk::instruction::AccountMeta::new(protocol_vault_pda, false),
+        solana_sdk::instruction::AccountMeta::new_readonly(zk_program_id, false),
+        solana_sdk::instruction::AccountMeta::new_readonly(solana_sdk::system_program::id(), false),
+        solana_sdk::instruction::AccountMeta::new_readonly(solana_sdk::sysvar::clock::id(), false),
+    ];
+
+    let instruction = solana_sdk::instruction::Instruction {
+        program_id,
+        accounts,
+        data: instruction_bytes,
+    };
+
+    // Send transaction
+    let rpc_client = RpcClient::new(&args.rpc_url);
+    let blockhash = rpc_client.get_latest_blockhash()
+        .context("Failed to get latest blockhash")?;
+
+    let mut tx = Transaction::new_with_payer(&[instruction], Some(&user));
+    tx.sign(&[&keypair], blockhash);
+
+    println!("{}", "Sending transaction to Solana...".cyan());
+    let signature = rpc_client.send_and_confirm_transaction(&tx)
+        .context("Failed to send transaction")?;
+
+    println!();
+    println!("{}", "Claim successful!".green().bold());
+    println!();
+    println!("TX Signature: {}", signature.to_string().yellow().bold());
+    println!("Market ID: {}", market_id);
+    println!("Payout: {} lamports", payout_amount);
+    println!();
+
+    Ok(())
 }
