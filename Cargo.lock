@@ -5007,6 +5007,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "private_lending"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bincode",
+ "hex",
+ "log",
+ "serde",
+ "serde_json",
+ "sha3",
+ "thiserror 1.0.69",
+ "tokio",
+ "zyberlink-chain-client",
+ "zyberlink-fhe",
+ "zyberlink-types",
+]
+
+[[package]]
 name = "proc-macro-crate"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -12297,6 +12315,7 @@ dependencies = [
  "log",
  "orchard",
  "pasta_curves",
+ "private_lending",
  "qr2term",
  "rand 0.8.5",
  "ratatui",

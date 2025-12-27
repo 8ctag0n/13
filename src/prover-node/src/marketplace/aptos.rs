@@ -623,7 +623,9 @@ fn parse_vector_u8(value: &serde_json::Value) -> [u8; 32] {
 ///
 /// Aptos circuit types:
 /// - 0-3: ZK circuits (Zcash Orchard, Sapling, Anonymous Vote, Credential)
-/// - 4-11: FHE operations (Add, Multiply, Sum, Threshold, etc.)
+/// - 4-6: FHE operations (Add, Multiply, Sum)
+/// - 7: LTV_CHECK (Private Lending LTV verification)
+/// - 8-11: FHE operations (RangeCheck, Average, CountIf, Histogram)
 fn map_aptos_circuit_type(circuit_type: u8) -> zyberlink_types::CircuitType {
     use zyberlink_types::{CircuitType, FheOperation};
 
@@ -635,7 +637,7 @@ fn map_aptos_circuit_type(circuit_type: u8) -> zyberlink_types::CircuitType {
         4 => CircuitType::FheComputation(FheOperation::Add(1)), // Add with default operand
         5 => CircuitType::FheComputation(FheOperation::Multiply(2)), // Multiply with default operand
         6 => CircuitType::FheComputation(FheOperation::Sum { expected_count: 10 }), // Sum with default count
-        7 => CircuitType::FheComputation(FheOperation::Threshold { threshold: 18, greater_or_equal: true }),
+        7 => CircuitType::Custom("ltv_check".to_string()), // Private Lending LTV verification
         8 => CircuitType::FheComputation(FheOperation::RangeCheck { min: 0, max: 100 }),
         9 => CircuitType::FheComputation(FheOperation::Average { expected_count: 10 }),
         10 => CircuitType::FheComputation(FheOperation::CountIf {
@@ -647,6 +649,11 @@ fn map_aptos_circuit_type(circuit_type: u8) -> zyberlink_types::CircuitType {
         }),
         _ => CircuitType::Custom(format!("unknown_circuit_{}", circuit_type)),
     }
+}
+
+/// Check if a circuit type is an LTV check (Private Lending)
+pub fn is_ltv_check_circuit(circuit_type: &zyberlink_types::CircuitType) -> bool {
+    matches!(circuit_type, zyberlink_types::CircuitType::Custom(s) if s == "ltv_check")
 }
 
 #[cfg(test)]

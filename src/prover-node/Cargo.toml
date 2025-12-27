@@ -81,6 +81,9 @@ starknet-crypto = "0.8"
 # FHE (Fully Homomorphic Encryption) - using shared crate
 zyberlink-fhe = { path = "../shared/fhe" }
 
+# Private Lending vertical (Aptos LTV verification)
+private_lending = { path = "../verticals/private_lending" }
+
 # Futarchy FHE SDK for encrypted bet amounts (FheUint64)
 fhe-client-sdk = { path = "../../sdks/fhe-client-sdk" }
 

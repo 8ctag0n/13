@@ -293,6 +293,10 @@ impl JobProcessor {
                 liquidation_threshold: 110,
                 current_price: 48000,
             },
+            FheJobType::LtvCheck => FheJobParams::LtvCheck {
+                ltv_threshold_bps: 7500, // 75% default
+                collateral_price_usd: 1_000_000, // $1 with 6 decimals
+            },
         };
 
         // Fetch real TFHE ciphertexts if payload_hash is available

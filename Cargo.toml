@@ -15,6 +15,7 @@ members = [
     "src/shared/chain-client",
     "src/zyb-cli",
     "src/test-utils",
+    "src/verticals/private_lending",
 ]
 exclude = [
     "src/___dump/job-creator",  # Deprecated E2E testing tool (moved to dump)
