@@ -1,0 +1,84 @@
+# Aptos MVP Full Stack - E2E Testing
+# ===================================
+# Stack paralelo para testing de Aptos sin interferir con pBTCFi
+#
+# Uso:
+#   podman-compose -f docker-compose.aptos-mvp.yml up -d
+#   podman-compose -f docker-compose.aptos-mvp.yml logs -f validator
+#   podman-compose -f docker-compose.aptos-mvp.yml down
+#
+# Puertos (evitando colisiones con pBTCFi en 5050/5433/3001):
+#   - Aptos Validator: 8080
+#   - Aptos Faucet: 8082 (evita colisión con x402 en 8081)
+#   - PostgreSQL: 5434
+
+services:
+  # ─────────────────────────────────────────────────────────────────────────
+  # Aptos Local Validator (devnet)
+  # ─────────────────────────────────────────────────────────────────────────
+  validator:
+    image: docker.io/aptoslabs/tools:devnet
+    container_name: aptos-validator
+    command: ["aptos", "node", "run-localnet", "--with-faucet", "--force-restart", "--bind-to", "0.0.0.0"]
+    ports:
+      - "8080:8080"   # REST API
+      - "8082:8081"   # Faucet (host 8082 -> container 8081)
+    volumes:
+      - aptos_data:/root/.aptos
+    networks:
+      - aptos-network
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/v1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Aptos Development Environment (Move compiler)
+  # ─────────────────────────────────────────────────────────────────────────
+  aptos-dev:
+    build: ./docker/aptos
+    container_name: aptos-dev
+    volumes:
+      - .:/workspace
+      - /home/deploy/2025q4/wt-aptos/aptos/contracts:/contracts:ro
+    working_dir: /workspace
+    command: sleep infinity
+    environment:
+      APTOS_NODE_URL: http://validator:8080
+      APTOS_FAUCET_URL: http://validator:8081  # interno, no cambia
+    networks:
+      - aptos-network
+    depends_on:
+      validator:
+        condition: service_healthy
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # PostgreSQL Database (puerto 5434, no colisiona con pBTCFi en 5433)
+  # ─────────────────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    container_name: aptos-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: aptos_mvp
+      POSTGRES_USER: aptos_user
+      POSTGRES_PASSWORD: aptos_dev_pass
+    volumes:
+      - aptos_postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5434:5432"
+    networks:
+      - aptos-network
+
+networks:
+  aptos-network:
+    driver: bridge
+    name: aptos-mvp-net
+
+volumes:
+  aptos_data:
+    name: aptos-mvp-data
+  aptos_postgres_data:
+    name: aptos-mvp-postgres
