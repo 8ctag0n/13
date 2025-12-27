@@ -108,7 +108,7 @@ impl CleanupService {
     async fn cleanup_old_witnesses(&self) -> Result<(), sqlx::Error> {
         // Strategy 1: Delete witnesses for completed/failed/cancelled jobs
         // Grace period of 2 hours to ensure all provers have downloaded
-        let result = sqlx::query!(
+        let result = sqlx::query(
             r#"
             DELETE FROM witnesses
             WHERE commitment IN (
@@ -124,7 +124,7 @@ impl CleanupService {
         let completed_count = result.rows_affected();
 
         // Strategy 2: Delete witnesses for timed-out jobs (not completed)
-        let result = sqlx::query!(
+        let result = sqlx::query(
             r#"
             DELETE FROM witnesses
             WHERE commitment IN (
@@ -141,7 +141,7 @@ impl CleanupService {
 
         // Strategy 3: Fallback - delete orphaned witnesses older than 48h
         // These are witnesses without an associated job in blockchain_jobs
-        let result = sqlx::query!(
+        let result = sqlx::query(
             r#"
             DELETE FROM witnesses
             WHERE created_at < NOW() - INTERVAL '48 hours'

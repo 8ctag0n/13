@@ -16,6 +16,7 @@ zyberlink-types = { path = "../shared/types" }
 zyberlink-fhe = { path = "../shared/fhe" }
 fhe-generator-sdk = { path = "../programs/sdks/fhe-generator-sdk" }
 futarchy-sdk = { path = "../../sdks/futarchy-sdk" }
+zyberlink-chain-client = { path = "../shared/chain-client", optional = true }
 
 # FHE
 tfhe = { version = "0.10", features = ["integer", "x86_64-unix"] }
@@ -43,7 +44,7 @@ thiserror = "1.0"
 # CLI utilities
 colored = "2.1"
 atty = "0.2"
-clap = { version = "4.4", features = ["derive"] }
+clap = { version = "4.4", features = ["derive", "env"] }
 chrono = { version = "0.4", features = ["serde"] }
 dialoguer = "0.11"
 console = "0.15"
@@ -66,8 +67,12 @@ indicatif = "0.17"
 solana-sdk = "2.3"
 solana-client = "2.3"
 
+# Async trait for chain abstraction
+async-trait = "0.1"
+
 [features]
 default = []
+starknet = ["zyberlink-chain-client", "zyberlink-chain-client/starknet"]
 
 [lib]
 path = "src/lib.rs"

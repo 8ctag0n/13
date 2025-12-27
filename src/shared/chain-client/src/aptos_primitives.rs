@@ -152,25 +152,30 @@ impl RawTransaction {
     /// Sign this transaction with a private key
     pub fn sign(&self, private_key: &SigningKey) -> Result<SignedTransaction, String> {
         // Serialize transaction for signing (prefix + BCS encoding)
-        let mut message = Vec::new();
-        message.extend_from_slice(b"APTOS::RawTransaction");
+        let mut signing_message = Vec::new();
+        signing_message.extend_from_slice(b"APTOS::RawTransaction");
 
         let tx_bytes = bcs::to_bytes(self)
             .map_err(|e| format!("BCS serialization failed: {}", e))?;
-        message.extend_from_slice(&tx_bytes);
+        signing_message.extend_from_slice(&tx_bytes);
 
-        // Sign the message
-        let signature = private_key.sign(&message);
+        // Hash the signing message with SHA3-256
+        let mut hasher = Sha3_256::new();
+        hasher.update(&signing_message);
+        let hash = hasher.finalize();
+
+        // Sign the hash
+        let signature = private_key.sign(&hash);
 
         // Get public key
         let public_key = private_key.verifying_key();
 
         Ok(SignedTransaction {
             raw_txn: self.clone(),
-            authenticator: TransactionAuthenticator::Ed25519 {
-                public_key: public_key.to_bytes(),
-                signature: signature.to_bytes(),
-            },
+            authenticator: TransactionAuthenticator::Ed25519(AccountAuthenticatorEd25519 {
+                public_key: Ed25519PublicKey(public_key.to_bytes()),
+                signature: Ed25519Signature(signature.to_bytes()),
+            }),
         })
     }
 
@@ -194,75 +199,57 @@ impl SignedTransaction {
     }
 }
 
-/// Transaction authenticator (signature scheme)
+/// Ed25519 public key wrapper for BCS serialization
 #[derive(Debug, Clone)]
-pub enum TransactionAuthenticator {
-    Ed25519 {
-        public_key: [u8; 32],
-        signature: [u8; 64],
-    },
-}
+pub struct Ed25519PublicKey(pub [u8; 32]);
 
-// Manual serde implementation for arrays
-impl Serialize for TransactionAuthenticator {
+impl Serialize for Ed25519PublicKey {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        match self {
-            Self::Ed25519 { public_key, signature } => {
-                use serde::ser::SerializeStruct;
-                let mut s = serializer.serialize_struct("Ed25519", 3)?;
-                s.serialize_field("variant", &0u8)?;
-                s.serialize_field("public_key", &public_key.as_slice())?;
-                s.serialize_field("signature", &signature.as_slice())?;
-                s.end()
-            }
-        }
+        // BCS expects the raw bytes with a length prefix for vectors
+        serializer.serialize_bytes(&self.0)
     }
 }
 
-impl<'de> Deserialize<'de> for TransactionAuthenticator {
+impl<'de> Deserialize<'de> for Ed25519PublicKey {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        use serde::de::{self, Visitor, SeqAccess, MapAccess};
-
-        struct AuthVisitor;
-
-        impl<'de> Visitor<'de> for AuthVisitor {
-            type Value = TransactionAuthenticator;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("Ed25519 authenticator")
-            }
-
-            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
-                let mut public_key: Option<Vec<u8>> = None;
-                let mut signature: Option<Vec<u8>> = None;
-
-                while let Some(key) = map.next_key::<String>()? {
-                    match key.as_str() {
-                        "public_key" => public_key = Some(map.next_value()?),
-                        "signature" => signature = Some(map.next_value()?),
-                        "variant" => { let _: u8 = map.next_value()?; },
-                        _ => { let _: de::IgnoredAny = map.next_value()?; }
-                    }
-                }
-
-                let pk = public_key.ok_or_else(|| de::Error::missing_field("public_key"))?;
-                let sig = signature.ok_or_else(|| de::Error::missing_field("signature"))?;
-
-                let mut pk_array = [0u8; 32];
-                let mut sig_array = [0u8; 64];
-
-                pk_array.copy_from_slice(&pk);
-                sig_array.copy_from_slice(&sig);
-
-                Ok(TransactionAuthenticator::Ed25519 {
-                    public_key: pk_array,
-                    signature: sig_array,
-                })
-            }
-        }
-
-        deserializer.deserialize_map(AuthVisitor)
+        let bytes: Vec<u8> = Vec::deserialize(deserializer)?;
+        let mut arr = [0u8; 32];
+        arr.copy_from_slice(&bytes);
+        Ok(Self(arr))
     }
+}
+
+/// Ed25519 signature wrapper for BCS serialization
+#[derive(Debug, Clone)]
+pub struct Ed25519Signature(pub [u8; 64]);
+
+impl Serialize for Ed25519Signature {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_bytes(&self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for Ed25519Signature {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let bytes: Vec<u8> = Vec::deserialize(deserializer)?;
+        let mut arr = [0u8; 64];
+        arr.copy_from_slice(&bytes);
+        Ok(Self(arr))
+    }
+}
+
+/// Account authenticator for Ed25519
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AccountAuthenticatorEd25519 {
+    pub public_key: Ed25519PublicKey,
+    pub signature: Ed25519Signature,
+}
+
+/// Transaction authenticator (signature scheme)
+/// BCS format: variant_index (ULEB128) + variant_data
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum TransactionAuthenticator {
+    Ed25519(AccountAuthenticatorEd25519),
 }
 
 /// Aptos account with keypair

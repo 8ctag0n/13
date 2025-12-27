@@ -132,6 +132,11 @@ impl AptosClient {
         )
     }
 
+    /// Get the RPC URL
+    pub fn rpc_url(&self) -> &str {
+        &self.rpc_url
+    }
+
     #[cfg(feature = "aptos")]
     fn validate_address(&self, address: &str) -> Result<String> {
         // Aptos addresses are 64-char hex strings (32 bytes)
@@ -155,8 +160,8 @@ impl AptosClient {
     ) -> Result<serde_json::Value> {
         let addr = self.validate_address(address)?;
         let url = format!(
-            "{}/accounts/{}/resource/{}",
-            self.rpc_url, addr, resource_type
+            "{}/v1/accounts/{}/resource/{}",
+            self.rpc_url.trim_end_matches("/v1"), addr, resource_type
         );
 
         let response = self
@@ -253,7 +258,7 @@ impl ChainClient for AptosClient {
     #[cfg(feature = "aptos")]
     async fn get_account_data(&self, address: &str) -> Result<Vec<u8>> {
         let addr = self.validate_address(address)?;
-        let url = format!("{}/accounts/{}", self.rpc_url, addr);
+        let url = format!("{}/v1/accounts/{}", self.rpc_url.trim_end_matches("/v1"), addr);
 
         let response = self
             .client
@@ -288,7 +293,7 @@ impl ChainClient for AptosClient {
     #[cfg(feature = "aptos")]
     async fn account_exists(&self, address: &str) -> Result<bool> {
         let addr = self.validate_address(address)?;
-        let url = format!("{}/accounts/{}", self.rpc_url, addr);
+        let url = format!("{}/v1/accounts/{}", self.rpc_url.trim_end_matches("/v1"), addr);
 
         match self.client.get(&url).send().await {
             Ok(response) => Ok(response.status().is_success()),
@@ -305,7 +310,7 @@ impl ChainClient for AptosClient {
 
     #[cfg(feature = "aptos")]
     async fn send_transaction(&self, transaction: &[u8]) -> Result<String> {
-        let url = format!("{}/transactions", self.rpc_url);
+        let url = format!("{}/v1/transactions", self.rpc_url.trim_end_matches("/v1"));
 
         let response = self
             .client
@@ -368,7 +373,7 @@ impl ChainClient for AptosClient {
 
     #[cfg(feature = "aptos")]
     async fn get_transaction_status(&self, hash: &str) -> Result<TransactionStatus> {
-        let url = format!("{}/transactions/by_hash/{}", self.rpc_url, hash);
+        let url = format!("{}/v1/transactions/by_hash/{}", self.rpc_url.trim_end_matches("/v1"), hash);
 
         match self.client.get(&url).send().await {
             Ok(response) if response.status().is_success() => {
@@ -419,7 +424,7 @@ impl ChainClient for AptosClient {
         args: &[u8],
     ) -> Result<Vec<u8>> {
         // View function call
-        let url = format!("{}/view", self.rpc_url);
+        let url = format!("{}/v1/view", self.rpc_url);
 
         let args_json: Vec<serde_json::Value> = serde_json::from_slice(args)
             .unwrap_or_else(|_| vec![]);
@@ -467,6 +472,94 @@ impl ChainClient for AptosClient {
         ))
     }
 
+    #[cfg(feature = "aptos")]
+    async fn execute_contract(
+        &self,
+        program_address: &str,
+        method: &str,
+        args: &[u8],
+        signer: &str,
+    ) -> Result<String> {
+        use crate::aptos_primitives::{AptosAccount, RawTransaction};
+
+        // Parse args as JSON: { "function_args": [...], "type_args": [...], "private_key": "0x..." }
+        #[derive(serde::Deserialize)]
+        struct ExecuteArgs {
+            #[serde(default)]
+            function_args: Vec<Vec<u8>>,
+            #[serde(default)]
+            type_args: Vec<String>,
+            private_key: String,
+        }
+
+        let execute_args: ExecuteArgs = serde_json::from_slice(args)
+            .map_err(|e| ChainClientError::Deserialization(format!(
+                "Invalid execute args (expected {{function_args, type_args, private_key}}): {}", e
+            )))?;
+
+        // Parse method as "module_address::module_name::function_name"
+        let parts: Vec<&str> = method.split("::").collect();
+        if parts.len() != 3 {
+            return Err(ChainClientError::Generic(format!(
+                "Invalid method format. Expected 'address::module::function', got '{}'", method
+            )));
+        }
+        let (module_address, module_name, function_name) = (parts[0], parts[1], parts[2]);
+
+        // Create account from private key
+        let account = AptosAccount::from_private_key_hex(&execute_args.private_key)
+            .map_err(|e| ChainClientError::Generic(format!("Invalid private key: {}", e)))?;
+
+        // Verify signer matches account address
+        let normalized_signer = self.validate_address(signer)?;
+        if normalized_signer != account.address_hex() {
+            return Err(ChainClientError::Generic(format!(
+                "Signer address mismatch: expected {}, got {}",
+                account.address_hex(), normalized_signer
+            )));
+        }
+
+        // Get sequence number
+        let account_data = self.get_account_data(&normalized_signer).await?;
+        let account_info: AccountData = serde_json::from_slice(&account_data)
+            .map_err(|e| ChainClientError::Deserialization(e.to_string()))?;
+        let sequence_number: u64 = account_info.sequence_number.parse()
+            .map_err(|e| ChainClientError::Deserialization(format!("Invalid sequence_number: {}", e)))?;
+
+        // Get chain ID
+        let ledger_url = format!("{}/v1", self.rpc_url.trim_end_matches("/v1"));
+        let ledger_response = self.client.get(&ledger_url).send().await
+            .map_err(|e| ChainClientError::Network(format!("Failed to get chain ID: {}", e)))?;
+        let ledger_info: LedgerInfo = ledger_response.json().await
+            .map_err(|e| ChainClientError::Deserialization(format!("Failed to parse ledger info: {}", e)))?;
+        let chain_id = ledger_info.chain_id as u8;
+
+        // Parse type arguments (for now, empty vector - can be extended)
+        let type_args = vec![]; // TODO: parse execute_args.type_args
+
+        // Build and sign transaction
+        let raw_tx = RawTransaction::new_entry_function(
+            account.address.clone(),
+            sequence_number,
+            module_address,
+            module_name,
+            function_name,
+            type_args,
+            execute_args.function_args,
+            chain_id,
+        ).map_err(|e| ChainClientError::Generic(format!("Failed to build transaction: {}", e)))?;
+
+        let signed_tx = raw_tx.sign(&account.private_key)
+            .map_err(|e| ChainClientError::Generic(format!("Failed to sign transaction: {}", e)))?;
+
+        let tx_bytes = signed_tx.to_bcs()
+            .map_err(|e| ChainClientError::Serialization(format!("Failed to serialize transaction: {}", e)))?;
+
+        // Submit transaction
+        self.send_transaction(&tx_bytes).await
+    }
+
+    #[cfg(not(feature = "aptos"))]
     async fn execute_contract(
         &self,
         _program_address: &str,
@@ -475,7 +568,7 @@ impl ChainClient for AptosClient {
         _signer: &str,
     ) -> Result<String> {
         Err(ChainClientError::NotImplemented(
-            "Entry functions require transaction signing - use aptos-sdk or build transaction manually".to_string(),
+            "Entry functions require 'aptos' feature flag".to_string(),
         ))
     }
 
@@ -647,5 +740,109 @@ impl SignatureVerifier for AptosClient {
 
     fn signature_algorithm(&self) -> &str {
         "ed25519"
+    }
+}
+
+// ============================================================================
+// Aptos-specific helper methods (for marketplace integration)
+// ============================================================================
+
+impl AptosClient {
+    /// Call a view function on an Aptos module
+    ///
+    /// # Arguments
+    /// * `module_address` - Contract address (e.g., "0x123...")
+    /// * `module_name` - Module name (e.g., "jobs")
+    /// * `function_name` - Function name (e.g., "get_job")
+    /// * `type_args` - Generic type arguments (usually empty)
+    /// * `args` - Function arguments as JSON values
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// let result = client.call_view_function(
+    ///     "0x123...",
+    ///     "jobs",
+    ///     "get_job",
+    ///     vec![],
+    ///     vec![serde_json::json!("0")],
+    /// ).await?;
+    /// ```
+    #[cfg(feature = "aptos")]
+    pub async fn call_view_function(
+        &self,
+        module_address: &str,
+        module_name: &str,
+        function_name: &str,
+        type_args: Vec<String>,
+        args: Vec<serde_json::Value>,
+    ) -> Result<Vec<serde_json::Value>> {
+        let url = format!("{}/v1/view", self.rpc_url);
+
+        let function_id = format!("{}::{}::{}", module_address, module_name, function_name);
+
+        let payload = serde_json::json!({
+            "function": function_id,
+            "type_arguments": type_args,
+            "arguments": args
+        });
+
+        let response = self
+            .client
+            .post(&url)
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| ChainClientError::Network(format!("View call failed: {}", e)))?;
+
+        if !response.status().is_success() {
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(ChainClientError::Network(format!(
+                "View call error: {}",
+                error_text
+            )));
+        }
+
+        response
+            .json()
+            .await
+            .map_err(|e| ChainClientError::Deserialization(e.to_string()))
+    }
+
+    /// Execute an entry function with signing
+    ///
+    /// # Arguments
+    /// * `module_address` - Contract address
+    /// * `module_name` - Module name
+    /// * `function_name` - Function name
+    /// * `type_args` - Generic type arguments
+    /// * `function_args` - Function arguments as BCS-encoded bytes
+    /// * `private_key_hex` - Private key for signing
+    /// * `signer_address` - Signer's address
+    ///
+    /// # Returns
+    /// Transaction hash
+    #[cfg(feature = "aptos")]
+    pub async fn execute_entry_function(
+        &self,
+        module_address: &str,
+        module_name: &str,
+        function_name: &str,
+        type_args: Vec<String>,
+        function_args: Vec<Vec<u8>>,
+        private_key_hex: &str,
+        signer_address: &str,
+    ) -> Result<String> {
+        let method = format!("{}::{}::{}", module_address, module_name, function_name);
+
+        let args = serde_json::json!({
+            "function_args": function_args,
+            "type_args": type_args,
+            "private_key": private_key_hex
+        });
+
+        let args_bytes = serde_json::to_vec(&args)
+            .map_err(|e| ChainClientError::Serialization(format!("Failed to serialize args: {}", e)))?;
+
+        self.execute_contract(module_address, &method, &args_bytes, signer_address).await
     }
 }

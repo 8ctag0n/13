@@ -14,6 +14,41 @@ pub enum JobSource {
     ZkGenerator,
     /// New FHE-Generator program
     FheGenerator,
+    /// Starknet FHE Jobs contract
+    Starknet,
+    /// Aptos Jobs contract
+    Aptos,
+}
+
+/// Starknet-specific job type (maps to Cairo JobType enum)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum StarknetJobType {
+    /// pBTCFi: verify encrypted BTC collateral
+    LoanVerification = 0,
+    /// pLST: update encrypted token balance
+    BalanceUpdate = 1,
+    /// pLST: prove staking position
+    StakeProof = 2,
+    /// Generic: prove valid transfer
+    TransferProof = 3,
+    /// pBTCFi: check liquidation threshold
+    LiquidationCheck = 4,
+}
+
+impl TryFrom<u8> for StarknetJobType {
+    type Error = String;
+
+    fn try_from(value: u8) -> std::result::Result<Self, Self::Error> {
+        match value {
+            0 => Ok(StarknetJobType::LoanVerification),
+            1 => Ok(StarknetJobType::BalanceUpdate),
+            2 => Ok(StarknetJobType::StakeProof),
+            3 => Ok(StarknetJobType::TransferProof),
+            4 => Ok(StarknetJobType::LiquidationCheck),
+            _ => Err(format!("Unknown StarknetJobType: {}", value)),
+        }
+    }
 }
 
 /// Generic job data structure (chain-agnostic)
@@ -45,6 +80,16 @@ pub struct JobData {
     pub source: JobSource,
     /// Program ID that owns this job (for new generators)
     pub program_id: Option<String>,
+
+    // === Starknet-specific fields ===
+    /// Starknet job type (only set for Starknet jobs)
+    pub starknet_job_type: Option<StarknetJobType>,
+    /// Encrypted data c1 component (felt252 as bytes)
+    pub encrypted_c1: Option<[u8; 32]>,
+    /// Encrypted data c2 component (felt252 as bytes)
+    pub encrypted_c2: Option<[u8; 32]>,
+    /// Payload hash from Cairo contract
+    pub payload_hash: Option<[u8; 32]>,
 }
 
 /// Generic prover data structure

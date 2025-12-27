@@ -16,6 +16,30 @@ use zyb_cli::commands::vote::VoteCommands;
 #[command(about = "ZyberLink unified CLI for FHE and ZK operations")]
 #[command(version)]
 struct Cli {
+    /// Blockchain to use (solana, starknet)
+    #[arg(long, default_value = "solana", env = "ZYB_CHAIN", global = true)]
+    chain: String,
+
+    /// Solana RPC URL
+    #[arg(long, env = "SOLANA_RPC_URL", default_value = "https://api.devnet.solana.com", global = true)]
+    rpc_url: String,
+
+    /// Solana keypair path
+    #[arg(long, env = "SOLANA_KEYPAIR", global = true)]
+    keypair: Option<PathBuf>,
+
+    /// Starknet RPC URL
+    #[arg(long, env = "STARKNET_RPC_URL", default_value = "http://localhost:5050", global = true)]
+    starknet_rpc_url: String,
+
+    /// Starknet account address
+    #[arg(long, env = "STARKNET_ACCOUNT", global = true)]
+    starknet_account: Option<String>,
+
+    /// Starknet private key
+    #[arg(long, env = "STARKNET_PRIVATE_KEY", global = true)]
+    starknet_private_key: Option<String>,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -107,14 +131,6 @@ enum ZkCommands {
         #[arg(long)]
         timeout: Option<i32>,
 
-        /// Path to Solana keypair for payment (enables direct payment flow)
-        #[arg(long)]
-        keypair: Option<PathBuf>,
-
-        /// Solana RPC URL
-        #[arg(long, default_value = "https://api.devnet.solana.com")]
-        rpc_url: String,
-
         /// Skip payment confirmation prompt
         #[arg(long)]
         skip_confirm: bool,
@@ -166,8 +182,6 @@ fn main() -> Result<()> {
                 creator,
                 server,
                 timeout,
-                keypair,
-                rpc_url,
                 skip_confirm,
             } => zyb_cli::commands::zk::create_command(
                 circuit_type,
@@ -175,8 +189,12 @@ fn main() -> Result<()> {
                 creator,
                 server,
                 timeout,
-                keypair,
-                rpc_url,
+                cli.keypair,
+                cli.rpc_url,
+                cli.chain,
+                cli.starknet_rpc_url,
+                cli.starknet_account,
+                cli.starknet_private_key,
                 skip_confirm,
             ),
             ZkCommands::Status { job_id, server, verbose } => {

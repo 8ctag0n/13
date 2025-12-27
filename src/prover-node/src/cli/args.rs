@@ -7,6 +7,14 @@ pub struct ProverArgs {
     #[command(subcommand)]
     pub command: Option<ProverCommand>,
 
+    // ========== Multi-Chain Configuration ==========
+
+    /// Path to TOML configuration file (overrides CLI flags)
+    #[arg(short, long, env = "PROVER_CONFIG")]
+    pub config: Option<String>,
+
+    // ========== Legacy CLI Flags (for backward compatibility) ==========
+
     /// Solana RPC URL
     #[arg(short, long, default_value = "http://localhost:8899", global = true)]
     pub rpc_url: String,
@@ -82,6 +90,28 @@ pub struct ProverArgs {
     /// Futarchy Markets program ID
     #[arg(long, env = "FUTARCHY_PROGRAM_ID", global = true)]
     pub futarchy_program_id: Option<String>,
+
+    // ========== Starknet Configuration ==========
+
+    /// Blockchain to use (solana, starknet)
+    #[arg(long, default_value = "solana", env = "PROVER_CHAIN")]
+    pub chain: String,
+
+    /// Starknet RPC URL
+    #[arg(long, default_value = "http://localhost:5050", env = "STARKNET_RPC_URL")]
+    pub starknet_rpc_url: String,
+
+    /// Starknet PbtcfiJobs contract address
+    #[arg(long, env = "STARKNET_CONTRACT_ADDRESS")]
+    pub starknet_contract_address: Option<String>,
+
+    /// Starknet prover account address
+    #[arg(long, env = "STARKNET_PROVER_ADDRESS")]
+    pub starknet_prover_address: Option<String>,
+
+    /// Starknet prover private key (hex format, e.g., 0x...)
+    #[arg(long, env = "STARKNET_PRIVATE_KEY")]
+    pub starknet_private_key: Option<String>,
 }
 
 #[derive(Parser, Debug)]

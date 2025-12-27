@@ -205,6 +205,8 @@ mod tests {
             job_id: 12345,
             market_id: "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU".to_string(),
             side: true,
+            bet_ciphertext: vec![1, 2, 3, 4],
+            pool_ciphertext: vec![5, 6, 7, 8],
             bet_ciphertext_hash: [1u8; 32],
             pool_ciphertext_hash: [2u8; 32],
         };

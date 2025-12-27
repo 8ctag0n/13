@@ -431,3 +431,126 @@ mod test_integration {
         assert(new_collateral.low < plst_amount.low, 'Should trigger liquidation');
     }
 }
+
+#[cfg(test)]
+mod test_consensus {
+    use super::super::jobs::{JobStatus, JobType, PbtcfiJobs};
+    use starknet::{ContractAddress, contract_address_const};
+    use starknet::testing::{set_caller_address, set_block_timestamp};
+
+    fn setup_contract() -> PbtcfiJobs::ContractState {
+        let mut state = PbtcfiJobs::ContractState::default();
+        PbtcfiJobs::constructor(ref state);
+        state
+    }
+
+    fn create_job(ref state: PbtcfiJobs::ContractState, creator: ContractAddress) -> u256 {
+        set_caller_address(creator);
+        set_block_timestamp(1);
+        PbtcfiJobs::FheJobsImpl::create_job(
+            ref state,
+            JobType::LoanVerification,
+            0x111,
+            0x222,
+            0x333,
+            u256 { low: 1000, high: 0 },
+        )
+    }
+
+    fn register_prover(ref state: PbtcfiJobs::ContractState, prover: ContractAddress) {
+        set_caller_address(prover);
+        set_block_timestamp(2);
+        PbtcfiJobs::FheJobsImpl::register_prover(ref state);
+    }
+
+    #[test]
+    fn test_claim_requires_all_provers_before_job_claimed() {
+        let mut state = setup_contract();
+        let creator = contract_address_const::<0x101>();
+        let prover1 = contract_address_const::<0x201>();
+        let prover2 = contract_address_const::<0x202>();
+
+        let job_id = create_job(ref state, creator);
+        set_caller_address(creator);
+        PbtcfiJobs::FheJobsImpl::enable_consensus(ref state, job_id, 2, 2);
+
+        register_prover(ref state, prover1);
+        register_prover(ref state, prover2);
+
+        set_caller_address(prover1);
+        PbtcfiJobs::FheJobsImpl::claim_job(ref state, job_id);
+
+        let job = PbtcfiJobs::FheJobsImpl::get_job(@state, job_id);
+        assert(job.status == JobStatus::Pending, 'Job should remain pending until all claims');
+
+        set_caller_address(prover2);
+        PbtcfiJobs::FheJobsImpl::claim_job(ref state, job_id);
+
+        let job_after = PbtcfiJobs::FheJobsImpl::get_job(@state, job_id);
+        assert(job_after.status == JobStatus::Claimed, 'Job should be claimed after all provers');
+    }
+
+    #[test]
+    fn test_no_consensus_on_mismatched_results() {
+        let mut state = setup_contract();
+        let creator = contract_address_const::<0x111>();
+        let prover1 = contract_address_const::<0x211>();
+        let prover2 = contract_address_const::<0x212>();
+
+        let job_id = create_job(ref state, creator);
+        set_caller_address(creator);
+        PbtcfiJobs::FheJobsImpl::enable_consensus(ref state, job_id, 2, 2);
+
+        register_prover(ref state, prover1);
+        register_prover(ref state, prover2);
+
+        set_caller_address(prover1);
+        PbtcfiJobs::FheJobsImpl::claim_job(ref state, job_id);
+        set_caller_address(prover2);
+        PbtcfiJobs::FheJobsImpl::claim_job(ref state, job_id);
+
+        set_caller_address(prover1);
+        PbtcfiJobs::FheJobsImpl::submit_result(ref state, job_id, 0xaaa);
+        set_caller_address(prover2);
+        PbtcfiJobs::FheJobsImpl::submit_result(ref state, job_id, 0xbbb);
+
+        let consensus = PbtcfiJobs::FheJobsImpl::get_consensus_data(@state, job_id);
+        assert(consensus.consensus_reached == false, 'Consensus should not be reached');
+        assert(consensus.consensus_hash == 0, 'Consensus hash should remain empty');
+
+        let job = PbtcfiJobs::FheJobsImpl::get_job(@state, job_id);
+        assert(job.status == JobStatus::Claimed, 'Job should remain claimed without consensus');
+    }
+
+    #[test]
+    fn test_consensus_reached_on_matching_results() {
+        let mut state = setup_contract();
+        let creator = contract_address_const::<0x121>();
+        let prover1 = contract_address_const::<0x221>();
+        let prover2 = contract_address_const::<0x222>();
+
+        let job_id = create_job(ref state, creator);
+        set_caller_address(creator);
+        PbtcfiJobs::FheJobsImpl::enable_consensus(ref state, job_id, 2, 2);
+
+        register_prover(ref state, prover1);
+        register_prover(ref state, prover2);
+
+        set_caller_address(prover1);
+        PbtcfiJobs::FheJobsImpl::claim_job(ref state, job_id);
+        set_caller_address(prover2);
+        PbtcfiJobs::FheJobsImpl::claim_job(ref state, job_id);
+
+        set_caller_address(prover1);
+        PbtcfiJobs::FheJobsImpl::submit_result(ref state, job_id, 0xccc);
+        set_caller_address(prover2);
+        PbtcfiJobs::FheJobsImpl::submit_result(ref state, job_id, 0xccc);
+
+        let consensus = PbtcfiJobs::FheJobsImpl::get_consensus_data(@state, job_id);
+        assert(consensus.consensus_reached == true, 'Consensus should be reached');
+        assert(consensus.consensus_hash == 0xccc, 'Consensus hash should match result');
+
+        let job = PbtcfiJobs::FheJobsImpl::get_job(@state, job_id);
+        assert(job.status == JobStatus::Completed, 'Job should complete on consensus');
+    }
+}
