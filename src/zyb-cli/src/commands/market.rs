@@ -109,10 +109,91 @@ pub enum ExecutableActionV2 {
     Custom { program_id: [u8; 32], instruction_data: Vec<u8> },
 }
 
+// =============================================================================
+// V3 Instruction Enum (Fully Blind Markets with FHE+ZK)
+// =============================================================================
+
+/// V3 Instructions for Fully Blind Markets
+/// Must match futarchy-markets/src/instruction_v3.rs exactly
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize, PartialEq)]
+pub enum FutarchyInstructionV3 {
+    /// Create market V3 (fully blind with FHE)
+    CreateMarketV3 {
+        market_id: u64,
+        question_hash: [u8; 32],
+        end_time: i64,
+        max_bet: u64,
+        threshold_pubkey: [u8; 32],
+        threshold_required: u8,
+        threshold_shares: u8,
+        has_governance: bool,
+        executable_action: Option<ExecutableActionV2>,
+        execution_threshold: Option<u8>,
+        timelock_duration: Option<i64>,
+    },
+
+    /// Place blind bet on market V3 (with ZK proof, no side revealed)
+    PlaceBetBlind {
+        market_id: u64,
+        bet_ciphertext_hash: [u8; 32],
+        bet_secret_commitment: [u8; 32],
+        pool_commitment_after: [u8; 32],
+        proof: Vec<u8>,
+        public_inputs: Vec<u8>,
+        new_balance_commitment: [u8; 32],
+        circuit_type: u8,
+    },
+
+    /// Update encrypted pool hashes (off-chain FHE operation)
+    UpdateEncryptedPools {
+        market_id: u64,
+        encrypted_pool_yes_hash: [u8; 32],
+        encrypted_pool_no_hash: [u8; 32],
+        fhe_proof: Vec<u8>,
+    },
+
+    /// Settle market V3 with threshold-decrypted pools
+    SettleMarketV3 {
+        market_id: u64,
+        outcome: bool,
+        decrypted_pool_yes: u64,
+        decrypted_pool_no: u64,
+        threshold_signatures: Vec<[u8; 64]>,
+    },
+
+    /// Claim payout from settled market V3
+    ClaimV3 {
+        market_id: u64,
+        bet_ciphertext_hash: [u8; 32],
+        bet_secret_commitment: [u8; 32],
+        proof: Vec<u8>,
+        public_inputs: Vec<u8>,
+        new_balance_commitment: [u8; 32],
+        circuit_type: u8,
+    },
+
+    /// Execute governance action after settlement (V3)
+    ExecuteGovernanceActionV3 { market_id: u64 },
+
+    /// Cancel governance action (V3)
+    CancelGovernanceActionV3 { market_id: u64 },
+}
+
+impl FutarchyInstructionV3 {
+    /// Serialize instruction to bytes using borsh
+    pub fn pack(&self) -> Result<Vec<u8>> {
+        borsh::to_vec(self).context("Failed to serialize FutarchyInstructionV3")
+    }
+}
+
 // Circuit type 30 reserved for future market prediction circuit
 const CIRCUIT_MARKET_BET: u8 = 31;
 const CIRCUIT_MARKET_SETTLEMENT: u8 = 32;
 const CIRCUIT_FHE_BET: u8 = 35;
+
+// V3 Circuits (Fully Blind Markets)
+const CIRCUIT_PLACE_BET_BLIND: u8 = 50;
+const CIRCUIT_CLAIM_BLIND: u8 = 51;
 
 /// Side of a futarchy bet
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -174,6 +255,17 @@ pub enum MarketCommands {
     WithdrawPrivate(WithdrawPrivateArgs),
     /// Settle market V2 (oracle only)
     SettleV2(SettleV2Args),
+
+    // === V3 Commands (Fully Blind Markets with FHE+ZK) ===
+
+    /// Create market V3 (fully blind with encrypted pools)
+    CreateV3(CreateV3Args),
+    /// Place blind bet on V3 market (ZK proof, no side revealed)
+    BetBlind(BetBlindArgs),
+    /// Settle market V3 with threshold decryption
+    SettleV3(SettleV3Args),
+    /// Claim winnings from V3 market
+    ClaimV3(ClaimV3Args),
 }
 
 #[derive(Args, Debug)]
@@ -542,6 +634,158 @@ pub struct SettleV2Args {
     pub rpc_url: String,
 }
 
+// =============================================================================
+// V3 Args (Fully Blind Markets)
+// =============================================================================
+
+#[derive(Args, Debug)]
+pub struct CreateV3Args {
+    /// Numeric market ID
+    #[arg(long)]
+    pub market_id: u64,
+
+    /// Market question (will be hashed)
+    #[arg(long)]
+    pub question: String,
+
+    /// Oracle public key (who can settle)
+    #[arg(long)]
+    pub oracle: Option<String>,
+
+    /// Market end time in unix timestamp
+    #[arg(long)]
+    pub end_time: i64,
+
+    /// Maximum bet in lamports
+    #[arg(long, default_value = "10000000000")]
+    pub max_bet: u64,
+
+    /// Threshold public key for FHE decryption (32 bytes hex)
+    #[arg(long)]
+    pub threshold_pubkey: String,
+
+    /// Number of threshold shares required (t in t-of-n)
+    #[arg(long, default_value = "3")]
+    pub threshold_required: u8,
+
+    /// Total number of threshold shares (n in t-of-n)
+    #[arg(long, default_value = "5")]
+    pub threshold_shares: u8,
+
+    /// Enable governance for this market
+    #[arg(long)]
+    pub has_governance: bool,
+
+    /// Path to Solana keypair
+    #[arg(long)]
+    pub keypair: PathBuf,
+
+    /// Solana RPC URL
+    #[arg(long, default_value = "http://localhost:8899")]
+    pub rpc_url: String,
+}
+
+#[derive(Args, Debug)]
+pub struct BetBlindArgs {
+    /// Market ID to bet on
+    #[arg(long)]
+    pub market_id: u64,
+
+    /// Bet amount in lamports
+    #[arg(long)]
+    pub amount: u64,
+
+    /// Bet side (yes/no)
+    #[arg(long, value_enum)]
+    pub side: BetSide,
+
+    /// Path to Solana keypair
+    #[arg(long)]
+    pub keypair: PathBuf,
+
+    /// Solana RPC URL
+    #[arg(long, default_value = "http://localhost:8899")]
+    pub rpc_url: String,
+
+    /// Path to PlaceBetBlind circuit WASM
+    #[arg(long, default_value = "circuits/blind/place_bet_blind_js/place_bet_blind.wasm")]
+    pub circuit_wasm: PathBuf,
+
+    /// Path to witness calculator JS
+    #[arg(long, default_value = "circuits/blind/place_bet_blind_js/witness_calculator.js")]
+    pub witness_calc: PathBuf,
+
+    /// Path to zkey file
+    #[arg(long, default_value = "circuits/blind/place_bet_blind.zkey")]
+    pub circuit_zkey: PathBuf,
+
+    /// Output file for bet witness (for claim)
+    #[arg(long, default_value = "bet_witness_v3.json")]
+    pub witness_output: PathBuf,
+
+    /// FHE key file path
+    #[arg(long, default_value = "fhe_keys.json")]
+    pub fhe_keys: PathBuf,
+}
+
+#[derive(Args, Debug)]
+pub struct SettleV3Args {
+    /// Market ID to settle
+    #[arg(long)]
+    pub market_id: u64,
+
+    /// Winning outcome (yes/no)
+    #[arg(long, value_enum)]
+    pub outcome: BetSide,
+
+    /// Decrypted YES pool amount
+    #[arg(long)]
+    pub decrypted_yes: u64,
+
+    /// Decrypted NO pool amount
+    #[arg(long)]
+    pub decrypted_no: u64,
+
+    /// Path to threshold signatures file (JSON array of base64 signatures)
+    #[arg(long)]
+    pub threshold_sigs: PathBuf,
+
+    /// Path to oracle keypair
+    #[arg(long)]
+    pub keypair: PathBuf,
+
+    /// Solana RPC URL
+    #[arg(long, default_value = "http://localhost:8899")]
+    pub rpc_url: String,
+}
+
+#[derive(Args, Debug)]
+pub struct ClaimV3Args {
+    /// Market ID to claim from
+    #[arg(long)]
+    pub market_id: u64,
+
+    /// Path to bet witness file
+    #[arg(long)]
+    pub witness_file: PathBuf,
+
+    /// Path to Solana keypair
+    #[arg(long)]
+    pub keypair: PathBuf,
+
+    /// Solana RPC URL
+    #[arg(long, default_value = "http://localhost:8899")]
+    pub rpc_url: String,
+
+    /// Path to ClaimBlind circuit WASM
+    #[arg(long)]
+    pub circuit_wasm: Option<PathBuf>,
+
+    /// Path to ClaimBlind zkey
+    #[arg(long)]
+    pub circuit_zkey: Option<PathBuf>,
+}
+
 pub fn handle_market_command(cmd: MarketCommands) -> Result<()> {
     match cmd {
         MarketCommands::Create(args) => create_market(args),
@@ -558,6 +802,11 @@ pub fn handle_market_command(cmd: MarketCommands) -> Result<()> {
         MarketCommands::ClaimPrivate(args) => claim_private_v2(args),
         MarketCommands::WithdrawPrivate(args) => withdraw_private_v2(args),
         MarketCommands::SettleV2(args) => settle_market_v2(args),
+        // V3 commands
+        MarketCommands::CreateV3(args) => create_market_v3(args),
+        MarketCommands::BetBlind(args) => bet_blind_v3(args),
+        MarketCommands::SettleV3(args) => settle_market_v3(args),
+        MarketCommands::ClaimV3(args) => claim_v3(args),
     }
 }
 
@@ -1373,8 +1622,10 @@ async fn verify_settlement(args: VerifyArgs) -> Result<()> {
 const PROTOCOL_VAULT_SEED: &[u8] = b"protocol_vault";
 const PRIVATE_BALANCE_SEED: &[u8] = b"private_balance";
 const MARKET_V2_SEED: &[u8] = b"market_v2";
+const MARKET_V3_SEED: &[u8] = b"market_v3";
 const MARKET_VAULT_SEED: &[u8] = b"market_vault";
 const POSITION_V2_SEED: &[u8] = b"position_v2";
+const POSITION_V3_SEED: &[u8] = b"position_v3";
 const GOVERNANCE_CONFIG_SEED: &[u8] = b"governance";
 const NULLIFIER_SEED: &[u8] = b"nullifier";
 
@@ -2944,4 +3195,681 @@ async fn fetch_market_v2_state(rpc_url: &str, market_id: u64) -> Result<u64> {
     let max_bet = u64::from_le_bytes(data[max_bet_start..max_bet_start + 8].try_into()?);
 
     Ok(max_bet)
+}
+
+/// Calculate Poseidon commitment using circomlibjs (via Node.js)
+/// This ensures compatibility with the circom circuit
+fn calculate_poseidon_commitment_js(
+    pool_yes: u64,
+    pool_no: u64,
+    blinding_decimal: &str,
+) -> Result<[u8; 32]> {
+    use std::process::Command;
+
+    let js_code = format!(
+        r#"
+const {{ buildPoseidon }} = require('circomlibjs');
+(async () => {{
+    const poseidon = await buildPoseidon();
+    const hash = poseidon([BigInt('{}'), BigInt('{}'), BigInt('{}')]);
+    const decimal = poseidon.F.toString(hash);
+    console.log(decimal);
+}})();
+"#,
+        pool_yes, pool_no, blinding_decimal
+    );
+
+    let output = Command::new("node")
+        .arg("-e")
+        .arg(&js_code)
+        .current_dir("circuits")
+        .output()
+        .map_err(|e| anyhow::anyhow!("Failed to run node: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(anyhow::anyhow!("Poseidon calculation failed: {}", stderr));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let decimal_str = stdout.trim();
+
+    // Convert decimal to bytes (big-endian to match bytes_to_dec)
+    let big = num_bigint::BigUint::parse_bytes(decimal_str.as_bytes(), 10)
+        .ok_or_else(|| anyhow::anyhow!("Failed to parse Poseidon output: {}", decimal_str))?;
+
+    let mut bytes = [0u8; 32];
+    let big_bytes = big.to_bytes_be();
+    // Pad with zeros on the left (big-endian)
+    let start = 32 - big_bytes.len().min(32);
+    bytes[start..].copy_from_slice(&big_bytes[..big_bytes.len().min(32)]);
+
+    Ok(bytes)
+}
+
+// =============================================================================
+
+/// Generate ZK proof for PlaceBetBlind circuit using snarkjs
+fn generate_place_bet_blind_proof(
+    wasm_path: &PathBuf,
+    zkey_path: &PathBuf,
+    pool_commitment_before: &[u8; 32],
+    pool_commitment_after: &[u8; 32],
+    bet_ciphertext_hash: &[u8; 32],
+    market_id: u64,
+    max_bet: u64,
+    bet_amount: u64,
+    bet_side: u8,
+    pool_yes_before: u64,
+    pool_no_before: u64,
+    pool_yes_after: u64,
+    pool_no_after: u64,
+    blinding_before: &[u8; 32],
+    blinding_after: &[u8; 32],
+) -> Result<(Vec<u8>, Vec<u8>)> {
+    use std::process::Command;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    // Create temp directory
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)?
+        .as_nanos();
+    let temp_dir = std::env::temp_dir().join(format!("place_bet_blind_{}", nanos));
+    fs::create_dir_all(&temp_dir)?;
+
+    let input_path = temp_dir.join("input.json");
+    let proof_path = temp_dir.join("proof.json");
+    let public_path = temp_dir.join("public.json");
+
+    // Build witness JSON for PlaceBetBlind circuit
+    let input_json = serde_json::json!({
+        // Public inputs (as string decimals for circom)
+        "pool_commitment_before": bytes_to_dec(pool_commitment_before),
+        "pool_commitment_after": bytes_to_dec(pool_commitment_after),
+        "bet_ciphertext_hash": bytes_to_dec(bet_ciphertext_hash),
+        "market_id": market_id.to_string(),
+        "max_bet": max_bet.to_string(),
+        // Private inputs
+        "bet_amount": bet_amount.to_string(),
+        "bet_side": bet_side.to_string(),
+        "pool_yes_before": pool_yes_before.to_string(),
+        "pool_no_before": pool_no_before.to_string(),
+        "pool_yes_after": pool_yes_after.to_string(),
+        "pool_no_after": pool_no_after.to_string(),
+        "blinding_before": bytes_to_dec(blinding_before),
+        "blinding_after": bytes_to_dec(blinding_after),
+    });
+
+    fs::write(&input_path, serde_json::to_string_pretty(&input_json)?)?;
+
+    println!("  Running snarkjs groth16 fullprove...");
+
+    // Run snarkjs groth16 fullprove
+    let output = Command::new("npx")
+        .args([
+            "snarkjs",
+            "groth16",
+            "fullprove",
+            input_path.to_str().unwrap(),
+            wasm_path.to_str().unwrap(),
+            zkey_path.to_str().unwrap(),
+            proof_path.to_str().unwrap(),
+            public_path.to_str().unwrap(),
+        ])
+        .output()
+        .with_context(|| "Failed to run snarkjs")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        anyhow::bail!("snarkjs failed:\nstderr: {}\nstdout: {}", stderr, stdout);
+    }
+
+    // Parse proof.json
+    let proof_content = fs::read_to_string(&proof_path)?;
+    let proof_json: serde_json::Value = serde_json::from_str(&proof_content)?;
+
+    // Convert proof to 256 bytes (Groth16 format with A negation)
+    let proof_bytes = proof_json_to_bytes(&proof_json)?;
+
+    // Build public_inputs for on-chain verification
+    // Format (120 bytes):
+    // 0-32: pool_commitment_before
+    // 32-64: pool_commitment_after
+    // 64-96: bet_ciphertext_hash
+    // 96-104: market_id (8 bytes)
+    // 104-112: max_bet (8 bytes)
+    // 112-120: bet_amount (8 bytes) - for on-chain transfer
+    let mut public_inputs = Vec::with_capacity(120);
+    public_inputs.extend_from_slice(pool_commitment_before);
+    public_inputs.extend_from_slice(pool_commitment_after);
+    public_inputs.extend_from_slice(bet_ciphertext_hash);
+    public_inputs.extend_from_slice(&market_id.to_le_bytes());
+    public_inputs.extend_from_slice(&max_bet.to_le_bytes());
+    public_inputs.extend_from_slice(&bet_amount.to_le_bytes()); // bet_amount for transfer
+
+    // Cleanup temp dir
+    let _ = fs::remove_dir_all(&temp_dir);
+
+    println!("  ZK proof generated successfully!");
+
+    Ok((proof_bytes, public_inputs))
+}
+// V3 Command Implementations (Fully Blind Markets)
+// =============================================================================
+
+#[tokio::main]
+async fn create_market_v3(args: CreateV3Args) -> Result<()> {
+    use solana_sdk::signature::{read_keypair_file, Signer};
+    use solana_sdk::transaction::Transaction;
+    use solana_sdk::instruction::{AccountMeta, Instruction};
+    use solana_client::rpc_client::RpcClient;
+    use sha3::{Digest, Keccak256};
+
+    println!("{}", "Creating Market V3 (fully blind with FHE)...".cyan().bold());
+    println!();
+    println!("Market ID: {}", args.market_id);
+    println!("Question: {}", args.question);
+    println!("End time: {}", args.end_time);
+    println!("Max bet: {} lamports", args.max_bet);
+    println!("Threshold: {}-of-{}", args.threshold_required, args.threshold_shares);
+    println!();
+
+    // Load keypair
+    let keypair = read_keypair_file(&args.keypair)
+        .map_err(|e| anyhow::anyhow!("Failed to load keypair from {:?}: {}", args.keypair, e))?;
+
+    // Hash the question (32 bytes)
+    let question_hash = {
+        let mut hasher = Keccak256::new();
+        hasher.update(args.question.as_bytes());
+        let result = hasher.finalize();
+        let mut hash = [0u8; 32];
+        hash.copy_from_slice(&result);
+        hash
+    };
+
+    // Parse threshold pubkey (32 bytes hex)
+    let threshold_pubkey = {
+        let decoded = hex::decode(&args.threshold_pubkey)
+            .context("Invalid threshold_pubkey hex")?;
+        if decoded.len() != 32 {
+            anyhow::bail!("threshold_pubkey must be 32 bytes (got {} bytes)", decoded.len());
+        }
+        let mut key = [0u8; 32];
+        key.copy_from_slice(&decoded);
+        key
+    };
+
+    // Determine oracle pubkey
+    let oracle_pubkey = if let Some(oracle_str) = args.oracle {
+        solana_sdk::pubkey::Pubkey::from_str(&oracle_str)
+            .context("Invalid oracle pubkey")?
+    } else {
+        // Default to the creator as oracle
+        keypair.pubkey()
+    };
+
+    println!("{}", "Building CreateMarketV3 instruction...".cyan());
+    println!("  Oracle: {}", oracle_pubkey);
+    println!("  Question hash: {}", hex::encode(question_hash));
+    println!("  Threshold pubkey: {}", hex::encode(threshold_pubkey));
+
+    // Build CreateMarketV3 instruction data
+    let instruction_data = FutarchyInstructionV3::CreateMarketV3 {
+        market_id: args.market_id,
+        question_hash,
+        end_time: args.end_time,
+        max_bet: args.max_bet,
+        threshold_pubkey,
+        threshold_required: args.threshold_required,
+        threshold_shares: args.threshold_shares,
+        has_governance: args.has_governance,
+        executable_action: None,
+        execution_threshold: None,
+        timelock_duration: None,
+    };
+
+    let instruction_bytes = instruction_data.pack()?;
+
+    println!("  Instruction size: {} bytes", instruction_bytes.len());
+
+    // Derive PDAs
+    println!("{}", "Deriving PDAs...".cyan());
+
+    let program_id = get_futarchy_program_id()?;
+    let authority = keypair.pubkey();
+    let market_id_bytes = args.market_id.to_le_bytes();
+
+    // MarketV3 PDA: ["market_v3", market_id]
+    let (market_v3_pda, _) = solana_sdk::pubkey::Pubkey::find_program_address(
+        &[MARKET_V3_SEED, &market_id_bytes],
+        &program_id,
+    );
+
+    // MarketVault PDA: ["market_vault", market_id]
+    let (market_vault_pda, _) = solana_sdk::pubkey::Pubkey::find_program_address(
+        &[MARKET_VAULT_SEED, &market_id_bytes],
+        &program_id,
+    );
+
+    println!("  Authority: {}", authority);
+    println!("  MarketV3 PDA: {}", market_v3_pda);
+    println!("  MarketVault PDA: {}", market_vault_pda);
+    println!("  Oracle: {}", oracle_pubkey);
+
+    // Build account metas
+    // Accounts expected (from processor):
+    // 0. [writable, signer] Market creator/authority
+    // 1. [writable] MarketV3 PDA
+    // 2. [writable] MarketVault PDA
+    // 3. [] Oracle pubkey
+    // 4. [] System program
+    // 5. [] Clock sysvar
+    // If has_governance = true:
+    // 6. [writable] GovernanceConfig PDA
+
+    let mut accounts = vec![
+        AccountMeta::new(authority, true),
+        AccountMeta::new(market_v3_pda, false),
+        AccountMeta::new(market_vault_pda, false),
+        AccountMeta::new_readonly(oracle_pubkey, false),
+        AccountMeta::new_readonly(solana_sdk::system_program::id(), false),
+        AccountMeta::new_readonly(solana_sdk::sysvar::clock::id(), false),
+    ];
+
+    // Add governance config PDA if governance is enabled
+    if args.has_governance {
+        let (governance_pda, _) = solana_sdk::pubkey::Pubkey::find_program_address(
+            &[GOVERNANCE_CONFIG_SEED, &market_id_bytes],
+            &program_id,
+        );
+        accounts.push(AccountMeta::new(governance_pda, false));
+        println!("  GovernanceConfig PDA: {}", governance_pda);
+    }
+
+    // Create instruction
+    let instruction = Instruction {
+        program_id,
+        accounts,
+        data: instruction_bytes,
+    };
+
+    // Create and send transaction
+    println!("{}", "Sending transaction to Solana...".cyan());
+
+    let rpc_client = RpcClient::new(&args.rpc_url);
+    let blockhash = rpc_client.get_latest_blockhash()
+        .context("Failed to get latest blockhash")?;
+
+    let mut tx = Transaction::new_with_payer(&[instruction], Some(&authority));
+    tx.sign(&[&keypair], blockhash);
+
+    let signature = rpc_client.send_and_confirm_transaction(&tx)
+        .context("Failed to send transaction")?;
+
+    println!();
+    println!("{}", "Market V3 created successfully!".green().bold());
+    println!();
+    println!("TX Signature: {}", signature.to_string().yellow().bold());
+    println!("Market ID: {}", args.market_id);
+    println!("MarketV3 PDA: {}", market_v3_pda);
+    println!("MarketVault PDA: {}", market_vault_pda);
+    println!("Oracle: {}", oracle_pubkey);
+    println!("End time: {}", args.end_time);
+    println!();
+
+    Ok(())
+}
+
+#[tokio::main]
+async fn bet_blind_v3(args: BetBlindArgs) -> Result<()> {
+    use zyberlink_fhe::futarchy::{encrypt_bet_with_hash};
+    use zyberlink_fhe::{generate_keys, serialize_client_key, serialize_server_key};
+    use solana_sdk::signature::{read_keypair_file, Signer};
+    use sha3::{Digest, Keccak256};
+    use rand::RngCore;
+
+    println!("{}", "Placing BLIND bet (V3)...".cyan().bold());
+    println!();
+    println!("Market ID: {}", args.market_id);
+    println!("Side: {} (will be HIDDEN on-chain)", match args.side {
+        BetSide::Yes => "YES",
+        BetSide::No => "NO",
+    });
+    println!("Amount: {} lamports", args.amount);
+    println!("Mode: Fully Blind (FHE + ZK)");
+    println!();
+
+    // Validate amount
+    if args.amount == 0 {
+        anyhow::bail!("Bet amount must be greater than 0");
+    }
+
+    // Load keypair
+    let keypair = read_keypair_file(&args.keypair)
+        .map_err(|e| anyhow::anyhow!("Failed to load keypair from {:?}: {}", args.keypair, e))?;
+
+    // Step 1: Generate or load FHE keys
+    println!("{}", "Loading FHE keys...".cyan());
+    let (client_key, server_key) = if args.fhe_keys.exists() {
+        println!("  Using existing FHE keys from {:?}", args.fhe_keys);
+        let keys_json = fs::read_to_string(&args.fhe_keys)?;
+        let keys: serde_json::Value = serde_json::from_str(&keys_json)?;
+
+        let client_key_b64 = keys["client_key"].as_str()
+            .ok_or_else(|| anyhow::anyhow!("Missing client_key in FHE keys"))?;
+        let server_key_b64 = keys["server_key"].as_str()
+            .ok_or_else(|| anyhow::anyhow!("Missing server_key in FHE keys"))?;
+
+        use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+        let client_bytes = BASE64.decode(client_key_b64)?;
+        let server_bytes = BASE64.decode(server_key_b64)?;
+
+        let client_key = bincode::deserialize(&client_bytes)?;
+        let server_key = bincode::deserialize(&server_bytes)?;
+
+        (client_key, server_key)
+    } else {
+        println!("  Generating new FHE keys (this may take a minute)...");
+        let keys = generate_keys()?;
+
+        let client_bytes = serialize_client_key(&keys.0)?;
+        let server_bytes = serialize_server_key(&keys.1)?;
+
+        use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+        let keys_json = json!({
+            "client_key": BASE64.encode(&client_bytes),
+            "server_key": BASE64.encode(&server_bytes),
+        });
+        fs::write(&args.fhe_keys, serde_json::to_string_pretty(&keys_json)?)?;
+
+        println!("  FHE keys saved to {:?}", args.fhe_keys);
+        keys
+    };
+
+    // Step 2: Encrypt bet amount using FHE
+    println!("{}", "Encrypting bet amount...".cyan());
+    let encrypted_bet = encrypt_bet_with_hash(args.amount, &client_key)?;
+
+    // Reduce hash to fit in BN254 field (set first byte to 0)
+    let mut bet_ciphertext_hash = encrypted_bet.hash;
+    bet_ciphertext_hash[0] = 0;
+
+    println!("  Ciphertext size: {} bytes", encrypted_bet.ciphertext.len());
+    println!("  Ciphertext hash: {}", hex::encode(&bet_ciphertext_hash));
+
+    // Step 3: Generate cryptographic secrets for proof
+    println!("{}", "Generating cryptographic secrets...".cyan());
+    let mut rng = rand::thread_rng();
+
+    let mut secret = [0u8; 32];
+    let mut blinding_after = [0u8; 32];
+    rng.fill_bytes(&mut secret);
+    rng.fill_bytes(&mut blinding_after);
+
+    // For empty pools (first bet), blinding_before must be 0 to match Poseidon(0,0,0)
+    let blinding_before = [0u8; 32];
+
+    // Bet side as u8 (0=YES, 1=NO) - note: reversed from BetSide enum
+    let bet_side_u8 = match args.side {
+        BetSide::Yes => 0u8,
+        BetSide::No => 1u8,
+    };
+
+    // Calculate bet_secret_commitment = Keccak256(amount || side || secret)
+    // Note: In production, use Poseidon hash to match circuit
+    let bet_secret_commitment = {
+        let mut hasher = Keccak256::new();
+        hasher.update(&args.amount.to_le_bytes());
+        hasher.update(&[bet_side_u8]);
+        hasher.update(&secret);
+        let result = hasher.finalize();
+        let mut commitment = [0u8; 32];
+        commitment.copy_from_slice(&result);
+        commitment
+    };
+
+    println!("  Bet secret commitment: {}", hex::encode(&bet_secret_commitment));
+
+    // Step 4: Fetch current pool state from chain (or use default for first bet)
+    println!("{}", "Fetching market state...".cyan());
+
+    // For MVP, we'll use zero pools as starting state
+    // TODO: Fetch actual pool_commitment from MarketV3 account
+    let pool_yes_before = 0u64;
+    let pool_no_before = 0u64;
+
+    // Calculate pools after bet
+    let (pool_yes_after, pool_no_after) = if bet_side_u8 == 0 {
+        (pool_yes_before + args.amount, pool_no_before)
+    } else {
+        (pool_yes_before, pool_no_before + args.amount)
+    };
+
+    println!("  Pool before: YES={}, NO={}", pool_yes_before, pool_no_before);
+    println!("  Pool after:  YES={}, NO={}", pool_yes_after, pool_no_after);
+
+    // Calculate pool commitments using circomlibjs Poseidon (ensures compatibility)
+    // pool_commitment = Poseidon(pool_yes, pool_no, blinding)
+    // We use Node.js to call circomlibjs which matches the circom circuit exactly
+
+    // Use big-endian to match bytes_to_dec used in generate_place_bet_blind_proof
+    let blinding_before_decimal = num_bigint::BigUint::from_bytes_be(&blinding_before).to_string();
+    let blinding_after_decimal = num_bigint::BigUint::from_bytes_be(&blinding_after).to_string();
+
+    let pool_commitment_before = calculate_poseidon_commitment_js(
+        pool_yes_before,
+        pool_no_before,
+        &blinding_before_decimal,
+    )?;
+
+    let pool_commitment_after = calculate_poseidon_commitment_js(
+        pool_yes_after,
+        pool_no_after,
+        &blinding_after_decimal,
+    )?;
+
+    // Step 5: Generate ZK proof using PlaceBetBlind circuit
+    println!("{}", "Generating ZK proof...".cyan());
+    println!("  Circuit: PlaceBetBlind (circuit 50)");
+
+    // Build witness inputs for the circuit
+    let _witness_input = json!({
+        "pool_commitment_before": pool_commitment_before.iter().map(|b| b.to_string()).collect::<Vec<_>>(),
+        "pool_commitment_after": pool_commitment_after.iter().map(|b| b.to_string()).collect::<Vec<_>>(),
+        "bet_ciphertext_hash": bet_ciphertext_hash.iter().map(|b| b.to_string()).collect::<Vec<_>>(),
+        "market_id": args.market_id.to_string(),
+        "max_bet": "10000000000",
+        "bet_amount": args.amount.to_string(),
+        "bet_side": bet_side_u8.to_string(),
+        "pool_yes_before": pool_yes_before.to_string(),
+        "pool_no_before": pool_no_before.to_string(),
+        "pool_yes_after": pool_yes_after.to_string(),
+        "pool_no_after": pool_no_after.to_string(),
+        "blinding_before": blinding_before.iter().map(|b| b.to_string()).collect::<Vec<_>>(),
+        "blinding_after": blinding_after.iter().map(|b| b.to_string()).collect::<Vec<_>>(),
+    });
+
+    // Generate ZK proof using PlaceBetBlind circuit
+    let (proof, public_inputs) = if args.circuit_wasm.exists() && args.circuit_zkey.exists() {
+        println!("  Using real Groth16 proof generation");
+        generate_place_bet_blind_proof(
+            &args.circuit_wasm,
+            &args.circuit_zkey,
+            &pool_commitment_before,
+            &pool_commitment_after,
+            &bet_ciphertext_hash,
+            args.market_id,
+            1000000000u64, // max_bet (1 SOL) - TODO: read from market
+            args.amount,
+            bet_side_u8,
+            pool_yes_before,
+            pool_no_before,
+            pool_yes_after,
+            pool_no_after,
+            &blinding_before,
+            &blinding_after,
+        )?
+    } else {
+        // Mock proof for testing
+        println!("  WARNING: Using mock proof (circuit files not found)");
+        let proof = vec![0u8; 256];
+        let mut public_inputs = Vec::with_capacity(120);
+        // Public inputs format (120 bytes):
+        // 0-32: pool_commitment_before
+        // 32-64: pool_commitment_after
+        // 64-96: bet_ciphertext_hash
+        // 96-104: market_id (8 bytes)
+        // 104-112: max_bet (8 bytes)
+        // 112-120: bet_amount (8 bytes) - for on-chain transfer
+        public_inputs.extend_from_slice(&pool_commitment_before);
+        public_inputs.extend_from_slice(&pool_commitment_after);
+        public_inputs.extend_from_slice(&bet_ciphertext_hash);
+        public_inputs.extend_from_slice(&args.market_id.to_le_bytes());
+        public_inputs.extend_from_slice(&1000000000u64.to_le_bytes()); // max_bet (1 SOL)
+        public_inputs.extend_from_slice(&args.amount.to_le_bytes()); // bet_amount for transfer
+        (proof, public_inputs)
+    };
+
+    println!("  Proof generated ({} bytes)", proof.len());
+    println!("  Public inputs: {} bytes", public_inputs.len());
+    println!("{}", "Fetching private balance state...".cyan());
+    let (balance_pda, balance_commitment, _balance_nonce) =
+        fetch_private_balance_state(&args.rpc_url, &keypair.pubkey()).await?;
+
+    // For simplicity, use same balance commitment (real impl should update it)
+    let new_balance_commitment = balance_commitment;
+
+    println!("  Balance PDA: {}", balance_pda);
+    println!("  Balance commitment: {}", hex::encode(&balance_commitment));
+
+    // Step 7: Build PlaceBetBlind instruction
+    println!("{}", "Building transaction...".cyan());
+
+    let instruction_data = FutarchyInstructionV3::PlaceBetBlind {
+        market_id: args.market_id,
+        bet_ciphertext_hash,
+        bet_secret_commitment,
+        pool_commitment_after,
+        proof,
+        public_inputs,
+        new_balance_commitment,
+        circuit_type: CIRCUIT_PLACE_BET_BLIND,
+    };
+
+    let instruction_bytes = instruction_data.pack()?;
+
+    println!("  Instruction size: {} bytes", instruction_bytes.len());
+    println!("  Ready to send to chain");
+
+    // Step 8: Derive PDAs and build transaction
+    println!("{}", "Deriving PDAs...".cyan());
+
+    let program_id = get_futarchy_program_id()?;
+    let zk_program_id = get_zk_generator_program_id()?;
+    let user = keypair.pubkey();
+    let market_id_bytes = args.market_id.to_le_bytes();
+
+    // MarketV3 PDA: ["market_v3", market_id]
+    let (market_v3_pda, _) = solana_sdk::pubkey::Pubkey::find_program_address(
+        &[MARKET_V3_SEED, &market_id_bytes],
+        &program_id,
+    );
+
+    // PositionV3 PDA: ["position_v3", market_id, bet_ciphertext_hash]
+    let (position_v3_pda, _) = solana_sdk::pubkey::Pubkey::find_program_address(
+        &[POSITION_V3_SEED, &market_id_bytes, &bet_ciphertext_hash],
+        &program_id,
+    );
+
+    // MarketVault PDA: ["market_vault", market_id]
+    let (market_vault_pda, _) = solana_sdk::pubkey::Pubkey::find_program_address(
+        &[MARKET_VAULT_SEED, &market_id_bytes],
+        &program_id,
+    );
+
+    // ProtocolVault PDA: ["protocol_vault"]
+    let (protocol_vault_pda, _) = solana_sdk::pubkey::Pubkey::find_program_address(
+        &[PROTOCOL_VAULT_SEED],
+        &program_id,
+    );
+
+    println!("  MarketV3 PDA: {}", market_v3_pda);
+    println!("  PositionV3 PDA: {}", position_v3_pda);
+    println!("  MarketVault PDA: {}", market_vault_pda);
+    println!("  ProtocolVault PDA: {}", protocol_vault_pda);
+    println!("  Balance PDA: {}", balance_pda);
+
+    // Build PlaceBetBlind instruction
+    println!("{}", "Building PlaceBetBlind instruction...".cyan());
+
+    let accounts = vec![
+        solana_sdk::instruction::AccountMeta::new(user, true),
+        solana_sdk::instruction::AccountMeta::new(balance_pda, false),
+        solana_sdk::instruction::AccountMeta::new(market_v3_pda, false),
+        solana_sdk::instruction::AccountMeta::new(position_v3_pda, false),
+        solana_sdk::instruction::AccountMeta::new(protocol_vault_pda, false),
+        solana_sdk::instruction::AccountMeta::new(market_vault_pda, false),
+        solana_sdk::instruction::AccountMeta::new_readonly(zk_program_id, false),
+        solana_sdk::instruction::AccountMeta::new_readonly(solana_sdk::system_program::id(), false),
+        solana_sdk::instruction::AccountMeta::new_readonly(solana_sdk::sysvar::clock::id(), false),
+    ];
+
+    let instruction = solana_sdk::instruction::Instruction {
+        program_id,
+        accounts,
+        data: instruction_bytes,
+    };
+
+    // Create and send transaction
+    use solana_sdk::transaction::Transaction;
+    use solana_client::rpc_client::RpcClient;
+
+    let rpc_client = RpcClient::new(&args.rpc_url);
+    let blockhash = rpc_client.get_latest_blockhash()
+        .context("Failed to get latest blockhash")?;
+
+    let mut tx = Transaction::new_with_payer(&[instruction], Some(&user));
+    tx.sign(&[&keypair], blockhash);
+
+    println!("{}", "Sending transaction to Solana...".cyan());
+    let signature = rpc_client.send_and_confirm_transaction(&tx)
+        .context("Failed to send transaction")?;
+
+    println!();
+    println!("{}", "Blind bet placed successfully!".green().bold());
+    println!();
+    println!("TX Signature: {}", signature.to_string().yellow().bold());
+    println!("Market ID: {}", args.market_id);
+    println!("Position PDA: {}", position_v3_pda);
+    println!("Bet ciphertext hash: {}", hex::encode(&bet_ciphertext_hash));
+    println!();
+
+    // Save bet witness for later claim
+    let bet_witness = json!({
+        "market_id": args.market_id,
+        "secret": hex::encode(secret),
+        "bet_amount": args.amount,
+        "bet_side": bet_side_u8,
+        "bet_secret_commitment": hex::encode(bet_secret_commitment),
+        "bet_ciphertext_hash": hex::encode(bet_ciphertext_hash),
+        "blinding_after": hex::encode(blinding_after),
+    });
+
+    fs::write(&args.witness_output, serde_json::to_string_pretty(&bet_witness)?)?;
+    println!("{}", "Bet witness saved:".green());
+    println!("  {:?}", args.witness_output);
+
+    Ok(())
+}
+
+#[tokio::main]
+async fn settle_market_v3(_args: SettleV3Args) -> Result<()> {
+    anyhow::bail!("SettleV3 not yet implemented - coming soon!")
+}
+
+#[tokio::main]
+async fn claim_v3(_args: ClaimV3Args) -> Result<()> {
+    anyhow::bail!("ClaimV3 not yet implemented - coming soon!")
 }

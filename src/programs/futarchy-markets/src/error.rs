@@ -97,6 +97,12 @@ pub enum FutarchyError {
 
     #[error("No winners in market")]
     NoWinners,
+
+    #[error("Bet was not on winning side")]
+    NotWinner,
+
+    #[error("Action already executed")]
+    AlreadyExecuted,
 }
 
 impl From<FutarchyError> for ProgramError {

@@ -140,3 +140,84 @@ impl PositionV2 {
         self.claimed = true;
     }
 }
+
+// ============================================================================
+// V3: Fully Blind Position (for FHE+ZK architecture)
+// ============================================================================
+
+pub const POSITION_V3_SEED: &[u8] = b"position_v3";
+
+/// PositionV3 - Fully blind position with FHE ciphertext hash
+/// Seeds: ["position_v3", market_id, bet_ciphertext_hash]
+///
+/// V3 Blind: Stores only hashes of encrypted data.
+/// Bet amount and side encrypted with FHE, stored off-chain.
+/// Pool commitments verified via ZK proofs.
+/// Ownership proven via ZK proof at claim time.
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
+pub struct PositionV3 {
+    /// Market ID this position belongs to
+    pub market_id: u64,
+
+    /// Hash of FHE-encrypted bet ciphertext (stored off-chain)
+    /// bet_ciphertext_hash = Hash(FHE_encrypt(amount, side))
+    pub bet_ciphertext_hash: [u8; 32],
+
+    /// User's secret commitment to their bet
+    /// Used to prove ownership in claim ZK proof
+    /// bet_secret_commitment = Poseidon(amount, side, secret)
+    pub bet_secret_commitment: [u8; 32],
+
+    /// Timestamp when bet was placed
+    pub placed_at: i64,
+
+    /// Whether this position has been claimed
+    pub claimed: bool,
+
+    /// Bump seed for PDA derivation
+    pub bump: u8,
+}
+
+impl PositionV3 {
+    /// Space: 8 + 32 + 32 + 8 + 1 + 1 = 82 bytes
+    /// - market_id: 8
+    /// - bet_ciphertext_hash: 32
+    /// - bet_secret_commitment: 32
+    /// - placed_at: 8
+    /// - claimed: 1
+    /// - bump: 1
+    pub const SPACE: usize = 82;
+
+    pub fn new(
+        market_id: u64,
+        bet_ciphertext_hash: [u8; 32],
+        bet_secret_commitment: [u8; 32],
+        placed_at: i64,
+        bump: u8,
+    ) -> Self {
+        Self {
+            market_id,
+            bet_ciphertext_hash,
+            bet_secret_commitment,
+            placed_at,
+            claimed: false,
+            bump,
+        }
+    }
+
+    pub fn seeds_with_bump<'a>(
+        market_id: &'a [u8; 8],
+        bet_ciphertext_hash: &'a [u8; 32],
+        bump: &'a [u8],
+    ) -> [&'a [u8]; 4] {
+        [POSITION_V3_SEED, market_id, bet_ciphertext_hash, bump]
+    }
+
+    pub fn is_claimed(&self) -> bool {
+        self.claimed
+    }
+
+    pub fn mark_claimed(&mut self) {
+        self.claimed = true;
+    }
+}
