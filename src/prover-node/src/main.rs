@@ -459,9 +459,51 @@ impl ProverNode {
             return Ok((Arc::new(keypair), prover_authority));
         }
 
+        // Try Aptos private key (from config or environment)
+        let aptos_config = config_file.chains.iter()
+            .find_map(|(_, chain_config)| {
+                if let ChainConfig::Aptos(ref aptos) = chain_config {
+                    if aptos.enabled {
+                        return Some(aptos);
+                    }
+                }
+                None
+            });
+
+        if let Some(aptos_cfg) = aptos_config {
+            // Aptos-only mode: derive keypair from private key
+            let private_key = aptos_cfg.private_key.clone()
+                .or_else(|| std::env::var("APTOS_PRIVATE_KEY").ok())
+                .context("Aptos private_key in config or APTOS_PRIVATE_KEY env var required for Aptos-only mode")?;
+
+            // Use Aptos prover address as authority identifier
+            let prover_authority = aptos_cfg.prover_address.clone();
+
+            // Derive a deterministic Solana keypair from Aptos private key
+            // This is used for internal signing (witness encryption, gateway auth)
+            let seed = derive_seed_from_hex(&private_key)?;
+
+            // Create ed25519 keypair from seed (Solana uses ed25519, Aptos also uses ed25519)
+            // Keypair::from_bytes expects 64 bytes: [secret_key (32) || public_key (32)]
+            use ed25519_dalek::{SigningKey, VerifyingKey};
+            let signing_key = SigningKey::from_bytes(&seed);
+            let verifying_key = VerifyingKey::from(&signing_key);
+
+            let mut keypair_bytes = [0u8; 64];
+            keypair_bytes[..32].copy_from_slice(signing_key.as_bytes());
+            keypair_bytes[32..].copy_from_slice(verifying_key.as_bytes());
+
+            let keypair = Keypair::from_bytes(&keypair_bytes)
+                .map_err(|e| anyhow::anyhow!("Failed to create keypair from Aptos seed: {}", e))?;
+
+            info!("Running in Aptos-only mode (no Solana/Starknet chain configured)");
+            return Ok((Arc::new(keypair), prover_authority));
+        }
+
         // No valid chain configuration
         anyhow::bail!("No enabled chain with valid keypair configuration found. \
-            Either configure a Solana chain with keypair_path, or a Starknet chain with STARKNET_PRIVATE_KEY env var.")
+            Configure a Solana chain with keypair_path, a Starknet chain with STARKNET_PRIVATE_KEY env var, \
+            or an Aptos chain with private_key in config or APTOS_PRIVATE_KEY env var.")
     }
 
     /// Create a marketplace client from chain configuration

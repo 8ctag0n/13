@@ -331,9 +331,9 @@ pub struct AptosChainConfig {
     /// Prover account address
     pub prover_address: String,
 
-    /// Private key (loaded from environment variable APTOS_PRIVATE_KEY)
-    /// NOTE: Never store private keys in config files!
-    #[serde(skip)]
+    /// Private key for signing transactions
+    /// Can be set in config for local testing, or via APTOS_PRIVATE_KEY env var
+    #[serde(default)]
     pub private_key: Option<String>,
 }
 
