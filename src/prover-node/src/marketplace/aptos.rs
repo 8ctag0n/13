@@ -542,14 +542,17 @@ impl MarketplaceOperations for AptosMarketplace {
             .await;
 
         match result {
-            Ok(data) if data.len() >= 8 => {
-                // Parse FheConsensusData struct
-                // Fields: job_id, operation_type, operation_param1, operation_param2, operation_param3,
-                //         required_provers, consensus_threshold, submission_timeout, claimed_provers,
-                //         result_hashes, result_submitted, results_count, consensus_hash, finalized
+            Ok(data) if !data.is_empty() => {
+                // Parse FheConsensusData struct - data[0] is the full struct object
+                let obj = &data[0];
 
-                let required_provers = data[5].as_u64().unwrap_or(1) as u8;
-                let consensus_threshold = data[6].as_u64().unwrap_or(1) as u8;
+                // Try to extract required_provers and consensus_threshold
+                let required_provers = obj.get("required_provers")
+                    .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+                    .unwrap_or(1) as u8;
+                let consensus_threshold = obj.get("consensus_threshold")
+                    .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+                    .unwrap_or(1) as u8;
 
                 log::debug!(
                     "get_fhe_consensus_config({}) -> required={}, threshold={}",
@@ -562,7 +565,7 @@ impl MarketplaceOperations for AptosMarketplace {
                 }))
             }
             Ok(_) => {
-                log::debug!("get_fhe_consensus_config({}) returned incomplete data", job_id);
+                log::debug!("get_fhe_consensus_config({}) returned empty data", job_id);
                 Ok(None)
             }
             Err(e) => {
