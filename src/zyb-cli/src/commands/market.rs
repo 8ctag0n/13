@@ -3197,6 +3197,143 @@ async fn fetch_market_v2_state(rpc_url: &str, market_id: u64) -> Result<u64> {
     Ok(max_bet)
 }
 
+/// MarketV3 state fetched from chain
+#[derive(Debug)]
+struct MarketV3State {
+    pub pool_commitment: [u8; 32],
+    pub max_bet: u64,
+    pub status: u8,
+    pub decrypted_pool_yes: Option<u64>,
+    pub decrypted_pool_no: Option<u64>,
+    pub resolution: Option<bool>,
+}
+
+/// Fetch MarketV3 state from chain
+async fn fetch_market_v3_state(rpc_url: &str, market_id: u64) -> Result<MarketV3State> {
+    use solana_client::rpc_client::RpcClient;
+
+    let program_id = get_futarchy_program_id()?;
+    let (market_pda, _) = solana_sdk::pubkey::Pubkey::find_program_address(
+        &[MARKET_V3_SEED, &market_id.to_le_bytes()],
+        &program_id,
+    );
+
+    let client = RpcClient::new(rpc_url);
+    let account = client.get_account(&market_pda)
+        .with_context(|| format!("Failed to fetch MarketV3 for id {}", market_id))?;
+
+    // MarketV3 layout (from state/market.rs):
+    // authority: 0-32
+    // market_id: 32-40
+    // oracle: 40-72
+    // question_hash: 72-104
+    // end_time: 104-112
+    // status: 112-113
+    // max_bet: 113-121
+    // resolution: 121-123 (Option<bool>: 1 byte discriminant + 1 byte value)
+    // pool_commitment: 123-155
+    // encrypted_pool_yes_hash: 155-187
+    // encrypted_pool_no_hash: 187-219
+    // decrypted_pool_yes: 219-228 (Option<u64>: 1 byte discriminant + 8 bytes)
+    // decrypted_pool_no: 228-237 (Option<u64>: 1 byte discriminant + 8 bytes)
+    let data = &account.data;
+    let min_len = 237;
+    if data.len() < min_len {
+        anyhow::bail!("MarketV3 data too short: {} < {}", data.len(), min_len);
+    }
+
+    let status = data[112];
+    let max_bet = u64::from_le_bytes(data[113..121].try_into()?);
+
+    // Parse resolution (Option<bool>)
+    let resolution = if data[121] == 0 {
+        None
+    } else {
+        Some(data[122] != 0)
+    };
+
+    let mut pool_commitment = [0u8; 32];
+    pool_commitment.copy_from_slice(&data[123..155]);
+
+    // Parse decrypted pools (Option<u64>)
+    let decrypted_pool_yes = if data[219] == 0 {
+        None
+    } else {
+        Some(u64::from_le_bytes(data[220..228].try_into()?))
+    };
+
+    let decrypted_pool_no = if data[228] == 0 {
+        None
+    } else {
+        Some(u64::from_le_bytes(data[229..237].try_into()?))
+    };
+
+    Ok(MarketV3State {
+        pool_commitment,
+        max_bet,
+        status,
+        decrypted_pool_yes,
+        decrypted_pool_no,
+        resolution,
+    })
+}
+
+/// Local pool state for V3 markets (stored per market)
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct LocalMarketPoolState {
+    pub market_id: u64,
+    pub pool_yes: u64,
+    pub pool_no: u64,
+    pub blinding: String, // hex encoded
+    pub pool_commitment: String, // hex encoded, for verification
+}
+
+impl LocalMarketPoolState {
+    /// Get the path for storing local pool state
+    fn get_path(market_id: u64) -> PathBuf {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        PathBuf::from(home)
+            .join(".zyb")
+            .join(format!("v3_pool_{}.json", market_id))
+    }
+
+    /// Load local pool state or return None if not exists
+    fn load(market_id: u64) -> Option<Self> {
+        let path = Self::get_path(market_id);
+        if !path.exists() {
+            return None;
+        }
+
+        let content = fs::read_to_string(&path).ok()?;
+        serde_json::from_str(&content).ok()
+    }
+
+    /// Save local pool state
+    fn save(&self) -> Result<()> {
+        let path = Self::get_path(self.market_id);
+
+        // Create directory if needed
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        let content = serde_json::to_string_pretty(self)?;
+        fs::write(&path, content)?;
+        Ok(())
+    }
+
+    /// Create initial state (all zeros)
+    fn initial(market_id: u64, initial_blinding: &[u8; 32]) -> Self {
+        Self {
+            market_id,
+            pool_yes: 0,
+            pool_no: 0,
+            blinding: hex::encode(initial_blinding),
+            pool_commitment: String::new(), // Will be set after calculation
+        }
+    }
+}
+
 /// Calculate Poseidon commitment using circomlibjs (via Node.js)
 /// This ensures compatibility with the circom circuit
 fn calculate_poseidon_commitment_js(
@@ -3527,7 +3664,6 @@ async fn bet_blind_v3(args: BetBlindArgs) -> Result<()> {
     use zyberlink_fhe::futarchy::{encrypt_bet_with_hash};
     use zyberlink_fhe::{generate_keys, serialize_client_key, serialize_server_key};
     use solana_sdk::signature::{read_keypair_file, Signer};
-    use sha3::{Digest, Keccak256};
     use rand::RngCore;
 
     println!("{}", "Placing BLIND bet (V3)...".cyan().bold());
@@ -3617,28 +3753,97 @@ async fn bet_blind_v3(args: BetBlindArgs) -> Result<()> {
         BetSide::No => 1u8,
     };
 
-    // Calculate bet_secret_commitment = Keccak256(amount || side || secret)
-    // Note: In production, use Poseidon hash to match circuit
-    let bet_secret_commitment = {
-        let mut hasher = Keccak256::new();
-        hasher.update(&args.amount.to_le_bytes());
-        hasher.update(&[bet_side_u8]);
-        hasher.update(&secret);
-        let result = hasher.finalize();
-        let mut commitment = [0u8; 32];
-        commitment.copy_from_slice(&result);
-        commitment
-    };
+    // Calculate bet_secret_commitment = Poseidon(amount, side, secret)
+    // Using Poseidon to match the claim_blind circom circuit
+    let secret_decimal = num_bigint::BigUint::from_bytes_be(&secret).to_string();
+    let bet_secret_commitment = calculate_poseidon_commitment_js(
+        args.amount,
+        bet_side_u8 as u64,
+        &secret_decimal,
+    )?;
 
     println!("  Bet secret commitment: {}", hex::encode(&bet_secret_commitment));
 
-    // Step 4: Fetch current pool state from chain (or use default for first bet)
+    // Step 4: Fetch current pool state from chain and synchronize with local state
     println!("{}", "Fetching market state...".cyan());
 
-    // For MVP, we'll use zero pools as starting state
-    // TODO: Fetch actual pool_commitment from MarketV3 account
-    let pool_yes_before = 0u64;
-    let pool_no_before = 0u64;
+    // Try to fetch on-chain state (may fail if market doesn't exist yet or no cluster)
+    let chain_state = fetch_market_v3_state(&args.rpc_url, args.market_id).await;
+
+    // Load local pool state or create initial
+    let local_pool_state = LocalMarketPoolState::load(args.market_id);
+
+    // Determine pool_yes_before and pool_no_before
+    let (pool_yes_before, pool_no_before, blinding_before) = match (&chain_state, &local_pool_state) {
+        // Case 1: Both chain and local available - verify they match
+        (Ok(chain), Some(local)) => {
+            // Decode local blinding
+            let local_blinding = hex::decode(&local.blinding)
+                .map_err(|_| anyhow::anyhow!("Invalid blinding in local pool state"))?;
+            let local_blinding: [u8; 32] = local_blinding.try_into()
+                .map_err(|_| anyhow::anyhow!("Invalid blinding length in local pool state"))?;
+
+            // Calculate expected commitment from local state
+            let blinding_decimal = num_bigint::BigUint::from_bytes_be(&local_blinding).to_string();
+            let expected_commitment = calculate_poseidon_commitment_js(
+                local.pool_yes,
+                local.pool_no,
+                &blinding_decimal,
+            )?;
+
+            // Verify local state matches chain
+            if expected_commitment != chain.pool_commitment {
+                println!("{}", "Warning: Local pool state doesn't match on-chain commitment!".yellow());
+                println!("  Local:   YES={}, NO={}", local.pool_yes, local.pool_no);
+                println!("  On-chain commitment: {}", hex::encode(&chain.pool_commitment));
+                println!("  Expected commitment: {}", hex::encode(&expected_commitment));
+                println!("{}", "This means another participant placed a bet since your last bet.".yellow());
+                println!("{}", "For now, using local state (multi-user sync requires prover node).".yellow());
+            }
+
+            (local.pool_yes, local.pool_no, local_blinding)
+        },
+        // Case 2: Only local available (chain fetch failed)
+        (Err(_), Some(local)) => {
+            println!("{}", "Using local pool state (chain fetch failed)".yellow());
+            let local_blinding = hex::decode(&local.blinding)
+                .map_err(|_| anyhow::anyhow!("Invalid blinding in local pool state"))?;
+            let local_blinding: [u8; 32] = local_blinding.try_into()
+                .map_err(|_| anyhow::anyhow!("Invalid blinding length in local pool state"))?;
+
+            (local.pool_yes, local.pool_no, local_blinding)
+        },
+        // Case 3: Only chain available (first bet from this client)
+        (Ok(chain), None) => {
+            // Check if pool is empty (all zeros commitment means first bet)
+            let zero_commitment = [0u8; 32];
+            if chain.pool_commitment == zero_commitment {
+                println!("  First bet on this market (empty pool)");
+                (0u64, 0u64, blinding_before)
+            } else {
+                // Pool has bets but we don't have local state
+                // This user is joining mid-game - they need pool state from prover
+                println!("{}", "Warning: Market has existing bets but no local state.".yellow());
+                println!("  On-chain pool_commitment: {}", hex::encode(&chain.pool_commitment));
+                println!("{}", "For MVP, starting with empty pool (incorrect for production).".yellow());
+                println!("{}", "Production requires fetching pool state from prover node.".yellow());
+                (0u64, 0u64, blinding_before)
+            }
+        },
+        // Case 4: Neither available - assume first bet
+        (Err(e), None) => {
+            println!("{}", format!("Chain fetch failed: {}. Assuming first bet.", e).yellow());
+            (0u64, 0u64, blinding_before)
+        },
+    };
+
+    // Get max_bet from chain or use default
+    let max_bet = chain_state.as_ref().map(|s| s.max_bet).unwrap_or(1_000_000_000);
+    println!("  Max bet: {} lamports", max_bet);
+
+    if args.amount > max_bet {
+        anyhow::bail!("Bet amount {} exceeds market max_bet {}", args.amount, max_bet);
+    }
 
     // Calculate pools after bet
     let (pool_yes_after, pool_no_after) = if bet_side_u8 == 0 {
@@ -3680,7 +3885,7 @@ async fn bet_blind_v3(args: BetBlindArgs) -> Result<()> {
         "pool_commitment_after": pool_commitment_after.iter().map(|b| b.to_string()).collect::<Vec<_>>(),
         "bet_ciphertext_hash": bet_ciphertext_hash.iter().map(|b| b.to_string()).collect::<Vec<_>>(),
         "market_id": args.market_id.to_string(),
-        "max_bet": "10000000000",
+        "max_bet": max_bet.to_string(),
         "bet_amount": args.amount.to_string(),
         "bet_side": bet_side_u8.to_string(),
         "pool_yes_before": pool_yes_before.to_string(),
@@ -3701,7 +3906,7 @@ async fn bet_blind_v3(args: BetBlindArgs) -> Result<()> {
             &pool_commitment_after,
             &bet_ciphertext_hash,
             args.market_id,
-            1000000000u64, // max_bet (1 SOL) - TODO: read from market
+            max_bet,
             args.amount,
             bet_side_u8,
             pool_yes_before,
@@ -3727,7 +3932,7 @@ async fn bet_blind_v3(args: BetBlindArgs) -> Result<()> {
         public_inputs.extend_from_slice(&pool_commitment_after);
         public_inputs.extend_from_slice(&bet_ciphertext_hash);
         public_inputs.extend_from_slice(&args.market_id.to_le_bytes());
-        public_inputs.extend_from_slice(&1000000000u64.to_le_bytes()); // max_bet (1 SOL)
+        public_inputs.extend_from_slice(&max_bet.to_le_bytes());
         public_inputs.extend_from_slice(&args.amount.to_le_bytes()); // bet_amount for transfer
         (proof, public_inputs)
     };
@@ -3846,7 +4051,7 @@ async fn bet_blind_v3(args: BetBlindArgs) -> Result<()> {
     println!("Bet ciphertext hash: {}", hex::encode(&bet_ciphertext_hash));
     println!();
 
-    // Save bet witness for later claim
+    // Save bet witness for later claim (includes pool state for multi-bet sync)
     let bet_witness = json!({
         "market_id": args.market_id,
         "secret": hex::encode(secret),
@@ -3855,28 +4060,45 @@ async fn bet_blind_v3(args: BetBlindArgs) -> Result<()> {
         "bet_secret_commitment": hex::encode(bet_secret_commitment),
         "bet_ciphertext_hash": hex::encode(bet_ciphertext_hash),
         "blinding_after": hex::encode(blinding_after),
+        // Pool state after this bet (for next bet sync)
+        "pool_yes_after": pool_yes_after,
+        "pool_no_after": pool_no_after,
+        "pool_commitment_after": hex::encode(pool_commitment_after),
     });
 
     fs::write(&args.witness_output, serde_json::to_string_pretty(&bet_witness)?)?;
     println!("{}", "Bet witness saved:".green());
     println!("  {:?}", args.witness_output);
 
+    // Save local pool state for subsequent bets on this market
+    let new_pool_state = LocalMarketPoolState {
+        market_id: args.market_id,
+        pool_yes: pool_yes_after,
+        pool_no: pool_no_after,
+        blinding: hex::encode(blinding_after),
+        pool_commitment: hex::encode(pool_commitment_after),
+    };
+    new_pool_state.save()?;
+    println!("{}", "Local pool state saved for future bets.".green());
+
     Ok(())
 }
 
 /// Generate ClaimBlind proof using snarkjs
+/// Circuit inputs (from claim_blind.circom):
+///   Public: bet_secret_commitment, winning_pool, losing_pool, outcome, claimed_payout, market_id
+///   Private: bet_amount, bet_side, bet_blinding
 fn generate_claim_blind_proof(
     wasm_path: &PathBuf,
     zkey_path: &PathBuf,
     market_id: u64,
-    bet_ciphertext_hash: &[u8; 32],
-    bet_secret_commitment: &[u8; 32],
     bet_amount: u64,
     bet_side: u8,
-    secret: &[u8; 32],
+    bet_blinding: &[u8; 32],
     payout_amount: u64,
     winning_pool: u64,
     losing_pool: u64,
+    outcome: u8, // 0=YES won, 1=NO won (matches bet_side encoding)
 ) -> Result<(Vec<u8>, Vec<u8>)> {
     use std::process::Command;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -3892,19 +4114,30 @@ fn generate_claim_blind_proof(
     let proof_path = temp_dir.join("proof.json");
     let public_path = temp_dir.join("public.json");
 
+    // Calculate bet_secret_commitment = Poseidon(bet_amount, bet_side, bet_blinding)
+    // using circomlibjs via Node.js for circuit compatibility
+    let blinding_decimal = num_bigint::BigUint::from_bytes_be(bet_blinding).to_string();
+    let bet_secret_commitment = calculate_poseidon_commitment_js(
+        bet_amount,
+        bet_side as u64,
+        &blinding_decimal,
+    )?;
+    let bet_secret_commitment_decimal = num_bigint::BigUint::from_bytes_be(&bet_secret_commitment).to_string();
+
     // Build witness JSON for ClaimBlind circuit
+    // Names must match exactly what the circuit expects
     let input_json = serde_json::json!({
-        // Public inputs
-        "market_id": market_id.to_string(),
-        "bet_ciphertext_hash": bytes_to_dec(bet_ciphertext_hash),
-        "bet_secret_commitment": bytes_to_dec(bet_secret_commitment),
-        "payout_amount": payout_amount.to_string(),
-        // Private inputs
-        "bet_amount": bet_amount.to_string(),
-        "bet_side": bet_side.to_string(),
-        "secret": bytes_to_dec(secret),
+        // Public inputs (6)
+        "bet_secret_commitment": bet_secret_commitment_decimal,
         "winning_pool": winning_pool.to_string(),
         "losing_pool": losing_pool.to_string(),
+        "outcome": outcome.to_string(),
+        "claimed_payout": payout_amount.to_string(),
+        "market_id": market_id.to_string(),
+        // Private inputs (3)
+        "bet_amount": bet_amount.to_string(),
+        "bet_side": bet_side.to_string(),
+        "bet_blinding": blinding_decimal,
     });
 
     fs::write(&input_path, serde_json::to_string_pretty(&input_json)?)?;
@@ -3940,18 +4173,22 @@ fn generate_claim_blind_proof(
     let proof_bytes = proof_json_to_bytes(&proof_json)?;
 
     // Build public_inputs for on-chain verification
-    // Format (104 bytes):
-    // 0-8: market_id (8 bytes)
-    // 8-40: bet_ciphertext_hash (32 bytes)
-    // 40-72: bet_secret_commitment (32 bytes)
-    // 72-80: payout_amount (8 bytes)
-    // 80-104: reserved (24 bytes for future use)
-    let mut public_inputs = Vec::with_capacity(104);
-    public_inputs.extend_from_slice(&market_id.to_le_bytes());
-    public_inputs.extend_from_slice(bet_ciphertext_hash);
-    public_inputs.extend_from_slice(bet_secret_commitment);
+    // Format (72 bytes):
+    // 0-32: bet_secret_commitment
+    // 32-40: winning_pool (8 bytes)
+    // 40-48: losing_pool (8 bytes)
+    // 48-49: outcome (1 byte)
+    // 49-57: claimed_payout (8 bytes)
+    // 57-65: market_id (8 bytes)
+    // 65-72: padding (7 bytes)
+    let mut public_inputs = Vec::with_capacity(72);
+    public_inputs.extend_from_slice(&bet_secret_commitment);
+    public_inputs.extend_from_slice(&winning_pool.to_le_bytes());
+    public_inputs.extend_from_slice(&losing_pool.to_le_bytes());
+    public_inputs.push(outcome);
     public_inputs.extend_from_slice(&payout_amount.to_le_bytes());
-    public_inputs.extend_from_slice(&[0u8; 24]); // reserved
+    public_inputs.extend_from_slice(&market_id.to_le_bytes());
+    public_inputs.extend_from_slice(&[0u8; 7]); // padding to 72 bytes
 
     // Cleanup temp dir
     let _ = fs::remove_dir_all(&temp_dir);
@@ -4122,11 +4359,23 @@ async fn claim_v3(args: ClaimV3Args) -> Result<()> {
     // Fetch market state to get decrypted pools and outcome
     println!("{}", "Fetching market state...".cyan());
 
-    // TODO: Fetch actual market state from chain
-    // For now, use placeholder values - in production, deserialize MarketV3 account
-    let decrypted_yes = 1000000000u64; // 1 SOL
-    let decrypted_no = 500000000u64;   // 0.5 SOL
-    let outcome_yes = true; // Assume YES won
+    // Fetch actual market state from chain
+    let market_state = fetch_market_v3_state(&args.rpc_url, market_id).await?;
+
+    // Verify market is settled with decrypted pools
+    let (decrypted_yes, decrypted_no) = match (market_state.decrypted_pool_yes, market_state.decrypted_pool_no) {
+        (Some(yes), Some(no)) => (yes, no),
+        _ => {
+            anyhow::bail!("Market not settled or pools not yet decrypted. Wait for oracle threshold decryption.");
+        }
+    };
+
+    let outcome_yes = match market_state.resolution {
+        Some(outcome) => outcome,
+        None => {
+            anyhow::bail!("Market not yet resolved by oracle.");
+        }
+    };
 
     let (winning_pool, losing_pool) = if outcome_yes {
         (decrypted_yes, decrypted_no)
@@ -4137,6 +4386,9 @@ async fn claim_v3(args: ClaimV3Args) -> Result<()> {
     println!("  Decrypted pools: YES={}, NO={}", decrypted_yes, decrypted_no);
     println!("  Outcome: {}", if outcome_yes { "YES" } else { "NO" });
     println!("  Winning pool: {}, Losing pool: {}", winning_pool, losing_pool);
+
+    // outcome for circuit: 0=YES won, 1=NO won (matches bet_side encoding)
+    let outcome_u8: u8 = if outcome_yes { 0 } else { 1 };
 
     // Calculate payout: bet_amount + (bet_amount * losing_pool / winning_pool)
     let payout_amount = if winning_pool > 0 {
@@ -4158,35 +4410,38 @@ async fn claim_v3(args: ClaimV3Args) -> Result<()> {
                 wasm,
                 zkey,
                 market_id,
-                &bet_ciphertext_hash,
-                &bet_secret_commitment,
                 bet_amount,
                 bet_side_u8,
-                &secret,
+                &secret,  // bet_blinding
                 payout_amount,
                 winning_pool,
                 losing_pool,
+                outcome_u8,
             )?
         } else {
             println!("  WARNING: Circuit files not found, using mock proof");
             let proof = vec![0u8; 256];
-            let mut public_inputs = Vec::with_capacity(104);
-            public_inputs.extend_from_slice(&market_id.to_le_bytes());
-            public_inputs.extend_from_slice(&bet_ciphertext_hash);
+            let mut public_inputs = Vec::with_capacity(72);
             public_inputs.extend_from_slice(&bet_secret_commitment);
+            public_inputs.extend_from_slice(&winning_pool.to_le_bytes());
+            public_inputs.extend_from_slice(&losing_pool.to_le_bytes());
+            public_inputs.push(outcome_u8);
             public_inputs.extend_from_slice(&payout_amount.to_le_bytes());
-            public_inputs.extend_from_slice(&[0u8; 24]); // reserved
+            public_inputs.extend_from_slice(&market_id.to_le_bytes());
+            public_inputs.extend_from_slice(&[0u8; 7]); // padding
             (proof, public_inputs)
         }
     } else {
         println!("  WARNING: No circuit paths provided, using mock proof");
         let proof = vec![0u8; 256];
-        let mut public_inputs = Vec::with_capacity(104);
-        public_inputs.extend_from_slice(&market_id.to_le_bytes());
-        public_inputs.extend_from_slice(&bet_ciphertext_hash);
+        let mut public_inputs = Vec::with_capacity(72);
         public_inputs.extend_from_slice(&bet_secret_commitment);
+        public_inputs.extend_from_slice(&winning_pool.to_le_bytes());
+        public_inputs.extend_from_slice(&losing_pool.to_le_bytes());
+        public_inputs.push(outcome_u8);
         public_inputs.extend_from_slice(&payout_amount.to_le_bytes());
-        public_inputs.extend_from_slice(&[0u8; 24]); // reserved
+        public_inputs.extend_from_slice(&market_id.to_le_bytes());
+        public_inputs.extend_from_slice(&[0u8; 7]); // padding
         (proof, public_inputs)
     };
 
