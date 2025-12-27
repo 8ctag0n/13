@@ -321,7 +321,7 @@ pub struct ClaimArgs {
     pub rpc_url: String,
 
     /// Futarchy Markets program ID
-    #[arg(long, default_value = "FutMkts111111111111111111111111111111111111")]
+    #[arg(long, default_value = "5B8x1aJEHsMLqqKDYVQe2dTA38hbie1QXX2JSmPAxWJT")]
     pub futarchy_program: String,
 
     /// ZK Generator program ID
@@ -513,6 +513,14 @@ pub struct WithdrawPrivateArgs {
     /// Solana RPC URL
     #[arg(long, default_value = "http://localhost:8899")]
     pub rpc_url: String,
+
+    /// Path to circuit WASM (for real proof generation)
+    #[arg(long)]
+    pub circuit_wasm: Option<PathBuf>,
+
+    /// Path to circuit zkey (for real proof generation)
+    #[arg(long)]
+    pub circuit_zkey: Option<PathBuf>,
 }
 
 #[derive(Args, Debug)]
@@ -1373,7 +1381,7 @@ const NULLIFIER_SEED: &[u8] = b"nullifier";
 /// Get futarchy program ID from env or default
 fn get_futarchy_program_id() -> Result<solana_sdk::pubkey::Pubkey> {
     let id_str = std::env::var("FUTARCHY_PROGRAM_ID")
-        .unwrap_or_else(|_| "FutMkts111111111111111111111111111111111111".to_string());
+        .unwrap_or_else(|_| "5B8x1aJEHsMLqqKDYVQe2dTA38hbie1QXX2JSmPAxWJT".to_string());
     solana_sdk::pubkey::Pubkey::from_str(&id_str).context("Invalid FUTARCHY_PROGRAM_ID")
 }
 
@@ -2169,24 +2177,45 @@ async fn withdraw_private_v2(args: WithdrawPrivateArgs) -> Result<()> {
     let old_commitment: [u8; 32] = data[commitment_offset..commitment_offset+32].try_into()
         .map_err(|_| anyhow::anyhow!("Failed to parse old_commitment"))?;
 
-    // Calculate new balance and commitment
+    // Calculate new balance and commitment using Poseidon
     let new_balance = local_state.balance - args.amount;
     let new_nonce = local_state.nonce + 1;
 
     let new_balance_commitment = {
-        let mut input = [0u8; 16];
-        input[..8].copy_from_slice(&new_balance.to_le_bytes());
-        input[8..].copy_from_slice(&new_nonce.to_le_bytes());
-        solana_sdk::hash::hash(&input).to_bytes()
+        use light_poseidon::{Poseidon, PoseidonBytesHasher};
+        let mut poseidon = Poseidon::<ark_bn254::Fr>::new_circom(2).unwrap();
+        let mut balance_bytes = [0u8; 32];
+        balance_bytes[24..32].copy_from_slice(&new_balance.to_be_bytes());
+        let mut nonce_bytes = [0u8; 32];
+        nonce_bytes[24..32].copy_from_slice(&new_nonce.to_be_bytes());
+        poseidon.hash_bytes_be(&[&balance_bytes, &nonce_bytes]).unwrap()
     };
 
-    // Build public inputs (72 bytes)
-    println!("Using mock proof for withdraw...");
-    let proof_bytes = vec![0u8; 256];
-    let mut public_inputs = Vec::with_capacity(72);
-    public_inputs.extend_from_slice(&old_commitment);           // 0..32
-    public_inputs.extend_from_slice(&new_balance_commitment);   // 32..64
-    public_inputs.extend_from_slice(&args.amount.to_le_bytes()); // 64..72
+    // Generate proof (real or mock)
+    let (proof_bytes, public_inputs) = if let (Some(wasm), Some(zkey)) =
+        (&args.circuit_wasm, &args.circuit_zkey)
+    {
+        println!("Generating ZK proof with snarkjs...");
+        let witness = WithdrawPrivateWitness {
+            old_balance_commitment: old_commitment,
+            new_balance_commitment,
+            withdraw_amount: args.amount,
+            balance: local_state.balance,
+            new_balance,
+            nonce: local_state.nonce,
+            new_nonce,
+        };
+        let proof = generate_withdraw_private_proof(wasm, zkey, &witness)?;
+        println!("{}", "ZK proof generated successfully!".green());
+        (proof.proof, proof.public_inputs)
+    } else {
+        println!("{}", "Using mock proof for withdraw...".yellow());
+        let mut public_inputs = Vec::with_capacity(72);
+        public_inputs.extend_from_slice(&old_commitment);
+        public_inputs.extend_from_slice(&new_balance_commitment);
+        public_inputs.extend_from_slice(&args.amount.to_le_bytes());
+        (vec![0u8; 256], public_inputs)
+    };
 
     // Build Withdraw instruction
     let ix_data = borsh::to_vec(&FutarchyInstructionV2::Withdraw {
@@ -2430,6 +2459,29 @@ pub struct ClaimPrivateProof {
     pub public_inputs: Vec<u8>,
 }
 
+/// Witness for WithdrawPrivate circuit
+#[derive(Debug, Clone)]
+pub struct WithdrawPrivateWitness {
+    // Public inputs
+    pub old_balance_commitment: [u8; 32],
+    pub new_balance_commitment: [u8; 32],
+    pub withdraw_amount: u64,
+    // Private inputs
+    pub balance: u64,
+    pub new_balance: u64,
+    pub nonce: u64,
+    pub new_nonce: u64,
+}
+
+/// Proof output from WithdrawPrivate circuit
+#[derive(Debug, Clone)]
+pub struct WithdrawPrivateProof {
+    /// Groth16 proof bytes (256 bytes)
+    pub proof: Vec<u8>,
+    /// Public inputs for on-chain verification
+    pub public_inputs: Vec<u8>,
+}
+
 /// Calculate Poseidon hash compatible with circomlib
 /// Uses light-poseidon which matches circomlib's BN254 Poseidon
 fn poseidon_hash_2(a: &BigUint, b: &BigUint) -> [u8; 32] {
@@ -2540,8 +2592,9 @@ pub fn generate_place_bet_private_proof(
     // Convert proof to 256 bytes
     let proof_bytes = proof_json_to_bytes(&proof_json)?;
 
-    // Build public_inputs for on-chain (format expected by place_bet_v2)
-    // old_commitment(32) + new_commitment(32) + bet_commitment(32) + max_bet(8) + bet_amount(8) = 112 bytes
+    // Build public_inputs for on-chain (compact format for instruction)
+    // Format: old_commitment(32) + new_commitment(32) + bet_commitment(32) + max_bet(8) + bet_amount(8) = 112 bytes
+    // The processor will reconstruct circuit inputs using market_id from instruction params
     let mut public_inputs = Vec::with_capacity(112);
     public_inputs.extend_from_slice(&witness.old_balance_commitment);
     public_inputs.extend_from_slice(&witness.new_balance_commitment);
@@ -2659,6 +2712,86 @@ pub fn generate_claim_private_proof(
     })
 }
 
+/// Generate WithdrawPrivate proof using snarkjs
+pub fn generate_withdraw_private_proof(
+    wasm_path: &PathBuf,
+    zkey_path: &PathBuf,
+    witness: &WithdrawPrivateWitness,
+) -> Result<WithdrawPrivateProof> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    // Create temp directory
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)?
+        .as_nanos();
+    let temp_dir = std::env::temp_dir().join(format!("withdraw_proof_{}", nanos));
+    fs::create_dir_all(&temp_dir)?;
+
+    let input_path = temp_dir.join("input.json");
+    let proof_path = temp_dir.join("proof.json");
+    let public_path = temp_dir.join("public.json");
+
+    // Build witness JSON matching withdraw_private.circom
+    let input_json = serde_json::json!({
+        // Public inputs
+        "old_balance_commitment": bytes_to_dec(&witness.old_balance_commitment),
+        "new_balance_commitment": bytes_to_dec(&witness.new_balance_commitment),
+        "withdraw_amount": witness.withdraw_amount.to_string(),
+        // Private inputs
+        "balance": witness.balance.to_string(),
+        "new_balance": witness.new_balance.to_string(),
+        "nonce": witness.nonce.to_string(),
+        "new_nonce": witness.new_nonce.to_string(),
+    });
+
+    fs::write(&input_path, serde_json::to_string_pretty(&input_json)?)?;
+
+    println!("  Generating ZK proof with snarkjs (withdraw_private)...");
+
+    // Run snarkjs groth16 fullprove
+    let output = Command::new("npx")
+        .args([
+            "snarkjs",
+            "groth16",
+            "fullprove",
+            input_path.to_str().unwrap(),
+            wasm_path.to_str().unwrap(),
+            zkey_path.to_str().unwrap(),
+            proof_path.to_str().unwrap(),
+            public_path.to_str().unwrap(),
+        ])
+        .output()
+        .with_context(|| "Failed to run snarkjs")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        anyhow::bail!("snarkjs failed:\nstderr: {}\nstdout: {}", stderr, stdout);
+    }
+
+    // Parse proof.json
+    let proof_content = fs::read_to_string(&proof_path)?;
+    let proof_json: serde_json::Value = serde_json::from_str(&proof_content)?;
+
+    // Convert proof to 256 bytes
+    let proof_bytes = proof_json_to_bytes(&proof_json)?;
+
+    // Build public_inputs for on-chain (compact format)
+    // old_commitment(32) + new_commitment(32) + amount(8) = 72 bytes
+    let mut public_inputs = Vec::with_capacity(72);
+    public_inputs.extend_from_slice(&witness.old_balance_commitment);
+    public_inputs.extend_from_slice(&witness.new_balance_commitment);
+    public_inputs.extend_from_slice(&witness.withdraw_amount.to_le_bytes());
+
+    // Cleanup temp dir
+    let _ = fs::remove_dir_all(&temp_dir);
+
+    Ok(WithdrawPrivateProof {
+        proof: proof_bytes,
+        public_inputs,
+    })
+}
+
 /// BN254 base field modulus (for G1 point negation)
 fn bn254_field_modulus() -> BigUint {
     BigUint::parse_bytes(
@@ -2720,11 +2853,11 @@ fn proof_json_to_bytes(proof: &serde_json::Value) -> Result<Vec<u8>> {
     bytes.extend_from_slice(&biguint_to_32be(&ax));
     bytes.extend_from_slice(&biguint_to_32be(&ay_neg));
 
-    // B: x0, x1, y0, y1 (G2 point in Fp2)
-    bytes.extend_from_slice(&biguint_to_32be(&bx0));
+    // B: x1, x0, y1, y0 (G2 point in Fp2, groth16-solana order)
     bytes.extend_from_slice(&biguint_to_32be(&bx1));
-    bytes.extend_from_slice(&biguint_to_32be(&by0));
+    bytes.extend_from_slice(&biguint_to_32be(&bx0));
     bytes.extend_from_slice(&biguint_to_32be(&by1));
+    bytes.extend_from_slice(&biguint_to_32be(&by0));
 
     // C: x, y
     bytes.extend_from_slice(&biguint_to_32be(&cx));

@@ -308,10 +308,23 @@ pub fn process_place_bet(
         msg!("  Provers will compute new encrypted pool");
     }
 
-    // Update transparent totals (for backward compatibility)
-    // In FHE mode, these are just approximate/placeholders
-    market.total_yes_bets = market.total_yes_bets.checked_add(amount)
-        .ok_or(FutarchyError::Overflow)?;
+    // Update transparent totals
+    // In FHE mode: don't update to preserve privacy (amounts are in encrypted pools)
+    // In transparent mode: update with real amounts
+    if !fhe_enabled {
+        match side {
+            Some(true) | None => {
+                market.total_yes_bets = market.total_yes_bets.checked_add(amount)
+                    .ok_or(FutarchyError::Overflow)?;
+            }
+            Some(false) => {
+                market.total_no_bets = market.total_no_bets.checked_add(amount)
+                    .ok_or(FutarchyError::Overflow)?;
+            }
+        }
+    }
+    // Note: In FHE mode, real totals are computed from encrypted_pool_yes/no
+    // via homomorphic operations by provers
 
     // Write updated market
     drop(market_data);

@@ -52,7 +52,6 @@ impl From<VerifyError> for ProgramError {
 /// - A: 64 bytes (G1 point, already negated for groth16-solana)
 /// - B: 128 bytes (G2 point)
 /// - C: 64 bytes (G1 point)
-#[cfg(not(feature = "mock-proofs"))]
 fn parse_proof(proof: &[u8]) -> Result<([u8; 64], [u8; 128], [u8; 64]), VerifyError> {
     if proof.len() != GROTH16_PROOF_SIZE {
         msg!("Invalid proof size: {} != {}", proof.len(), GROTH16_PROOF_SIZE);

@@ -139,6 +139,37 @@ fn verify_circuit_proof(
             verify_portfolio_net_worth_proof(proof, &inputs, current_time, &vk)
         }
 
+        // Futarchy V2 circuits (private balance)
+        CircuitType::PlaceBetPrivate => {
+            // TODO: Implement Groth16 verification for place_bet_private
+            msg!("PlaceBetPrivate circuit verification - size check only");
+            if proof.len() != 256 {
+                msg!("Invalid proof size: {} != 256", proof.len());
+                return Ok(false);
+            }
+            Ok(true)
+        }
+
+        CircuitType::ClaimPrivate => {
+            // TODO: Implement Groth16 verification for claim_private
+            msg!("ClaimPrivate circuit verification - size check only");
+            if proof.len() != 256 {
+                msg!("Invalid proof size: {} != 256", proof.len());
+                return Ok(false)
+            }
+            Ok(true)
+        }
+
+        CircuitType::WithdrawPrivate => {
+            // TODO: Implement Groth16 verification for withdraw_private
+            msg!("WithdrawPrivate circuit verification - size check only");
+            if proof.len() != 256 {
+                msg!("Invalid proof size: {} != 256", proof.len());
+                return Ok(false);
+            }
+            Ok(true)
+        }
+
         // Future circuits
         CircuitType::FutarchyConditional => {
             msg!("FutarchyConditional circuit not yet implemented");

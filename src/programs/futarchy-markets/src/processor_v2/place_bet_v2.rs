@@ -171,6 +171,7 @@ pub fn process_place_bet_v2(
         &private_balance.balance_commitment,
         &new_balance_commitment,
         &bet_commitment,
+        market_id,
         market.max_bet,
     )?;
 
@@ -269,6 +270,7 @@ fn verify_place_bet_proof(
     old_commitment: &[u8; 32],
     new_commitment: &[u8; 32],
     bet_commitment: &[u8; 32],
+    market_id: u64,
     max_bet: u64,
 ) -> Result<u64, ProgramError> {
     use crate::verifier::{verify_place_bet_proof as groth16_verify, GROTH16_PROOF_SIZE};
@@ -324,14 +326,16 @@ fn verify_place_bet_proof(
     }
 
     // Build circuit-format public inputs (5 x 32 = 160 bytes, big-endian)
+    // Circuit expects: old_commitment, new_commitment, bet_commitment, market_id, max_bet
+    // Input layout: [0-32: old][32-64: new][64-96: bet][96-128: market_id][128-160: max_bet]
     let mut circuit_inputs = [0u8; 160];
     circuit_inputs[0..32].copy_from_slice(pi_old_commitment);
     circuit_inputs[32..64].copy_from_slice(pi_new_commitment);
     circuit_inputs[64..96].copy_from_slice(pi_bet_commitment);
-    // max_bet as 32-byte big-endian (field element)
-    circuit_inputs[120..128].copy_from_slice(&pi_max_bet.to_be_bytes());
-    // bet_amount as 32-byte big-endian (field element)
-    circuit_inputs[152..160].copy_from_slice(&pi_bet_amount.to_be_bytes());
+    // market_id as 32-byte big-endian (field element, u64 in last 8 bytes)
+    circuit_inputs[120..128].copy_from_slice(&market_id.to_be_bytes());
+    // max_bet as 32-byte big-endian (field element, u64 in last 8 bytes)
+    circuit_inputs[152..160].copy_from_slice(&max_bet.to_be_bytes());
 
     // Verify Groth16 proof on-chain
     let is_valid = groth16_verify(proof, &circuit_inputs)?;

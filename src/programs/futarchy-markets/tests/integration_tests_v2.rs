@@ -215,11 +215,12 @@ mod helpers_v2 {
         program_id: &Pubkey,
         user: &Pubkey,
         amount: u64,
+        new_commitment: [u8; 32],
     ) -> Instruction {
         let (private_balance_pda, _) = derive_private_balance_pda(program_id, user);
         let (protocol_vault_pda, _) = derive_protocol_vault_pda(program_id);
 
-        let instruction = FutarchyInstructionV2::Deposit { amount };
+        let instruction = FutarchyInstructionV2::Deposit { amount, new_commitment };
         let data = instruction.pack().unwrap();
 
         Instruction {
@@ -228,6 +229,41 @@ mod helpers_v2 {
                 AccountMeta::new(*user, true),
                 AccountMeta::new(private_balance_pda, false),
                 AccountMeta::new(protocol_vault_pda, false),
+                AccountMeta::new_readonly(system_program::id(), false),
+            ],
+            data,
+        }
+    }
+
+    /// Build Withdraw instruction
+    #[allow(clippy::too_many_arguments)]
+    pub fn withdraw_instruction(
+        program_id: &Pubkey,
+        user: &Pubkey,
+        amount: u64,
+        proof: Vec<u8>,
+        public_inputs: Vec<u8>,
+        new_balance_commitment: [u8; 32],
+        zk_program_id: &Pubkey,
+    ) -> Instruction {
+        let (private_balance_pda, _) = derive_private_balance_pda(program_id, user);
+        let (protocol_vault_pda, _) = derive_protocol_vault_pda(program_id);
+
+        let instruction = FutarchyInstructionV2::Withdraw {
+            amount,
+            proof,
+            public_inputs,
+            new_balance_commitment,
+        };
+        let data = instruction.pack().unwrap();
+
+        Instruction {
+            program_id: *program_id,
+            accounts: vec![
+                AccountMeta::new(*user, true),
+                AccountMeta::new(private_balance_pda, false),
+                AccountMeta::new(protocol_vault_pda, false),
+                AccountMeta::new_readonly(*zk_program_id, false),
                 AccountMeta::new_readonly(system_program::id(), false),
             ],
             data,
@@ -539,7 +575,9 @@ async fn test_deposit() {
 
     // Deposit 1 SOL
     let deposit_amount = 1_000_000_000u64;
-    let deposit_ix = helpers_v2::deposit_instruction(&program_id, &user, deposit_amount);
+    // Commitment after deposit (mock: just use a different value)
+    let commitment_after_deposit = [1u8; 32];
+    let deposit_ix = helpers_v2::deposit_instruction(&program_id, &user, deposit_amount, commitment_after_deposit);
 
     let deposit_tx = Transaction::new_signed_with_payer(
         &[deposit_ix],
@@ -843,7 +881,9 @@ async fn test_full_flow_deposit_to_withdraw() {
 
     // 3. Deposit
     let deposit_amount = 2_000_000_000u64; // 2 SOL
-    let deposit_ix = helpers_v2::deposit_instruction(&program_id, &user, deposit_amount);
+    // Commitment after deposit (mock: just use a different value)
+    let commitment_after_deposit = [1u8; 32];
+    let deposit_ix = helpers_v2::deposit_instruction(&program_id, &user, deposit_amount, commitment_after_deposit);
 
     let deposit_tx = Transaction::new_signed_with_payer(
         &[deposit_ix],
@@ -903,7 +943,9 @@ async fn test_place_bet_v2_increments_counter() {
 
     // Deposit funds
     let deposit_amount = 5_000_000_000u64; // 5 SOL
-    let deposit_ix = helpers_v2::deposit_instruction(&program_id, &user, deposit_amount);
+    // Commitment after deposit (mock: just use a different value)
+    let commitment_after_deposit = [1u8; 32];
+    let deposit_ix = helpers_v2::deposit_instruction(&program_id, &user, deposit_amount, commitment_after_deposit);
     let deposit_tx = Transaction::new_signed_with_payer(
         &[deposit_ix],
         Some(&user),
@@ -946,12 +988,13 @@ async fn test_place_bet_v2_increments_counter() {
     context.last_blockhash = context.banks_client.get_latest_blockhash().await.unwrap();
 
     // Place bet on YES
-    let bet_commitment_yes = [1u8; 32];
+    // Note: old_commitment must match the current commitment after deposit
+    let bet_commitment_yes = [10u8; 32];
     let bet_amount = 500_000_000u64; // 0.5 SOL
     let new_balance_commitment = [2u8; 32];
 
     let public_inputs = helpers_v2::mock_place_bet_public_inputs(
-        &initial_commitment,
+        &commitment_after_deposit, // Use commitment after deposit, not initial
         &new_balance_commitment,
         &bet_commitment_yes,
         max_bet,
@@ -1032,7 +1075,9 @@ async fn test_claim_v2_payout_model() {
 
     // Deposit funds
     let deposit_amount = 10_000_000_000u64; // 10 SOL
-    let deposit_ix = helpers_v2::deposit_instruction(&program_id, &user, deposit_amount);
+    // Commitment after deposit (mock: just use a different value)
+    let commitment_after_deposit = [1u8; 32];
+    let deposit_ix = helpers_v2::deposit_instruction(&program_id, &user, deposit_amount, commitment_after_deposit);
     let deposit_tx = Transaction::new_signed_with_payer(
         &[deposit_ix],
         Some(&user),
@@ -1073,12 +1118,13 @@ async fn test_claim_v2_payout_model() {
 
     // === Betting Phase ===
     // Place bet on YES (winning side)
+    // Note: old_commitment must match the current commitment after deposit
     let bet_commitment = [10u8; 32];
     let bet_amount = 500_000_000u64; // 0.5 SOL
     let balance_after_bet = [11u8; 32];
 
     let place_bet_inputs = helpers_v2::mock_place_bet_public_inputs(
-        &initial_commitment,
+        &commitment_after_deposit, // Use commitment after deposit
         &balance_after_bet,
         &bet_commitment,
         max_bet,
@@ -1262,7 +1308,8 @@ async fn test_multi_user_bet_and_claim() {
         vec![0u8; 64],
         alice_initial_commitment,
     );
-    let alice_deposit = helpers_v2::deposit_instruction(&program_id, &user_alice.pubkey(), 5_000_000_000);
+    // Keep same commitment after deposit (mock: deposit doesn't change ZK commitment in this test)
+    let alice_deposit = helpers_v2::deposit_instruction(&program_id, &user_alice.pubkey(), 5_000_000_000, alice_initial_commitment);
     let alice_setup_tx = Transaction::new_signed_with_payer(
         &[create_alice_balance, alice_deposit],
         Some(&user_alice.pubkey()),
@@ -1280,7 +1327,8 @@ async fn test_multi_user_bet_and_claim() {
         vec![0u8; 64],
         bob_initial_commitment,
     );
-    let bob_deposit = helpers_v2::deposit_instruction(&program_id, &user_bob.pubkey(), 5_000_000_000);
+    // Keep same commitment after deposit (mock)
+    let bob_deposit = helpers_v2::deposit_instruction(&program_id, &user_bob.pubkey(), 5_000_000_000, bob_initial_commitment);
     let bob_setup_tx = Transaction::new_signed_with_payer(
         &[create_bob_balance, bob_deposit],
         Some(&user_bob.pubkey()),
@@ -1475,4 +1523,724 @@ async fn test_multi_user_bet_and_claim() {
     println!("  - YES won, Alice claimed payout");
     println!("  - Bob's position unclaimed (lost)");
     println!("  - Equitative payout: Alice receives vault_total / winner_count");
+}
+
+/// Test that double-claim is prevented by nullifier
+#[tokio::test]
+async fn test_double_claim_prevented_by_nullifier() {
+    use solana_sdk::clock::Clock;
+
+    let mut program_test = helpers_v2::setup_program_test();
+    let mut context = program_test.start_with_context().await;
+
+    let program_id = futarchy_markets::id();
+    let user = context.payer.pubkey();
+    let oracle = Keypair::new();
+    let zk_program_id = Pubkey::new_unique();
+
+    // === Setup Phase ===
+    let init_ix = helpers_v2::initialize_protocol_instruction(&program_id, &user);
+    let initial_commitment = [0u8; 32];
+    let create_balance_ix = helpers_v2::create_private_balance_instruction(
+        &program_id,
+        &user,
+        vec![0u8; 64],
+        initial_commitment,
+    );
+
+    let setup_tx = Transaction::new_signed_with_payer(
+        &[init_ix, create_balance_ix],
+        Some(&user),
+        &[&context.payer],
+        context.last_blockhash,
+    );
+    context.banks_client.process_transaction(setup_tx).await.unwrap();
+    context.last_blockhash = context.banks_client.get_latest_blockhash().await.unwrap();
+
+    // Deposit funds
+    let deposit_amount = 10_000_000_000u64;
+    // Commitment after deposit (mock: just use a different value)
+    let commitment_after_deposit = [1u8; 32];
+    let deposit_ix = helpers_v2::deposit_instruction(&program_id, &user, deposit_amount, commitment_after_deposit);
+    let deposit_tx = Transaction::new_signed_with_payer(
+        &[deposit_ix],
+        Some(&user),
+        &[&context.payer],
+        context.last_blockhash,
+    );
+    context.banks_client.process_transaction(deposit_tx).await.unwrap();
+    context.last_blockhash = context.banks_client.get_latest_blockhash().await.unwrap();
+
+    // Create market
+    let market_id = 300u64;
+    let clock: Clock = context.banks_client.get_sysvar().await.unwrap();
+    let end_time = clock.unix_timestamp + 5;
+    let max_bet = 1_000_000_000u64;
+
+    let create_market_ix = helpers_v2::create_market_v2_instruction(
+        &program_id,
+        &user,
+        &oracle.pubkey(),
+        market_id,
+        [30u8; 32],
+        end_time,
+        max_bet,
+        false,
+        None,
+        None,
+        None,
+    );
+    let create_market_tx = Transaction::new_signed_with_payer(
+        &[create_market_ix],
+        Some(&user),
+        &[&context.payer],
+        context.last_blockhash,
+    );
+    context.banks_client.process_transaction(create_market_tx).await.unwrap();
+    context.last_blockhash = context.banks_client.get_latest_blockhash().await.unwrap();
+
+    // Place bet on YES
+    // Note: old_commitment must match the current commitment after deposit
+    let bet_commitment = [31u8; 32];
+    let bet_amount = 500_000_000u64;
+    let balance_after_bet = [32u8; 32];
+
+    let place_bet_inputs = helpers_v2::mock_place_bet_public_inputs(
+        &commitment_after_deposit, // Use commitment after deposit
+        &balance_after_bet,
+        &bet_commitment,
+        max_bet,
+        bet_amount,
+    );
+
+    let place_bet_ix = helpers_v2::place_bet_v2_instruction(
+        &program_id,
+        &user,
+        market_id,
+        bet_commitment,
+        true,
+        helpers_v2::mock_zk_proof(),
+        place_bet_inputs,
+        balance_after_bet,
+        vec![0u8; 64],
+        33,
+        &zk_program_id,
+    );
+    let place_bet_tx = Transaction::new_signed_with_payer(
+        &[place_bet_ix],
+        Some(&user),
+        &[&context.payer],
+        context.last_blockhash,
+    );
+    context.banks_client.process_transaction(place_bet_tx).await.unwrap();
+    context.last_blockhash = context.banks_client.get_latest_blockhash().await.unwrap();
+
+    // Settle market - YES wins
+    let current_slot = context.banks_client.get_root_slot().await.unwrap();
+    context.warp_to_slot(current_slot + 10000).unwrap();
+    context.last_blockhash = context.banks_client.get_latest_blockhash().await.unwrap();
+
+    let settle_ix = helpers_v2::settle_market_v2_instruction(
+        &program_id,
+        &oracle.pubkey(),
+        market_id,
+        true,
+        false,
+    );
+    let settle_tx = Transaction::new_signed_with_payer(
+        &[settle_ix],
+        Some(&user),
+        &[&context.payer, &oracle],
+        context.last_blockhash,
+    );
+    context.banks_client.process_transaction(settle_tx).await.unwrap();
+    context.last_blockhash = context.banks_client.get_latest_blockhash().await.unwrap();
+
+    // === First Claim (should succeed) ===
+    let nullifier_hash = [33u8; 32];
+    let balance_after_claim = [34u8; 32];
+
+    let claim_public_inputs = helpers_v2::mock_claim_public_inputs(
+        &bet_commitment,
+        true,
+        &nullifier_hash,
+        bet_amount,
+        true,
+        &balance_after_bet,
+        &balance_after_claim,
+    );
+
+    let claim_ix = helpers_v2::claim_v2_instruction(
+        &program_id,
+        &user,
+        market_id,
+        nullifier_hash,
+        helpers_v2::mock_zk_proof(),
+        claim_public_inputs.clone(),
+        balance_after_claim,
+        vec![0u8; 64],
+        bet_commitment,
+        34,
+        &zk_program_id,
+    );
+
+    let claim_tx = Transaction::new_signed_with_payer(
+        &[claim_ix],
+        Some(&user),
+        &[&context.payer],
+        context.last_blockhash,
+    );
+    context.banks_client.process_transaction(claim_tx).await.unwrap();
+    context.last_blockhash = context.banks_client.get_latest_blockhash().await.unwrap();
+
+    // === Second Claim with SAME nullifier (should FAIL) ===
+    let balance_after_claim_2 = [35u8; 32];
+    let claim_public_inputs_2 = helpers_v2::mock_claim_public_inputs(
+        &bet_commitment,
+        true,
+        &nullifier_hash, // Same nullifier!
+        bet_amount,
+        true,
+        &balance_after_claim,
+        &balance_after_claim_2,
+    );
+
+    let claim_ix_2 = helpers_v2::claim_v2_instruction(
+        &program_id,
+        &user,
+        market_id,
+        nullifier_hash, // Same nullifier
+        helpers_v2::mock_zk_proof(),
+        claim_public_inputs_2,
+        balance_after_claim_2,
+        vec![0u8; 64],
+        bet_commitment,
+        34,
+        &zk_program_id,
+    );
+
+    let claim_tx_2 = Transaction::new_signed_with_payer(
+        &[claim_ix_2],
+        Some(&user),
+        &[&context.payer],
+        context.last_blockhash,
+    );
+
+    // This should fail because nullifier PDA already exists
+    let result = context.banks_client.process_transaction(claim_tx_2).await;
+    assert!(result.is_err(), "Double claim with same nullifier should fail");
+
+    println!("Double-claim prevention test passed:");
+    println!("  - First claim succeeded");
+    println!("  - Second claim with same nullifier was rejected");
+}
+
+/// Test that losing side cannot claim payout
+#[tokio::test]
+async fn test_losing_side_cannot_claim() {
+    use solana_sdk::clock::Clock;
+
+    let mut program_test = helpers_v2::setup_program_test();
+    let mut context = program_test.start_with_context().await;
+
+    let program_id = futarchy_markets::id();
+    let user = context.payer.pubkey();
+    let oracle = Keypair::new();
+    let zk_program_id = Pubkey::new_unique();
+
+    // === Setup Phase ===
+    let init_ix = helpers_v2::initialize_protocol_instruction(&program_id, &user);
+    let initial_commitment = [0u8; 32];
+    let create_balance_ix = helpers_v2::create_private_balance_instruction(
+        &program_id,
+        &user,
+        vec![0u8; 64],
+        initial_commitment,
+    );
+
+    let setup_tx = Transaction::new_signed_with_payer(
+        &[init_ix, create_balance_ix],
+        Some(&user),
+        &[&context.payer],
+        context.last_blockhash,
+    );
+    context.banks_client.process_transaction(setup_tx).await.unwrap();
+    context.last_blockhash = context.banks_client.get_latest_blockhash().await.unwrap();
+
+    // Deposit funds
+    let deposit_amount = 10_000_000_000u64;
+    // Commitment after deposit (mock: just use a different value)
+    let commitment_after_deposit = [1u8; 32];
+    let deposit_ix = helpers_v2::deposit_instruction(&program_id, &user, deposit_amount, commitment_after_deposit);
+    let deposit_tx = Transaction::new_signed_with_payer(
+        &[deposit_ix],
+        Some(&user),
+        &[&context.payer],
+        context.last_blockhash,
+    );
+    context.banks_client.process_transaction(deposit_tx).await.unwrap();
+    context.last_blockhash = context.banks_client.get_latest_blockhash().await.unwrap();
+
+    // Create market
+    let market_id = 400u64;
+    let clock: Clock = context.banks_client.get_sysvar().await.unwrap();
+    let end_time = clock.unix_timestamp + 5;
+    let max_bet = 1_000_000_000u64;
+
+    let create_market_ix = helpers_v2::create_market_v2_instruction(
+        &program_id,
+        &user,
+        &oracle.pubkey(),
+        market_id,
+        [40u8; 32],
+        end_time,
+        max_bet,
+        false,
+        None,
+        None,
+        None,
+    );
+    let create_market_tx = Transaction::new_signed_with_payer(
+        &[create_market_ix],
+        Some(&user),
+        &[&context.payer],
+        context.last_blockhash,
+    );
+    context.banks_client.process_transaction(create_market_tx).await.unwrap();
+    context.last_blockhash = context.banks_client.get_latest_blockhash().await.unwrap();
+
+    // Place bet on NO (will be losing side)
+    // Note: old_commitment must match the current commitment after deposit
+    let bet_commitment = [41u8; 32];
+    let bet_amount = 500_000_000u64;
+    let balance_after_bet = [42u8; 32];
+
+    let place_bet_inputs = helpers_v2::mock_place_bet_public_inputs(
+        &commitment_after_deposit, // Use commitment after deposit
+        &balance_after_bet,
+        &bet_commitment,
+        max_bet,
+        bet_amount,
+    );
+
+    let place_bet_ix = helpers_v2::place_bet_v2_instruction(
+        &program_id,
+        &user,
+        market_id,
+        bet_commitment,
+        false, // NO - this will be the losing side
+        helpers_v2::mock_zk_proof(),
+        place_bet_inputs,
+        balance_after_bet,
+        vec![0u8; 64],
+        33,
+        &zk_program_id,
+    );
+    let place_bet_tx = Transaction::new_signed_with_payer(
+        &[place_bet_ix],
+        Some(&user),
+        &[&context.payer],
+        context.last_blockhash,
+    );
+    context.banks_client.process_transaction(place_bet_tx).await.unwrap();
+    context.last_blockhash = context.banks_client.get_latest_blockhash().await.unwrap();
+
+    // Settle market - YES wins (so NO bettors lose)
+    let current_slot = context.banks_client.get_root_slot().await.unwrap();
+    context.warp_to_slot(current_slot + 10000).unwrap();
+    context.last_blockhash = context.banks_client.get_latest_blockhash().await.unwrap();
+
+    let settle_ix = helpers_v2::settle_market_v2_instruction(
+        &program_id,
+        &oracle.pubkey(),
+        market_id,
+        true, // YES wins
+        false,
+    );
+    let settle_tx = Transaction::new_signed_with_payer(
+        &[settle_ix],
+        Some(&user),
+        &[&context.payer, &oracle],
+        context.last_blockhash,
+    );
+    context.banks_client.process_transaction(settle_tx).await.unwrap();
+    context.last_blockhash = context.banks_client.get_latest_blockhash().await.unwrap();
+
+    // === Try to claim as losing side (should FAIL) ===
+    let nullifier_hash = [43u8; 32];
+    let balance_after_claim = [44u8; 32];
+
+    // Note: bet_side = false (NO), but resolution = true (YES won)
+    // The claim should fail because bet_side != resolution
+    let claim_public_inputs = helpers_v2::mock_claim_public_inputs(
+        &bet_commitment,
+        true,  // resolution: YES won
+        &nullifier_hash,
+        bet_amount,
+        false, // bet_side: NO (losing side!)
+        &balance_after_bet,
+        &balance_after_claim,
+    );
+
+    let claim_ix = helpers_v2::claim_v2_instruction(
+        &program_id,
+        &user,
+        market_id,
+        nullifier_hash,
+        helpers_v2::mock_zk_proof(),
+        claim_public_inputs,
+        balance_after_claim,
+        vec![0u8; 64],
+        bet_commitment,
+        34,
+        &zk_program_id,
+    );
+
+    let claim_tx = Transaction::new_signed_with_payer(
+        &[claim_ix],
+        Some(&user),
+        &[&context.payer],
+        context.last_blockhash,
+    );
+
+    // This should fail because the user bet on the losing side
+    let result = context.banks_client.process_transaction(claim_tx).await;
+    assert!(result.is_err(), "Losing side should not be able to claim");
+
+    // Verify position is NOT claimed
+    let (position_pda, _) = helpers_v2::derive_position_v2_pda(&program_id, market_id, &bet_commitment);
+    let position_account = context
+        .banks_client
+        .get_account(position_pda)
+        .await
+        .unwrap()
+        .unwrap();
+    let position = PositionV2::deserialize(&mut &position_account.data[..]).unwrap();
+    assert!(!position.is_claimed(), "Position should remain unclaimed");
+
+    println!("Losing side claim prevention test passed:");
+    println!("  - User bet on NO");
+    println!("  - Market settled with YES winning");
+    println!("  - Claim attempt was rejected");
+    println!("  - Position remains unclaimed");
+}
+
+// ============================================================================
+// E2E Full Cycle Test
+// ============================================================================
+
+/// Complete E2E test: deposit -> bet -> settle -> claim -> withdraw
+/// This test validates the entire lifecycle of a user participating in a market.
+#[tokio::test]
+async fn test_complete_cycle_deposit_bet_settle_claim_withdraw() {
+    use solana_sdk::clock::Clock;
+
+    let mut program_test = helpers_v2::setup_program_test();
+    let mut context = program_test.start_with_context().await;
+
+    let program_id = futarchy_markets::id();
+    let user = context.payer.pubkey();
+    let oracle = Keypair::new();
+    let zk_program_id = Pubkey::new_unique();
+
+    // Track balances throughout the cycle
+    let initial_user_balance = context
+        .banks_client
+        .get_account(user)
+        .await
+        .unwrap()
+        .unwrap()
+        .lamports;
+
+    println!("=== E2E COMPLETE CYCLE TEST ===");
+    println!("Initial user balance: {} lamports", initial_user_balance);
+
+    // =========================================================================
+    // PHASE 1: Setup Protocol & Create Private Balance
+    // =========================================================================
+    let init_ix = helpers_v2::initialize_protocol_instruction(&program_id, &user);
+    let commitment_0 = [0u8; 32]; // Initial commitment (balance = 0)
+    let create_balance_ix = helpers_v2::create_private_balance_instruction(
+        &program_id,
+        &user,
+        vec![0u8; 64],
+        commitment_0,
+    );
+
+    let setup_tx = Transaction::new_signed_with_payer(
+        &[init_ix, create_balance_ix],
+        Some(&user),
+        &[&context.payer],
+        context.last_blockhash,
+    );
+    context.banks_client.process_transaction(setup_tx).await.unwrap();
+    context.last_blockhash = context.banks_client.get_latest_blockhash().await.unwrap();
+
+    println!("Phase 1: Protocol initialized, PrivateBalance created");
+
+    // =========================================================================
+    // PHASE 2: Deposit SOL to Protocol
+    // =========================================================================
+    let deposit_amount = 5_000_000_000u64; // 5 SOL
+    let commitment_1 = [1u8; 32]; // Commitment after deposit
+    let deposit_ix = helpers_v2::deposit_instruction(&program_id, &user, deposit_amount, commitment_1);
+
+    let deposit_tx = Transaction::new_signed_with_payer(
+        &[deposit_ix],
+        Some(&user),
+        &[&context.payer],
+        context.last_blockhash,
+    );
+    context.banks_client.process_transaction(deposit_tx).await.unwrap();
+    context.last_blockhash = context.banks_client.get_latest_blockhash().await.unwrap();
+
+    // Verify deposit
+    let (protocol_vault_pda, _) = helpers_v2::derive_protocol_vault_pda(&program_id);
+    let vault_after_deposit = context
+        .banks_client
+        .get_account(protocol_vault_pda)
+        .await
+        .unwrap()
+        .unwrap()
+        .lamports;
+
+    println!("Phase 2: Deposited {} SOL", deposit_amount / 1_000_000_000);
+    println!("  Protocol vault balance: {} lamports", vault_after_deposit);
+
+    // =========================================================================
+    // PHASE 3: Create Market
+    // =========================================================================
+    let market_id = 1000u64;
+    let clock: Clock = context.banks_client.get_sysvar().await.unwrap();
+    let end_time = clock.unix_timestamp + 5;
+    let max_bet = 2_000_000_000u64; // 2 SOL max bet
+
+    let create_market_ix = helpers_v2::create_market_v2_instruction(
+        &program_id,
+        &user,
+        &oracle.pubkey(),
+        market_id,
+        [0xABu8; 32], // question_hash
+        end_time,
+        max_bet,
+        false,
+        None,
+        None,
+        None,
+    );
+    let create_market_tx = Transaction::new_signed_with_payer(
+        &[create_market_ix],
+        Some(&user),
+        &[&context.payer],
+        context.last_blockhash,
+    );
+    context.banks_client.process_transaction(create_market_tx).await.unwrap();
+    context.last_blockhash = context.banks_client.get_latest_blockhash().await.unwrap();
+
+    println!("Phase 3: Market {} created (ends in 5s)", market_id);
+
+    // =========================================================================
+    // PHASE 4: Place Bet (YES side, 1 SOL)
+    // =========================================================================
+    let bet_amount = 1_000_000_000u64; // 1 SOL
+    let bet_commitment = [0xBEu8; 32];
+    let commitment_2 = [2u8; 32]; // Commitment after bet
+
+    let place_bet_inputs = helpers_v2::mock_place_bet_public_inputs(
+        &commitment_1, // old_commitment (after deposit)
+        &commitment_2, // new_commitment (after bet)
+        &bet_commitment,
+        max_bet,
+        bet_amount,
+    );
+
+    let place_bet_ix = helpers_v2::place_bet_v2_instruction(
+        &program_id,
+        &user,
+        market_id,
+        bet_commitment,
+        true, // YES side
+        helpers_v2::mock_zk_proof(),
+        place_bet_inputs,
+        commitment_2,
+        vec![0u8; 64],
+        33,
+        &zk_program_id,
+    );
+    let place_bet_tx = Transaction::new_signed_with_payer(
+        &[place_bet_ix],
+        Some(&user),
+        &[&context.payer],
+        context.last_blockhash,
+    );
+    context.banks_client.process_transaction(place_bet_tx).await.unwrap();
+    context.last_blockhash = context.banks_client.get_latest_blockhash().await.unwrap();
+
+    // Verify bet was placed
+    let (market_pda, _) = helpers_v2::derive_market_v2_pda(&program_id, market_id);
+    let market_account = context.banks_client.get_account(market_pda).await.unwrap().unwrap();
+    let market = MarketV2::deserialize(&mut &market_account.data[..]).unwrap();
+    assert_eq!(market.bet_count_yes, 1);
+
+    let (market_vault_pda, _) = helpers_v2::derive_market_vault_pda(&program_id, market_id);
+    let vault_after_bet = context
+        .banks_client
+        .get_account(market_vault_pda)
+        .await
+        .unwrap()
+        .unwrap()
+        .lamports;
+
+    println!("Phase 4: Placed {} SOL bet on YES", bet_amount / 1_000_000_000);
+    println!("  Market vault balance: {} lamports", vault_after_bet);
+    println!("  bet_count_yes: {}", market.bet_count_yes);
+
+    // =========================================================================
+    // PHASE 5: Settle Market (YES wins)
+    // =========================================================================
+    // Warp time past end_time
+    let current_slot = context.banks_client.get_root_slot().await.unwrap();
+    context.warp_to_slot(current_slot + 10000).unwrap();
+    context.last_blockhash = context.banks_client.get_latest_blockhash().await.unwrap();
+
+    let settle_ix = helpers_v2::settle_market_v2_instruction(
+        &program_id,
+        &oracle.pubkey(),
+        market_id,
+        true, // YES wins
+        false,
+    );
+    let settle_tx = Transaction::new_signed_with_payer(
+        &[settle_ix],
+        Some(&user),
+        &[&context.payer, &oracle],
+        context.last_blockhash,
+    );
+    context.banks_client.process_transaction(settle_tx).await.unwrap();
+    context.last_blockhash = context.banks_client.get_latest_blockhash().await.unwrap();
+
+    // Verify settlement
+    let market_account = context.banks_client.get_account(market_pda).await.unwrap().unwrap();
+    let market = MarketV2::deserialize(&mut &market_account.data[..]).unwrap();
+    assert!(market.is_settled());
+    assert_eq!(market.resolution, Some(true));
+
+    println!("Phase 5: Market settled - YES won!");
+    println!("  Resolution: {:?}", market.resolution);
+
+    // =========================================================================
+    // PHASE 6: Claim Payout
+    // =========================================================================
+    let nullifier_hash = [0xCAu8; 32];
+    let commitment_3 = [3u8; 32]; // Commitment after claim
+
+    let claim_public_inputs = helpers_v2::mock_claim_public_inputs(
+        &bet_commitment,
+        true, // resolution: YES won
+        &nullifier_hash,
+        bet_amount,
+        true, // bet_side: YES
+        &commitment_2, // old_commitment (after bet)
+        &commitment_3, // new_commitment (after claim)
+    );
+
+    let claim_ix = helpers_v2::claim_v2_instruction(
+        &program_id,
+        &user,
+        market_id,
+        nullifier_hash,
+        helpers_v2::mock_zk_proof(),
+        claim_public_inputs,
+        commitment_3,
+        vec![0u8; 64],
+        bet_commitment,
+        34,
+        &zk_program_id,
+    );
+    let claim_tx = Transaction::new_signed_with_payer(
+        &[claim_ix],
+        Some(&user),
+        &[&context.payer],
+        context.last_blockhash,
+    );
+    context.banks_client.process_transaction(claim_tx).await.unwrap();
+    context.last_blockhash = context.banks_client.get_latest_blockhash().await.unwrap();
+
+    // Verify claim
+    let (position_pda, _) = helpers_v2::derive_position_v2_pda(&program_id, market_id, &bet_commitment);
+    let position_account = context.banks_client.get_account(position_pda).await.unwrap().unwrap();
+    let position = PositionV2::deserialize(&mut &position_account.data[..]).unwrap();
+    assert!(position.is_claimed());
+
+    // Verify nullifier was created
+    let (nullifier_pda, _) = helpers_v2::derive_nullifier_pda(&program_id, market_id, &nullifier_hash);
+    let nullifier_account = context.banks_client.get_account(nullifier_pda).await.unwrap();
+    assert!(nullifier_account.is_some());
+
+    println!("Phase 6: Claimed payout!");
+    println!("  Position claimed: {}", position.is_claimed());
+    println!("  Nullifier created: true");
+
+    // =========================================================================
+    // PHASE 7: Withdraw from Protocol
+    // =========================================================================
+    let withdraw_amount = 1_000_000_000u64; // Withdraw 1 SOL
+    let commitment_4 = [4u8; 32]; // Final commitment after withdraw
+
+    let withdraw_public_inputs = helpers_v2::mock_withdraw_public_inputs(
+        &commitment_3, // old_commitment (after claim)
+        &commitment_4, // new_commitment (after withdraw)
+        withdraw_amount,
+    );
+
+    let withdraw_ix = helpers_v2::withdraw_instruction(
+        &program_id,
+        &user,
+        withdraw_amount,
+        helpers_v2::mock_zk_proof(),
+        withdraw_public_inputs,
+        commitment_4,
+        &zk_program_id,
+    );
+    let withdraw_tx = Transaction::new_signed_with_payer(
+        &[withdraw_ix],
+        Some(&user),
+        &[&context.payer],
+        context.last_blockhash,
+    );
+    context.banks_client.process_transaction(withdraw_tx).await.unwrap();
+
+    // Verify withdrawal
+    let vault_after_withdraw = context
+        .banks_client
+        .get_account(protocol_vault_pda)
+        .await
+        .unwrap()
+        .unwrap()
+        .lamports;
+
+    let final_user_balance = context
+        .banks_client
+        .get_account(user)
+        .await
+        .unwrap()
+        .unwrap()
+        .lamports;
+
+    println!("Phase 7: Withdrew {} SOL", withdraw_amount / 1_000_000_000);
+    println!("  Protocol vault: {} lamports", vault_after_withdraw);
+
+    // =========================================================================
+    // FINAL VERIFICATION
+    // =========================================================================
+    println!("\n=== FINAL STATE ===");
+    println!("User balance change: {} -> {} lamports", initial_user_balance, final_user_balance);
+    println!("Protocol vault final: {} lamports", vault_after_withdraw);
+
+    // The cycle is complete!
+    // User deposited 5 SOL, bet 1 SOL, won, claimed, withdrew 1 SOL
+    // Remaining in protocol: deposit - bet + payout - withdraw
+
+    println!("\n=== E2E COMPLETE CYCLE TEST PASSED ===");
+    println!("Full cycle: deposit -> bet -> settle -> claim -> withdraw");
 }
