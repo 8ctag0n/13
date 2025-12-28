@@ -43,7 +43,7 @@ fn main() -> Result<()> {
     println!("Found {} job accounts\n", accounts.len());
 
     if accounts.is_empty() {
-        println!("No jobs found on-chain. Make sure job-creator is running.");
+        println!("No jobs found on-chain. Make sure dev-job is running.");
         return Ok(());
     }
 

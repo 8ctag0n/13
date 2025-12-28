@@ -8,6 +8,17 @@
 [![Tests](https://img.shields.io/badge/tests-55%2F56%20passing-green)]()
 [![Season](https://img.shields.io/badge/season-S0%20Solana%20SZN-purple)]()
 
+## Devnet Programs
+
+| Program | Address | Explorer |
+|---------|---------|----------|
+| zyberlink | `GVCw9MYL6YywDPwsQkqC3xsvw5ETRH7KGkgxCDpeYfeu` | [View](https://explorer.solana.com/address/GVCw9MYL6YywDPwsQkqC3xsvw5ETRH7KGkgxCDpeYfeu?cluster=devnet) |
+| bedrock | `Di2Tu6aNpJpPyxbMAasoLQU2yLqYMFWvUoV7cq7sXfvx` | [View](https://explorer.solana.com/address/Di2Tu6aNpJpPyxbMAasoLQU2yLqYMFWvUoV7cq7sXfvx?cluster=devnet) |
+| futarchy_markets | `AQUUuRSwDhB1eeC2Caa8GPVGV4YzZkJ1YiSvZd3BBPij` | [View](https://explorer.solana.com/address/AQUUuRSwDhB1eeC2Caa8GPVGV4YzZkJ1YiSvZd3BBPij?cluster=devnet) |
+| fhe_generator | `C8PpHFCKZ4F2Szbir2EMS4S4H3mwQqHNWUXK1N21nfAB` | [View](https://explorer.solana.com/address/C8PpHFCKZ4F2Szbir2EMS4S4H3mwQqHNWUXK1N21nfAB?cluster=devnet) |
+| zk_generator | `Dzvy1pzCBgtMw5Fte2GybpeN2PsLPW8t7zDvLfKpxnSS` | [View](https://explorer.solana.com/address/Dzvy1pzCBgtMw5Fte2GybpeN2PsLPW8t7zDvLfKpxnSS?cluster=devnet) |
+| threshold | `Apstq5JFS67Gzb5Yc2cMDuwx8JQoMJ9h2KvDYyCZA9Wh` | [View](https://explorer.solana.com/address/Apstq5JFS67Gzb5Yc2cMDuwx8JQoMJ9h2KvDYyCZA9Wh?cluster=devnet) |
+
 ## Live Demo
 
 **https://demo.zyberlink.fun**
@@ -17,7 +28,7 @@
 | Resource | Path | Description |
 |----------|------|-------------|
 | GitBook Docs | [/docs/book](docs/book) | Full documentation (EN/ES) |
-| FHE CLI | [/src/fhe-cli](src/fhe-cli) | Client-side encryption tool |
+| Zyb CLI (FHE) | [/src/zyb-cli](src/zyb-cli) | Client-side encryption tool |
 | Rust SDK | [/sdks/rust](sdks/rust) | Integration library for Rust apps |
 | API Reference | [/docs/book/en/guides/api-reference.md](docs/book/en/guides/api-reference.md) | Backend API endpoints |
 
@@ -42,6 +53,7 @@ ZyberLink enables computations on encrypted data using Fully Homomorphic Encrypt
 make c1   # Start containers (validator + postgres + backend + nginx)
 make c2   # Initialize marketplace + register provers
 make c3   # Start provers
+zyb dev-job plan   # Dry-run (uses dev-job.toml)
 
 # Run tests
 make e2e-poi   # Proof of Innocence test
@@ -60,6 +72,42 @@ make d2   # Initialize marketplace
 make d3   # Start provers
 
 make d0   # Stop all
+```
+
+### dev-job.toml (Config)
+
+Create `dev-job.toml` in the repo root to set defaults for `zyb dev-job`:
+
+```toml
+[common]
+profile = "local"
+rpc_url = "http://localhost:8899"
+program_id = "HnRTpCx7Xs3f1BKkVhkeZwcqRfPmSDpVQ6QxgN7Vm8Rt"
+backend_url = "http://localhost:3000"
+keypair = "/tmp/job-creator-keypair.json"
+no_airdrop = false
+json = true
+
+[run]
+cases = ["mix"]          # or types = ["add","sum","average"]
+interval_secs = 10
+once = false
+shuffle = false
+
+[verify]
+types = ["sum", "count-if"]
+all = false
+
+[webapp]
+verify = false
+
+[profiles.local]
+rpc_url = "http://localhost:8899"
+backend_url = "http://localhost:3000"
+
+[profiles.devnet]
+rpc_url = "https://api.devnet.solana.com"
+backend_url = "https://demo.zyberlink.fun"
 ```
 
 ## Architecture
@@ -103,24 +151,23 @@ Prove age >= 18 without revealing exact age:
 ```
 Threshold(encrypted_age, >= 18) → true/false
 ```
-## FHE CLI Tool
+## Zyb CLI (FHE)
 
-Encrypt data locally before sending to the marketplace. Full docs: [/src/fhe-cli](src/fhe-cli)
+Encrypt data locally before sending to the marketplace. Full docs: [/src/zyb-cli](src/zyb-cli)
 
 ```bash
 # Build
-cd src/fhe-cli
-cargo build --release
+cargo build --release -p zyb-cli
 
 # Encrypt values
-./target/release/fhe-cli encrypt --values 100,200,300,400,500
+./target/release/zyb fhe encrypt --values 100,200,300,400,500
 
 # Output files in ./fhe-output:
 # - client_key.bin (SECRET - keep local for decryption)
 # - witness.bin (upload this to marketplace)
 
 # Decrypt result after job completes
-./target/release/fhe-cli decrypt -p ./fhe-output -r "BASE64_RESULT"
+./target/release/zyb fhe decrypt -p ./fhe-output -r "BASE64_RESULT"
 ```
 
 ## SDK Integration
@@ -147,19 +194,19 @@ let result = client.wait_for_result(job_id).await?;
 
 See [SDK Integration Guide](docs/book/en/guides/sdk-integration.md) for full documentation.
 
-## Job Creator (Testing)
+## Dev Job Runner (Testing)
 
 Create and verify jobs programmatically.
 
 ```bash
-# Build
-cargo build --release --manifest-path src/job-creator/Cargo.toml
+# Build (zyb-cli)
+cargo build --release -p zyb-cli
 
 # Run PoI test (CountIf >= 18 on [15,20,25,17] → expects 2)
-./target/release/job-creator verify-poi
+./target/release/zyb dev-job verify --types count-if
 
 # Run Sum test (Sum [10,20,30] → expects 60)
-./target/release/job-creator verify-sum
+./target/release/zyb dev-job verify --types sum
 ```
 ## Tech Stack
 
@@ -181,7 +228,7 @@ src/
 ├── prover-node/     # Prover daemon
 ├── blink-server/    # Backend API
 ├── webapp/          # Frontend (Svelte)
-├── fhe-cli/         # CLI encryption tool
+├── zyb-cli/         # Unified CLI (FHE/ZK/dev-job)
 └── shared/          # Shared types
 ```
 

@@ -5,33 +5,44 @@ use solana_sdk::{
     signature::{Keypair, Signer},
 };
 use std::sync::Arc;
-use zyberlink_sdk::{fetch_fhe_consensus, fetch_job, MarketplaceClient};
 use zyberlink_types::{CircuitType, FheOperation, JobStatus};
 
 use crate::circuits::{CensusCircuit, DemographicsCircuit, PassportCircuit, VotingCircuit};
 use crate::core::CircuitRegistry;
 use crate::gateway::GatewayClient;
 use crate::halo2_prover::{Halo2Prover, OrchardWitness};
+use crate::marketplace::{JobData, JobSource, MarketplaceOperations};
 use crate::tui;
 use crate::witness_encryption::WitnessEncryption;
 use crate::witness_fetcher::WitnessFetcher;
 use zyberlink_fhe::{deserialize_server_key, FheEngine};
 
+// Futarchy FHE imports
+use fhe_client_sdk::FutarchyFheClient;
+use crate::futarchy::{FutarchyPoolWorker, FutarchyPoolJob, CiphertextFetcher};
+
 /// Job processor handles claiming, processing, and submitting proofs for jobs
+///
+/// Uses `MarketplaceOperations` trait for multi-chain support.
+/// Accepts any implementation of the trait (Solana, Ethereum, etc.)
 pub struct JobProcessor {
-    client: Arc<MarketplaceClient>,
+    marketplace: Arc<dyn MarketplaceOperations>,
     keypair: Arc<Keypair>,
     halo2_prover: Arc<Halo2Prover>,
     witness_encryption: Arc<WitnessEncryption>,
     witness_fetcher: Arc<WitnessFetcher>,
     gateway_client: Arc<GatewayClient>,
     fhe_engine: Option<Arc<FheEngine>>,
+    /// Futarchy FHE worker for encrypted pool updates
+    futarchy_worker: Option<Arc<FutarchyPoolWorker>>,
+    /// App server URL for fetching Futarchy ciphertexts
+    futarchy_app_server_url: Option<String>,
 }
 
 impl JobProcessor {
     /// Create a new JobProcessor
     pub fn new(
-        client: Arc<MarketplaceClient>,
+        marketplace: Arc<dyn MarketplaceOperations>,
         keypair: Arc<Keypair>,
         halo2_prover: Arc<Halo2Prover>,
         witness_encryption: Arc<WitnessEncryption>,
@@ -40,54 +51,71 @@ impl JobProcessor {
         fhe_engine: Option<Arc<FheEngine>>,
     ) -> Self {
         Self {
-            client,
+            marketplace,
             keypair,
             halo2_prover,
             witness_encryption,
             witness_fetcher,
             gateway_client,
             fhe_engine,
+            futarchy_worker: None,
+            futarchy_app_server_url: None,
         }
     }
+
+    /// Configure Futarchy FHE support
+    ///
+    /// # Arguments
+    /// * `app_server_url` - URL of the app server storing ciphertexts
+    pub fn with_futarchy_support(mut self, app_server_url: String) -> Self {
+        // Create FHE client for Futarchy (this generates keys, takes a few seconds)
+        match FutarchyFheClient::new() {
+            Ok(fhe_client) => {
+                let worker = FutarchyPoolWorker::with_client(fhe_client, &app_server_url);
+                self.futarchy_worker = Some(Arc::new(worker));
+                self.futarchy_app_server_url = Some(app_server_url);
+                info!("Futarchy FHE support enabled");
+            }
+            Err(e) => {
+                warn!("Failed to initialize Futarchy FHE client: {}. Futarchy jobs will fail.", e);
+            }
+        }
+        self
+    }
+
 
     /// Process a single job: claim -> prove -> submit
     pub async fn process_job(
         &self,
-        job_pda: Pubkey,
-        job_id: u64,
-        circuit_type: CircuitType,
-        witness_hash: [u8; 32],
-        job_price: u64,
+        job: &JobData,
         tui_state: Option<Arc<tui::TUIState>>,
     ) -> Result<()> {
         let start_time = std::time::Instant::now();
+        let job_id = job.id;
         info!("[Job {}] Starting processing", job_id);
 
+        // Parse job address
+        let job_pda: Pubkey = job.address.parse()
+            .context("Invalid job address")?;
+
         // Step 1: Claim the job
-        self.claim_job(&job_pda, job_id, &circuit_type).await?;
+        self.claim_job(&job_pda, job).await?;
 
         // Step 2: Download witness from backend
-        let witness_bytes = self.download_witness(&witness_hash, job_id).await?;
+        let witness_bytes = self.download_witness(&job.witness_hash, job_id).await?;
 
         // Step 3: Generate proof based on circuit type
         let proof_bytes = self
-            .generate_proof(job_id, &circuit_type, &witness_bytes)
+            .generate_proof(job_id, &job.circuit_type, &witness_bytes)
             .await?;
 
         // Step 4: Submit result based on job type
-        self.submit_result(
-            &job_pda,
-            job_id,
-            &circuit_type,
-            &proof_bytes,
-            &witness_hash,
-        )
-        .await?;
+        self.submit_result(&job_pda, job, &proof_bytes).await?;
 
         info!("[Job {}] Completed!", job_id);
 
         // Update TUI stats on successful completion
-        self.update_tui_stats(tui_state, start_time, job_id, job_price, &circuit_type);
+        self.update_tui_stats(tui_state, start_time, job_id, job.price, &job.circuit_type);
 
         Ok(())
     }
@@ -96,41 +124,29 @@ impl JobProcessor {
     async fn claim_job(
         &self,
         job_pda: &Pubkey,
-        job_id: u64,
-        circuit_type: &CircuitType,
+        job: &JobData,
     ) -> Result<()> {
-        info!("[Job {}] Claiming job...", job_id);
+        info!("[Job {}] Claiming job...", job.id);
 
-        let claim_ix = match circuit_type {
-            CircuitType::FheComputation(_) => {
-                // FHE multi-prover jobs use claim_fhe_job_instruction
-                self.client
-                    .claim_fhe_job_instruction(&self.keypair.pubkey(), job_pda, job_id)
-                    .context("Failed to build FHE claim instruction")?
-            }
-            _ => {
-                // ZK single-prover jobs use claim_job_instruction
-                self.client
-                    .claim_job_instruction(&self.keypair.pubkey(), job_pda)
-                    .context("Failed to build claim instruction")?
-            }
+        // Use trait method - prefer v2 for FHE jobs (supports new generators)
+        let result = if job.is_fhe || matches!(job.circuit_type, CircuitType::FheComputation(_)) {
+            // FHE multi-prover jobs - use v2 which handles new FHE-Generator
+            self.marketplace
+                .claim_fhe_job_v2(job)
+                .await
+                .context("Failed to claim FHE job")?
+        } else {
+            // ZK single-prover jobs
+            self.marketplace
+                .claim_job(job.id, &job.creator)
+                .await
+                .context("Failed to claim job")?
         };
 
-        match self
-            .client
-            .send_and_confirm_transaction(&[claim_ix], &[&*self.keypair])
-        {
-            Ok(sig) => {
-                info!("[Job {}] Claimed successfully (sig: {})", job_id, sig);
-            }
-            Err(e) => {
-                warn!("[Job {}] Failed to claim (already claimed?): {}", job_id, e);
-                return Err(e);
-            }
-        }
+        info!("[Job {}] Claimed successfully (sig: {})", job.id, result.signature);
 
         // Verify claim succeeded
-        self.verify_claim(job_pda, job_id, circuit_type).await?;
+        self.verify_claim(job_pda, job.id, &job.creator, &job.circuit_type, &job.source).await?;
 
         Ok(())
     }
@@ -138,51 +154,45 @@ impl JobProcessor {
     /// Verify that the job was successfully claimed
     async fn verify_claim(
         &self,
-        job_pda: &Pubkey,
+        _job_pda: &Pubkey,
         job_id: u64,
+        creator: &str,
         circuit_type: &CircuitType,
+        job_source: &JobSource,
     ) -> Result<()> {
-        let job = fetch_job(&self.client.rpc_client, job_pda)
-            .context("Failed to fetch job after claim")?;
+        // For new FHE-Generator jobs, skip verification - the claim tx succeeded
+        if matches!(job_source, JobSource::FheGenerator | JobSource::ZkGenerator) {
+            info!("[Job {}] Claim verified (new generator tx succeeded)", job_id);
+            return Ok(());
+        }
+
+        let job = self.marketplace.get_job(job_id, creator).await?
+            .ok_or_else(|| anyhow::anyhow!("Job not found after claim"))?;
 
         // For ZK jobs: verify we claimed it exclusively
         if let CircuitType::ZcashOrchard = circuit_type {
-            if job.status != JobStatus::Claimed || job.prover != Some(self.keypair.pubkey()) {
+            let our_address = self.keypair.pubkey().to_string();
+            if job.status != JobStatus::Claimed || job.prover.as_ref() != Some(&our_address) {
                 warn!("[Job {}] ZK job not claimed by us, aborting", job_id);
                 return Err(anyhow::anyhow!("Job not claimed by us"));
             }
         }
 
-        // For FHE jobs: verify we're in the claimed_provers list
+        // For FHE jobs: verify consensus is properly configured
         if let CircuitType::FheComputation(_) = circuit_type {
-            let (fhe_pda, _) = self.client.get_fhe_consensus_pda(job_id);
-            let fhe_data = fetch_fhe_consensus(&self.client.rpc_client, &fhe_pda)
-                .context("Failed to fetch FHE consensus data")?;
+            let fhe_config = self.marketplace.get_fhe_consensus_config(job_id).await?
+                .ok_or_else(|| anyhow::anyhow!("FHE consensus not found"))?;
 
-            let our_pubkey = self.keypair.pubkey();
-            let is_claimed = fhe_data.claimed_provers[..fhe_data.claimed_count as usize]
-                .iter()
-                .any(|p| *p == our_pubkey);
-
-            if !is_claimed {
-                warn!(
-                    "[Job {}] We are not in the claimed_provers list, aborting",
-                    job_id
-                );
-                return Err(anyhow::anyhow!("Not in claimed_provers list"));
+            // Basic validation - job should be FHE type
+            if !job.is_fhe {
+                warn!("[Job {}] Job is not marked as FHE type", job_id);
+                return Err(anyhow::anyhow!("Job is not FHE type"));
             }
 
-            // Check if we already submitted a result
-            let our_index = fhe_data.claimed_provers[..fhe_data.claimed_count as usize]
-                .iter()
-                .position(|p| *p == our_pubkey);
-
-            if let Some(idx) = our_index {
-                if fhe_data.result_submitted[idx] {
-                    info!("[Job {}] Already submitted FHE result, skipping", job_id);
-                    return Err(anyhow::anyhow!("Already submitted"));
-                }
-            }
+            info!(
+                "[Job {}] FHE consensus configured: required_provers={}, threshold={}",
+                job_id, fhe_config.required_provers, fhe_config.consensus_threshold
+            );
         }
 
         Ok(())
@@ -278,6 +288,25 @@ impl JobProcessor {
         witness_bytes: &[u8],
         operation: &FheOperation,
     ) -> Result<Vec<u8>> {
+        // Handle Futarchy pool updates separately (different data source)
+        if let FheOperation::FutarchyPoolUpdate {
+            market_id,
+            side,
+            pool_ciphertext_hash,
+            bet_ciphertext_hash,
+        } = operation
+        {
+            return self
+                .execute_futarchy_pool_update(
+                    job_id,
+                    market_id,
+                    *side,
+                    pool_ciphertext_hash,
+                    bet_ciphertext_hash,
+                )
+                .await;
+        }
+
         info!("[Job {}] Executing FHE operation: {:?}", job_id, operation);
 
         // DEBUG: Hash the full witness to verify all provers get identical data
@@ -355,23 +384,20 @@ impl JobProcessor {
     async fn submit_result(
         &self,
         job_pda: &Pubkey,
-        job_id: u64,
-        circuit_type: &CircuitType,
+        job: &JobData,
         proof_bytes: &[u8],
-        witness_hash: &[u8; 32],
     ) -> Result<()> {
-        match circuit_type {
+        match &job.circuit_type {
             CircuitType::ZcashOrchard => {
-                self.submit_zk_proof(job_pda, job_id, proof_bytes).await?;
+                self.submit_zk_proof(job_pda, job.id, &job.creator, proof_bytes).await?;
             }
             CircuitType::FheComputation(ref op) => {
-                self.submit_fhe_result(job_pda, job_id, proof_bytes, witness_hash, op)
-                    .await?;
+                self.submit_fhe_result(job_pda, job, proof_bytes, op).await?;
             }
             _ => {
                 return Err(anyhow::anyhow!(
                     "Unsupported circuit type: {:?}",
-                    circuit_type
+                    job.circuit_type
                 ));
             }
         }
@@ -384,60 +410,25 @@ impl JobProcessor {
         &self,
         job_pda: &Pubkey,
         job_id: u64,
+        creator: &str,
         proof_bytes: &[u8],
     ) -> Result<()> {
         info!("[Job {}] Submitting ZK proof...", job_id);
-
-        // Fetch job to get creator
-        let job = fetch_job(&self.client.rpc_client, job_pda)
-            .context("Failed to fetch job before submit")?;
 
         // Generate proof commitment (hash of actual proof)
         let proof_commitment = Self::generate_proof_commitment(proof_bytes);
         let proof_size = proof_bytes.len() as u32;
 
-        // Fetch config to get protocol fee recipient
-        let (config_pda, _) = self.client.get_config_pda();
-        let config_account = self
-            .client
-            .rpc_client
-            .get_account(&config_pda)
-            .context("Failed to fetch config account")?;
+        // Use trait method to submit proof (no fee_recipient needed)
+        let result = self.marketplace
+            .submit_proof(job_id, creator, proof_commitment, proof_size, None)
+            .await
+            .context("Failed to submit proof")?;
 
-        // Extract protocol_fee_recipient from config
-        let protocol_fee_recipient = if config_account.data.len() >= 86 {
-            Pubkey::try_from(&config_account.data[54..86])?
-        } else {
-            return Err(anyhow::anyhow!("Invalid config account"));
-        };
-
-        let submit_ix = self
-            .client
-            .submit_proof_instruction_with_recipient(
-                &self.keypair.pubkey(),
-                job_pda,
-                &job.creator,
-                &protocol_fee_recipient,
-                proof_commitment,
-                proof_size,
-            )
-            .context("Failed to build submit proof instruction")?;
-
-        match self
-            .client
-            .send_and_confirm_transaction(&[submit_ix], &[&*self.keypair])
-        {
-            Ok(sig) => {
-                info!(
-                    "[Job {}] ZK proof submitted successfully (sig: {})",
-                    job_id, sig
-                );
-            }
-            Err(e) => {
-                error!("[Job {}] Failed to submit ZK proof: {}", job_id, e);
-                return Err(e);
-            }
-        }
+        info!(
+            "[Job {}] ZK proof submitted successfully (sig: {})",
+            job_id, result.signature
+        );
 
         Ok(())
     }
@@ -445,42 +436,36 @@ impl JobProcessor {
     /// Submit FHE result
     async fn submit_fhe_result(
         &self,
-        job_pda: &Pubkey,
-        job_id: u64,
+        _job_pda: &Pubkey,
+        job: &JobData,
         proof_bytes: &[u8],
-        witness_hash: &[u8; 32],
         operation: &FheOperation,
     ) -> Result<()> {
-        info!("[Job {}] Submitting FHE result...", job_id);
+        info!("[Job {}] Submitting FHE result...", job.id);
 
         // Use deterministic commitment for consensus
         let result_hash =
-            FheEngine::deterministic_commitment(witness_hash, operation.name(), job_id);
+            FheEngine::deterministic_commitment(&job.witness_hash, operation.name(), job.id);
 
         info!(
             "[Job {}] FHE deterministic commitment: {} (op: {})",
-            job_id,
+            job.id,
             hex::encode(&result_hash[..8]),
             operation.name()
         );
 
         // Store encrypted result in witness backend
-        self.upload_fhe_result(job_id, proof_bytes).await?;
+        self.upload_fhe_result(job.id, proof_bytes).await?;
 
-        // Build SubmitFheResult instruction
-        let submit_ix = self
-            .client
-            .submit_fhe_result_instruction(&self.keypair.pubkey(), job_pda, job_id, result_hash)
-            .context("Failed to build submit FHE result instruction")?;
-
-        match self
-            .client
-            .send_and_confirm_transaction(&[submit_ix], &[&*self.keypair])
+        // Use trait method to submit FHE result - v2 supports new FHE-Generator
+        match self.marketplace
+            .submit_fhe_result_v2(job, result_hash)
+            .await
         {
-            Ok(sig) => {
+            Ok(result) => {
                 info!(
                     "[Job {}] FHE result submitted successfully (sig: {})",
-                    job_id, sig
+                    job.id, result.signature
                 );
             }
             Err(e) => {
@@ -492,11 +477,11 @@ impl JobProcessor {
                 {
                     info!(
                         "[Job {}] Job already completed by other provers, skipping submit",
-                        job_id
+                        job.id
                     );
                 } else {
-                    error!("[Job {}] Failed to submit FHE result: {}", job_id, e);
-                    return Err(e);
+                    error!("[Job {}] Failed to submit FHE result: {}", job.id, e);
+                    return Err(anyhow::anyhow!("Failed to submit FHE result: {}", e));
                 }
             }
         }
@@ -626,6 +611,12 @@ impl JobProcessor {
                     VotingCircuit::compute_histogram(input_refs, bins)
                         .context("Failed to compute histogram")
                 }
+
+                // FutarchyPoolUpdate is handled separately in generate_fhe_proof
+                // This branch should never be reached
+                FheOperation::FutarchyPoolUpdate { .. } => {
+                    anyhow::bail!("FutarchyPoolUpdate should be handled by execute_futarchy_pool_update")
+                }
             }
         })
         .await
@@ -637,6 +628,85 @@ impl JobProcessor {
         use solana_sdk::hash::hash;
         let hash_result = hash(proof);
         hash_result.to_bytes()
+    }
+
+    /// Execute Futarchy pool update (homomorphic addition)
+    ///
+    /// This is different from regular FHE operations because:
+    /// 1. Ciphertexts come from app server, not witness backend
+    /// 2. Uses FheUint64 (larger ciphertexts, ~500KB each)
+    /// 3. Returns result hash (result stored off-chain)
+    async fn execute_futarchy_pool_update(
+        &self,
+        job_id: u64,
+        market_id: &[u8; 32],
+        side: bool,
+        pool_ciphertext_hash: &[u8; 32],
+        bet_ciphertext_hash: &[u8; 32],
+    ) -> Result<Vec<u8>> {
+        info!(
+            "[Job {}] Executing Futarchy pool update (side: {})",
+            job_id,
+            if side { "YES" } else { "NO" }
+        );
+
+        // Verify Futarchy support is enabled
+        let worker = self.futarchy_worker.as_ref().ok_or_else(|| {
+            anyhow::anyhow!(
+                "Futarchy support not enabled. Call with_futarchy_support() on JobProcessor"
+            )
+        })?;
+
+        let app_server_url = self.futarchy_app_server_url.as_ref().ok_or_else(|| {
+            anyhow::anyhow!("Futarchy app server URL not configured")
+        })?;
+
+        // Convert market_id bytes to string (pubkey)
+        let market_id_str = solana_sdk::pubkey::Pubkey::from(*market_id).to_string();
+
+        // Fetch ciphertexts from blockchain using hashes
+        // In the new flow, we need to fetch actual ciphertexts from Position and Market accounts
+        // For now, we'll still use the app server fetcher (legacy flow)
+        // TODO: Migrate to direct blockchain fetch when poller is fully integrated
+
+        let fetcher = CiphertextFetcher::new(app_server_url);
+
+        let pool_ciphertext = fetcher
+            .fetch_by_hash(pool_ciphertext_hash)
+            .context("Failed to fetch pool ciphertext from app server")?;
+
+        let bet_ciphertext = fetcher
+            .fetch_by_hash(bet_ciphertext_hash)
+            .context("Failed to fetch bet ciphertext from app server")?;
+
+        // Create job data for the worker with full ciphertexts
+        let futarchy_job = FutarchyPoolJob {
+            job_id,
+            market_id: market_id_str,
+            side,
+            bet_ciphertext,
+            pool_ciphertext,
+            bet_ciphertext_hash: *bet_ciphertext_hash,
+            pool_ciphertext_hash: *pool_ciphertext_hash,
+        };
+
+        // Process job (CPU-intensive, run in blocking thread)
+        let worker_clone: Arc<FutarchyPoolWorker> = Arc::clone(worker);
+        let result = tokio::task::spawn_blocking(move || {
+            worker_clone.process_and_submit(&futarchy_job)
+        })
+        .await
+        .context("Futarchy pool update task panicked")??;
+
+        info!(
+            "[Job {}] Futarchy pool update completed. Result hash: {}",
+            job_id,
+            hex::encode(&result.result_hash[..8])
+        );
+
+        // Return the result hash as the "proof" bytes
+        // This will be submitted on-chain for consensus
+        Ok(result.result_hash.to_vec())
     }
 
     /// Update TUI stats on successful completion

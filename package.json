@@ -14,7 +14,8 @@
   "dependencies": {
     "@solana/wallet-standard": "^1.1.4",
     "@solana/web3.js": "^1.95.8",
-    "@wallet-standard/core": "^1.1.1"
+    "@wallet-standard/core": "^1.1.1",
+    "js-sha3": "^0.9.3"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.1"

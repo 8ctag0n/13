@@ -1,7 +1,6 @@
 use crate::circuits::VerificationKeyJson;
 use anyhow::{anyhow, Result};
 use ark_bn254::{Bn254, Fq, Fq2, Fr, G1Affine, G2Affine};
-use ark_ff::PrimeField;
 use ark_groth16::{prepare_verifying_key, Groth16, PreparedVerifyingKey, Proof, VerifyingKey};
 use ark_snark::SNARK;
 use core::str::FromStr;

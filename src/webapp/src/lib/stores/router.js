@@ -1,7 +1,7 @@
 import { writable, derived } from 'svelte/store';
 
 // Whitelist of valid routes (security: prevent arbitrary hash navigation)
-const VALID_ROUTES = ['landing', 'dashboard', 'create-job', 'metrics', 'my-jobs', 'analytics', 'proof-of-innocence'];
+const VALID_ROUTES = ['landing', 'dashboard', 'create-job', 'metrics', 'my-jobs', 'analytics', 'proof-of-innocence', 'futarchy'];
 
 // Pattern routes (routes with parameters)
 const PATTERN_ROUTES = [

@@ -1,0 +1,52 @@
+[package]
+name = "zyberlink-chain-client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+# Async runtime
+tokio.workspace = true
+async-trait = "0.1"
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+borsh.workspace = true
+
+# Error handling
+thiserror.workspace = true
+anyhow.workspace = true
+
+# Solana (for SolanaClient implementation)
+solana-sdk.workspace = true
+solana-client.workspace = true
+bincode = "1.3"
+
+# Aptos (for AptosClient implementation - minimal primitives)
+bcs = { version = "0.1", optional = true }
+sha3 = { version = "0.10", optional = true }
+rand = { version = "0.8", optional = true }
+
+# UUID generation for mock
+uuid = { version = "1.0", features = ["v4"] }
+
+# Cryptography (for signature verification)
+ed25519-dalek.workspace = true
+hex.workspace = true
+
+# Logging
+log.workspace = true
+
+# HTTP client for Starknet RPC and Aptos REST
+reqwest = { version = "0.11", features = ["json"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+
+[features]
+default = []
+solana = []
+starknet = []
+aptos = ["bcs", "sha3", "rand"]

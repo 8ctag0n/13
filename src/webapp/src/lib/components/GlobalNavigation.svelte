@@ -9,6 +9,7 @@
     { id: 'stats', label: 'STATS', icon: '#', type: 'scroll' },
     { id: 'how-it-works', label: 'FLOW', icon: '~', type: 'scroll' },
     { id: 'dashboard', label: 'APP', icon: '◈', type: 'route', isApp: true },
+    { id: 'futarchy', label: 'FUTARCHY', icon: 'F', type: 'route', isApp: true },
     { id: 'use-cases', label: 'CASES', icon: '*', type: 'scroll' },
     { id: 'timeline', label: 'CHRONICLE', icon: '|', type: 'scroll' },
     { id: 'footer', label: 'INFO', icon: 'i', type: 'scroll' }

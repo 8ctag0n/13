@@ -287,13 +287,13 @@
           <div class="info-box-violet mb-6">
             <div class="text-mono text-sm">
               [i] PRIVACY_PRESERVED<br/>
-              Upload a witness.bin file generated with <span class="text-cyan">fhe-cli encrypt</span>.
+              Upload a witness.bin file generated with <span class="text-cyan">zyb fhe encrypt</span>.
               Only the encrypted result is revealed, not your raw data.
             </div>
           </div>
 
           <div class="code-hint text-mono text-xs mb-6">
-            $ fhe-cli encrypt -p ./my-data -v 10,20,30,40,50
+            $ zyb fhe encrypt -p ./my-data -v 10,20,30,40,50
           </div>
 
           <WitnessUploader
@@ -321,7 +321,7 @@
                 style="max-width: 200px;"
               />
               <div class="text-xs text-muted mt-2">
-                If you used <code>fhe-cli encrypt --values 10,20,30,40,50</code>, enter <strong>5</strong>
+                If you used <code>zyb fhe encrypt --values 10,20,30,40,50</code>, enter <strong>5</strong>
               </div>
               <div class="warning-box mt-3">
                 <span class="text-warning">[!]</span>
@@ -517,7 +517,7 @@
             <div class="text-mono text-sm">
               [i] NEXT_STEPS<br/>
               Once provers complete the computation, you can fetch the encrypted result from the Dashboard or use:<br/>
-              <span class="text-cyan">fhe-cli decrypt -k client_key.bin -r result.bin</span>
+              <span class="text-cyan">zyb fhe decrypt -k client_key.bin -r result.bin</span>
             </div>
           </div>
         </div>

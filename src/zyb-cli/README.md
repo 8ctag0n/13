@@ -64,6 +64,72 @@ zyb zk verify <proof-file>
 zyb wizard
 ```
 
+### Dev Job Runner
+
+`dev-job` is a testing/demo runner that creates FHE jobs end-to-end.
+
+```bash
+# Run default mix (poi + analytics)
+zyb dev-job run
+
+# Plan without submitting
+zyb dev-job plan --cases mix
+
+# Run specific types
+zyb dev-job run --types add,sum,average
+
+# Verify end-to-end
+zyb dev-job verify --types count-if
+
+# Webapp flow simulation
+zyb dev-job webapp-flow --verify
+```
+
+#### Config file (TOML)
+
+By default, `dev-job` reads `dev-job.toml` from the current directory. CLI flags override the file. Example: `src/zyb-cli/dev-job.toml.example`.
+
+```toml
+[common]
+profile = "local"
+rpc_url = "http://localhost:8899"
+program_id = "HnRTpCx7Xs3f1BKkVhkeZwcqRfPmSDpVQ6QxgN7Vm8Rt"
+backend_url = "http://localhost:3000"
+keypair = "/tmp/job-creator-keypair.json"
+json = true
+
+[run]
+cases = ["mix"]
+interval_secs = 10
+shuffle = false
+
+[profiles.local]
+rpc_url = "http://localhost:8899"
+backend_url = "http://localhost:3000"
+
+[profiles.devnet]
+rpc_url = "https://api.devnet.solana.com"
+backend_url = "https://demo.zyberlink.fun"
+```
+
+#### JSON events
+
+Use `--json` to emit structured JSON events in addition to human logs.
+
+```bash
+zyb dev-job run --json
+```
+
+#### Profiles
+
+Use profiles to switch environments quickly (stored in `dev-job.toml`).
+
+```bash
+zyb profile list
+zyb profile use devnet
+zyb profile show
+```
+
 ## Project Structure
 
 ```

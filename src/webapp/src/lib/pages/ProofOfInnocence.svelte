@@ -340,7 +340,7 @@
                 style="max-width: 200px;"
               />
               <div class="text-xs text-muted mt-2">
-                If you used <code>fhe-cli encrypt --values 10,20,30,40,50</code>, enter <strong>5</strong>
+                If you used <code>zyb fhe encrypt --values 10,20,30,40,50</code>, enter <strong>5</strong>
               </div>
               <div class="warning-box mt-3">
                 <span class="text-warning">[!]</span>

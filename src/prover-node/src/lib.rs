@@ -14,7 +14,9 @@
 pub mod cli;
 pub mod core;
 pub mod engines;
+pub mod futarchy;
 pub mod gateway;
+pub mod marketplace;
 pub mod services;
 
 // === EXISTING MODULES (legacy) ===
@@ -31,6 +33,11 @@ pub mod witness_fetcher;
 pub use core::{CircuitCategory, CircuitRegistry, JobProcessor};
 pub use engines::{ArkworksProver, ProofType, ZkEngine, ZkProofResult, ZkProver};
 pub use gateway::{GatewayAuthHeaders, GatewayClient};
+pub use marketplace::{
+    ChainType, FheConsensusConfig, JobData, MarketplaceConfig, MarketplaceError,
+    MarketplaceFactory, MarketplaceOperations, MarketplaceOperationsExt, ProverData,
+    SolanaMarketplace, TransactionResult,
+};
 pub use services::{DiscoveredJob, JobPoller, WitnessService};
 
 // Re-export legacy types for backwards compatibility
@@ -43,3 +50,6 @@ pub use witness_fetcher::WitnessFetcher;
 
 // Re-export FHE engine from shared crate
 pub use zyberlink_fhe::{generate_keys as generate_fhe_keys, FheEngine};
+
+// Re-export Futarchy FHE types
+pub use futarchy::{CiphertextFetcher, FutarchyPoolWorker, FutarchyPoolJob, FutarchyPoolResult};

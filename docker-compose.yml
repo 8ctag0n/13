@@ -35,8 +35,8 @@ services:
       - POSTGRES_DB=zyberlink
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    expose:
-      - "5432"
+    ports:
+      - "5432:5432"
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U zyberlink"]
@@ -63,6 +63,9 @@ services:
       - DATABASE_URL=postgresql://zyberlink:${DB_PASSWORD:-dev_password}@postgres:5432/zyberlink
       - SOLANA_RPC_URL=http://validator:8899
       - PROGRAM_ID=${PROGRAM_ID:-11111111111111111111111111111111}
+      - ZK_GENERATOR_PROGRAM_ID=${ZK_GENERATOR_PROGRAM_ID:-Dzvy1pzCBgtMw5Fte2GybpeN2PsLPW8t7zDvLfKpxnSS}
+      - FHE_GENERATOR_PROGRAM_ID=${FHE_GENERATOR_PROGRAM_ID:-C8PpHFCKZ4F2Szbir2EMS4S4H3mwQqHNWUXK1N21nfAB}
+      - FUTARCHY_PROGRAM_ID=${FUTARCHY_PROGRAM_ID:-AQUUuRSwDhB1eeC2Caa8GPVGV4YzZkJ1YiSvZd3BBPij}
       - HOST=0.0.0.0
       - PORT=8080
       - SERVER_KEYPAIR_PATH=/app/keypair.json
@@ -112,13 +115,13 @@ services:
   # ============================================
   # Layer 1: Public API Gateway (ENTRY POINT)
   # UNICO servicio expuesto a internet
+  # Nota: replicas: 1 porque el puerto 3000 se mapea al host
+  # Para escalar, usar nginx como load balancer
   # ============================================
   public-api:
     build:
       context: .
       dockerfile: src/public-api/Dockerfile
-    deploy:
-      replicas: 2
     ports:
       - "3000:3000"
     environment:

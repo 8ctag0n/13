@@ -3,7 +3,11 @@ mod api_handlers;
 mod chain_sync;
 mod cleanup;
 mod db;
+mod futarchy_handlers;
 mod job_finalizer;
+mod pbtcfi_handlers;
+mod pbtcfi_prover;
+mod pbtcfi_sync;
 mod prover_sync;
 mod services;
 mod tx_builder;
@@ -22,6 +26,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 use zyberlink_sdk::instructions::InstructionBuilder;
+use zyberlink_chain_client::{SolanaClient, StarknetClient};
 
 use services::AttestationService;
 
@@ -186,12 +191,51 @@ async fn main() -> std::io::Result<()> {
     cleanup::spawn_cleanup_task(pool.clone(), cleanup_interval_secs);
 
     log::info!("Starting blockchain sync task...");
-    chain_sync::start_chain_sync(rpc_url.clone(), program_id, pool.clone());
+    log::info!("Creating SolanaClient for chain sync...");
+    let chain_client = Arc::new(
+        SolanaClient::new(&rpc_url)
+            .expect("Failed to create SolanaClient")
+    );
+    chain_sync::start_chain_sync(chain_client.clone(), program_id, pool.clone());
     log::info!("Blockchain sync task started");
 
     log::info!("Starting prover sync task...");
-    prover_sync::start_prover_sync(rpc_url.clone(), program_id, pool.clone());
+    prover_sync::start_prover_sync(chain_client.clone(), program_id, pool.clone());
     log::info!("Prover sync task started");
+
+    // pBTCFi event sync (optional - only if env vars are set)
+    if let Ok(pbtcfi_contract) = env::var("PBTCFI_CONTRACT_ADDRESS") {
+        log::info!("Starting pBTCFi event sync task...");
+        let starknet_rpc = env::var("STARKNET_RPC_URL")
+            .unwrap_or_else(|_| "http://localhost:5050".to_string());
+
+        log::info!("  Starknet RPC: {}", starknet_rpc);
+        log::info!("  pBTCFi Contract: {}", pbtcfi_contract);
+
+        log::info!("Creating StarknetClient for pBTCFi sync...");
+        match StarknetClient::new(&starknet_rpc) {
+            Ok(starknet_client) => {
+                let starknet_client = Arc::new(starknet_client);
+                pbtcfi_sync::start_pbtcfi_sync(
+                    starknet_client,
+                    pbtcfi_contract,
+                    pool.clone(),
+                );
+                log::info!("pBTCFi event sync task started");
+            }
+            Err(e) => {
+                log::error!("Failed to create StarknetClient: {}", e);
+                log::error!("pBTCFi sync will not start");
+            }
+        }
+
+        // Start pBTCFi FHE prover worker
+        let prover_config = pbtcfi_prover::PbtcfiProverConfig::default();
+        pbtcfi_prover::start_pbtcfi_prover(pool.clone(), prover_config);
+        log::info!("pBTCFi FHE prover started");
+    } else {
+        log::info!("pBTCFi sync disabled (set PBTCFI_CONTRACT_ADDRESS to enable)");
+    }
 
     // Job finalizer (requires server keypair to sign finalize transactions)
     let server_keypair_path =
@@ -202,7 +246,7 @@ async fn main() -> std::io::Result<()> {
             log::info!("Starting job finalizer task...");
             log::info!("  Finalizer pubkey: {}", keypair.pubkey());
             job_finalizer::start_job_finalizer(
-                rpc_url.clone(),
+                chain_client.clone(),
                 program_id,
                 pool.clone(),
                 Arc::new(keypair),
@@ -243,6 +287,23 @@ async fn main() -> std::io::Result<()> {
     log::info!("  GET    /internal/zk/{{job_id}}/status");
     log::info!("  POST   /internal/zk/{{job_id}}/confirm");
     log::info!("");
+    log::info!("Futarchy API:");
+    log::info!("  GET    /api/futarchy/health");
+    log::info!("  POST   /api/futarchy/bet/prepare          (E2E: build unsigned TX)");
+    log::info!("  POST   /api/futarchy/bet/submit           (E2E: submit signed TX)");
+    log::info!("  GET    /api/futarchy/markets");
+    log::info!("  POST   /api/futarchy/markets");
+    log::info!("  POST   /api/futarchy/markets/validate-and-build");
+    log::info!("  GET    /api/futarchy/markets/{{id}}");
+    log::info!("  POST   /api/futarchy/markets/{{id}}/bet");
+    log::info!("  POST   /api/futarchy/markets/{{id}}/bet/validate-and-build");
+    log::info!("  POST   /api/futarchy/markets/{{id}}/settle");
+    log::info!("  POST   /api/futarchy/markets/{{id}}/settle/validate-and-build");
+    log::info!("  POST   /api/futarchy/markets/{{id}}/claim/validate-and-build");
+    log::info!("  GET    /api/fhe/ciphertext/{{hash}}");
+    log::info!("  GET    /api/fhe/markets/{{id}}/pool/{{side}}");
+    log::info!("  POST   /api/fhe/markets/{{id}}/pool/{{side}}/update");
+    log::info!("");
     log::info!("NOTE: This is an INTERNAL service (port {})", port);
     log::info!("      Should only be accessed via public-api gateway");
     log::info!("");
@@ -259,6 +320,7 @@ async fn main() -> std::io::Result<()> {
 
         let mut app = App::new()
             .app_data(app_state.clone())
+            .app_data(web::Data::new(pool.clone())) // For pBTCFi handlers
             // Increase JSON payload limit for large TFHE ServerKeys (up to 200 MB)
             .app_data(web::JsonConfig::default().limit(200 * 1024 * 1024))
             // Increase raw payload limit for witness data (up to 200 MB)
@@ -274,7 +336,11 @@ async fn main() -> std::io::Result<()> {
             // FHE Jobs API
             .configure(api_handlers::configure_routes)
             // ZK Jobs API
-            .configure(zk_handlers::configure_routes);
+            .configure(zk_handlers::configure_routes)
+            // pBTCFi API
+            .configure(pbtcfi_handlers::configure_routes)
+            // Futarchy API
+            .configure(futarchy_handlers::configure_routes);
 
         // Add AttestationService if available
         if let Some(service) = attestation_service.clone() {

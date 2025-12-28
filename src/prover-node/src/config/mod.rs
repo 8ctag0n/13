@@ -20,10 +20,15 @@ pub struct ProverConfig {
     pub blink_backend_url: String,
     pub zk_circuits_path: String,
     pub fhe_server_key_path: Option<String>,
+    /// ZK Generator program ID (for new architecture)
+    pub zk_generator_program: Option<Pubkey>,
+    /// FHE Generator program ID (for new architecture)
+    pub fhe_generator_program: Option<Pubkey>,
 }
 
 impl ProverConfig {
     /// Create a new ProverConfig directly
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         rpc_url: String,
         program_id: Pubkey,
@@ -38,6 +43,8 @@ impl ProverConfig {
         blink_backend_url: String,
         zk_circuits_path: String,
         fhe_server_key_path: Option<String>,
+        zk_generator_program: Option<Pubkey>,
+        fhe_generator_program: Option<Pubkey>,
     ) -> Self {
         Self {
             rpc_url,
@@ -53,6 +60,8 @@ impl ProverConfig {
             blink_backend_url,
             zk_circuits_path,
             fhe_server_key_path,
+            zk_generator_program,
+            fhe_generator_program,
         }
     }
 }

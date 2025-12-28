@@ -20,7 +20,7 @@ use solana_sdk::{
 };
 use std::{sync::Arc, time::Duration};
 use tokio::time::sleep;
-use zyberlink_sdk::{find_fhe_jobs_needing_provers, find_pending_jobs, MarketplaceClient};
+use zyberlink_sdk::MarketplaceClient;
 use zyberlink_types::CircuitType;
 
 // FHE engine from shared crate
@@ -32,8 +32,10 @@ mod cli;
 mod config;
 mod core;
 mod engines;
+mod futarchy;
 mod gateway;
 mod halo2_prover;
+mod marketplace;
 mod roi_calculator;
 mod services;
 mod tui;
@@ -44,12 +46,17 @@ mod wizard;
 // Re-exports for convenience
 use cli::{ProverArgs, ProverCommand};
 use config::ProverConfig;
+use marketplace::{MarketplaceFactory, MarketplaceOperations, SolanaMarketplace};
 use core::{CircuitRegistry, JobProcessor};
 use gateway::GatewayClient;
 use halo2_prover::Halo2Prover;
 use roi_calculator::ROICalculator;
 use witness_encryption::WitnessEncryption;
 use witness_fetcher::WitnessFetcher;
+
+// Futarchy FHE imports
+use futarchy::{FutarchyPoller, FutarchyPollerConfig, FutarchyPoolWorker};
+use fhe_client_sdk::FutarchyFheClient;
 
 /// Helper to create ProverConfig from args
 fn config_from_args(args: &ProverArgs) -> Result<ProverConfig> {
@@ -59,6 +66,19 @@ fn config_from_args(args: &ProverArgs) -> Result<ProverConfig> {
         .context("Program ID is required")?
         .parse()
         .context("Invalid program ID format")?;
+
+    // Parse optional generator program IDs
+    let zk_generator_program = args.zk_generator_program
+        .as_ref()
+        .map(|s| s.parse())
+        .transpose()
+        .context("Invalid ZK Generator program ID format")?;
+
+    let fhe_generator_program = args.fhe_generator_program
+        .as_ref()
+        .map(|s| s.parse())
+        .transpose()
+        .context("Invalid FHE Generator program ID format")?;
 
     Ok(ProverConfig::new(
         args.rpc_url.clone(),
@@ -77,13 +97,15 @@ fn config_from_args(args: &ProverArgs) -> Result<ProverConfig> {
         args.fhe_server_key_path
             .clone()
             .map(|p| p.replace("~", &std::env::var("HOME").unwrap_or_default())),
+        zk_generator_program,
+        fhe_generator_program,
     ))
 }
 
 
 /// Main prover node that manages job polling and proof generation
 struct ProverNode {
-    client: Arc<MarketplaceClient>,
+    marketplace: Arc<SolanaMarketplace>,
     keypair: Arc<Keypair>,
     config: ProverConfig,
     roi_calculator: Arc<ROICalculator>,
@@ -101,12 +123,28 @@ impl ProverNode {
     fn new_with_tui(config: ProverConfig, tui_state: Option<Arc<tui::TUIState>>) -> Result<Self> {
         let keypair = read_keypair_file(&config.keypair_path)
             .map_err(|e| anyhow::anyhow!("Failed to read keypair file: {}", e))?;
+        let keypair_arc = Arc::new(keypair);
 
-        let client = MarketplaceClient::new_with_commitment(
-            config.rpc_url.clone(),
-            config.program_id,
-            CommitmentConfig::confirmed(),
-        );
+        // Create SolanaMarketplace - use generators if configured
+        let marketplace = if config.zk_generator_program.is_some() || config.fhe_generator_program.is_some() {
+            info!(
+                "Creating marketplace with generators: ZK={:?}, FHE={:?}",
+                config.zk_generator_program, config.fhe_generator_program
+            );
+            Arc::new(SolanaMarketplace::new_with_generators(
+                &config.rpc_url,
+                config.program_id,
+                keypair_arc.clone(),
+                config.zk_generator_program,
+                config.fhe_generator_program,
+            ).map_err(|e| anyhow::anyhow!("Failed to create SolanaMarketplace: {}", e))?)
+        } else {
+            MarketplaceFactory::create_solana(
+                &config.rpc_url,
+                config.program_id,
+                keypair_arc.clone(),
+            )?
+        };
 
         // Initialize Halo2 prover
         info!("Initializing Halo2 proving system...");
@@ -116,7 +154,7 @@ impl ProverNode {
 
         // Initialize witness encryption (derived from Solana keypair for determinism)
         info!("Initializing witness encryption system...");
-        let encryption_seed = derive_encryption_seed(&keypair);
+        let encryption_seed = derive_encryption_seed(&*keypair_arc);
         let witness_encryption = WitnessEncryption::from_seed(encryption_seed)?;
         let pubkey = witness_encryption.public_key();
         info!("Witness encryption ready (pubkey: {})", hex::encode(pubkey));
@@ -133,7 +171,7 @@ impl ProverNode {
         info!("Initializing gateway client...");
         let gateway_client = GatewayClient::new(
             config.gateway_url.clone(),
-            Arc::new(keypair.insecure_clone()),
+            Arc::new(keypair_arc.insecure_clone()),
         );
         info!(
             "Gateway client ready (gateway: {})",
@@ -163,8 +201,6 @@ impl ProverNode {
         );
 
         // Create shared references
-        let client_arc = Arc::new(client);
-        let keypair_arc = Arc::new(keypair);
         let halo2_prover_arc = Arc::new(halo2_prover);
         let witness_encryption_arc = Arc::new(witness_encryption);
         let witness_fetcher_arc = Arc::new(witness_fetcher);
@@ -172,7 +208,7 @@ impl ProverNode {
 
         // Initialize JobProcessor with all dependencies
         let job_processor = Arc::new(JobProcessor::new(
-            client_arc.clone(),
+            marketplace.clone(),
             keypair_arc.clone(),
             halo2_prover_arc,
             witness_encryption_arc,
@@ -182,7 +218,7 @@ impl ProverNode {
         ));
 
         Ok(Self {
-            client: client_arc,
+            marketplace,
             keypair: keypair_arc,
             config,
             roi_calculator: Arc::new(roi_calculator),
@@ -227,18 +263,12 @@ impl ProverNode {
         }
 
         // Find pending ZK jobs
-        let pending_jobs = find_pending_jobs(&self.client.rpc_client, &self.config.program_id)
-            .context("Failed to query pending jobs")?;
+        let pending_jobs = self.marketplace.find_pending_jobs().await
+            .context("Failed to find pending jobs")?;
 
         // Also find FHE jobs that need more provers (for consensus)
-        let keypair = read_keypair_file(&self.config.keypair_path)
-            .map_err(|e| anyhow::anyhow!("Failed to read keypair for FHE job query: {}", e))?;
-        let fhe_jobs = find_fhe_jobs_needing_provers(
-            &self.client.rpc_client,
-            &self.config.program_id,
-            &keypair.pubkey(),
-        )
-        .unwrap_or_default();
+        let fhe_jobs = self.marketplace.find_fhe_jobs_needing_provers().await
+            .context("Failed to find FHE jobs")?;
 
         let total_pending = pending_jobs.len() + fhe_jobs.len();
         info!(
@@ -253,24 +283,24 @@ impl ProverNode {
         let mut rejected_count = 0;
 
         // Process regular pending jobs (mostly ZK jobs)
-        for (job_pda, job) in pending_jobs {
+        for job in pending_jobs {
             // Skip FHE jobs here - we handle them separately below
-            if CircuitRegistry::is_fhe_circuit(job.circuit_type) {
+            if CircuitRegistry::is_fhe_circuit_from_enum(&job.circuit_type) {
                 continue;
             }
 
-            let circuit_type = CircuitRegistry::get_circuit_type(job.circuit_type, None);
+            let circuit_type = CircuitRegistry::get_circuit_type_from_enum(&job.circuit_type);
             let required_provers = 1u8; // ZK jobs use single prover
 
             // Evaluate job profitability
             let roi = self.roi_calculator.evaluate_job(
                 &circuit_type,
-                job.price_lamports,
+                job.price,
                 required_provers,
             );
 
             if roi.is_profitable {
-                suitable_jobs.push((job_pda, job, circuit_type, roi));
+                suitable_jobs.push((job, circuit_type, roi));
             } else {
                 rejected_count += 1;
                 debug!(
@@ -281,23 +311,32 @@ impl ProverNode {
         }
 
         // Process FHE jobs that need more provers
-        for (job_pda, job, fhe_data) in fhe_jobs {
-            let circuit_type = CircuitRegistry::get_circuit_type(job.circuit_type, Some(&fhe_data));
-            let required_provers = fhe_data.required_provers;
+        for job in fhe_jobs {
+            let circuit_type = job.circuit_type.clone();
+
+            // Get FHE consensus config to determine required provers
+            let fhe_config = self.marketplace.get_fhe_consensus_config(job.id).await
+                .context("Failed to get FHE consensus config")?;
+
+            let required_provers = fhe_config.as_ref()
+                .map(|c| c.required_provers)
+                .unwrap_or(1);
 
             // Evaluate job profitability
             let roi = self.roi_calculator.evaluate_job(
                 &circuit_type,
-                job.price_lamports,
+                job.price,
                 required_provers,
             );
 
             if roi.is_profitable {
-                info!(
-                    "FHE job {} needs provers: {}/{} claimed, joining consensus",
-                    job.id, fhe_data.claimed_count, fhe_data.required_provers
-                );
-                suitable_jobs.push((job_pda, job, circuit_type, roi));
+                if let Some(config) = &fhe_config {
+                    info!(
+                        "FHE job {} needs provers: required {}",
+                        job.id, config.required_provers
+                    );
+                }
+                suitable_jobs.push((job, circuit_type, roi));
             } else {
                 rejected_count += 1;
                 debug!(
@@ -335,23 +374,26 @@ impl ProverNode {
 
         // Process jobs up to max concurrent limit
         let slots_available = self.config.max_concurrent_jobs - active_count;
-        for (job_pda, job, circuit_type, roi) in suitable_jobs.into_iter().take(slots_available) {
+        for (job, circuit_type, roi) in suitable_jobs.into_iter().take(slots_available) {
             info!(
                 "Processing job {} - Price: {} lamports, Circuit: {:?}, ROI: {:.1}%, Profit: {} lamports",
-                job.id, job.price_lamports, circuit_type, roi.roi_percentage, roi.profit
+                job.id, job.price, circuit_type, roi.roi_percentage, roi.profit
             );
+
+            // Parse job_pda from address string
+            let job_pda: Pubkey = job.address.parse()
+                .context("Failed to parse job address")?;
 
             // Spawn job processing task
             let active_jobs = self.active_jobs.clone();
             let job_processor = self.job_processor.clone();
             let tui_state = self.tui_state.clone();
-            let job_price = job.price_lamports;
             let job_id = job.id;
-            let witness_hash = job.witness_hash;
+            let job_clone = job.clone();
 
             tokio::spawn(async move {
                 if let Err(e) = job_processor
-                    .process_job(job_pda, job_id, circuit_type, witness_hash, job_price, tui_state.clone())
+                    .process_job(&job_clone, tui_state.clone())
                     .await
                 {
                     error!("Failed to process job {}: {}", job_id, e);
@@ -388,6 +430,13 @@ async fn main() -> Result<()> {
         ProverCommand::Run => {
             let config = config_from_args(&args)?;
 
+            // Start Futarchy poller in background thread if enabled
+            let futarchy_handle = if args.enable_futarchy {
+                Some(start_futarchy_poller(&args)?)
+            } else {
+                None
+            };
+
             if args.tui_mode {
                 // Run with TUI
                 run_with_tui(config).await?;
@@ -396,6 +445,9 @@ async fn main() -> Result<()> {
                 let prover = ProverNode::new(config)?;
                 prover.run().await?;
             }
+
+            // Futarchy poller runs in its own thread and will be cleaned up on exit
+            drop(futarchy_handle);
         }
         ProverCommand::Register { stake_amount } => {
             register_prover(&args, *stake_amount).await?;
@@ -554,4 +606,50 @@ async fn run_setup_wizard(stake_amount: u64) -> Result<()> {
     );
 
     Ok(())
+}
+
+/// Start the Futarchy FHE job poller in a background thread
+///
+/// Returns a JoinHandle that can be dropped to stop the poller
+fn start_futarchy_poller(args: &ProverArgs) -> Result<std::thread::JoinHandle<()>> {
+    info!("Starting Futarchy FHE poller...");
+    info!("  Server URL: {}", args.futarchy_server_url);
+    info!("  Poll Interval: {} seconds", args.poll_interval);
+
+    // Create FHE client (this takes a few seconds for key generation)
+    info!("Initializing Futarchy FHE client (this may take 10-30 seconds)...");
+    let fhe_client = FutarchyFheClient::new()
+        .map_err(|e| anyhow::anyhow!("Failed to create Futarchy FHE client: {}", e))?;
+    info!("Futarchy FHE client initialized");
+
+    // Create worker with the FHE client
+    let worker = Arc::new(FutarchyPoolWorker::with_client(
+        fhe_client,
+        &args.futarchy_server_url,
+    ));
+
+    // Configure poller
+    let config = FutarchyPollerConfig {
+        solana_rpc_url: args.rpc_url.clone(),
+        // TODO: Make these configurable via CLI args
+        futarchy_program_id: Pubkey::default(), // Placeholder
+        fhe_program_id: Pubkey::default(),      // Placeholder
+        poll_interval: Duration::from_secs(args.poll_interval),
+        max_jobs_per_poll: 5,
+    };
+
+    // Create poller
+    let poller = FutarchyPoller::new(config, worker)?;
+
+    // Start in background thread
+    let handle = std::thread::Builder::new()
+        .name("futarchy-poller".to_string())
+        .spawn(move || {
+            poller.run_loop();
+        })
+        .context("Failed to spawn Futarchy poller thread")?;
+
+    info!("Futarchy FHE poller started in background thread");
+
+    Ok(handle)
 }

@@ -143,9 +143,7 @@ fn main() -> Result<()> {
 EOF
 
 # Build the CLI tool
-cd src/job-creator
-cargo build --release --bin job-creator 2>&1 | grep -E "Compiling|Finished" || true
-cd ../..
+cargo build --release -p zyb-cli 2>&1 | grep -E "Compiling|Finished" || true
 
 log_step "Initializing marketplace..."
 

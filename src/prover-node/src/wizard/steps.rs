@@ -1,4 +1,5 @@
 use super::{terms, ui, validation};
+use crate::marketplace::ChainType;
 use anyhow::{Context, Result};
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::{
@@ -54,7 +55,7 @@ impl Network {
 
 /// Step 1: Validate system requirements
 pub async fn step_system_validation() -> Result<()> {
-    ui::print_step_header(1, 6, "System Requirements Check");
+    ui::print_step_header(1, 7, "System Requirements Check");
 
     let spinner = ui::Spinner::new("Checking system requirements...");
     let results = validation::validate_system().await?;
@@ -79,7 +80,7 @@ pub async fn step_system_validation() -> Result<()> {
 
 /// Step 2: Setup Solana keypair
 pub async fn step_keypair_setup() -> Result<(Keypair, PathBuf)> {
-    ui::print_step_header(2, 6, "Solana Keypair Setup");
+    ui::print_step_header(2, 7, "Keypair Setup");
 
     let choice = ui::select(
         "Do you have an existing Solana keypair?",
@@ -154,7 +155,7 @@ async fn generate_new_keypair() -> Result<(Keypair, PathBuf)> {
 
 /// Step 3: Network configuration
 pub async fn step_network_setup() -> Result<(Network, String, RpcClient)> {
-    ui::print_step_header(3, 6, "Network Configuration");
+    ui::print_step_header(3, 7, "Network Configuration");
 
     let choice = ui::select(
         "Select Solana network:",
@@ -218,7 +219,7 @@ pub async fn step_balance_check(
     network: &Network,
     required_lamports: u64,
 ) -> Result<()> {
-    ui::print_step_header(4, 6, "Balance Check & Funding");
+    ui::print_step_header(4, 7, "Balance Check & Funding");
 
     let balance = client
         .get_balance(&keypair.pubkey())
@@ -367,7 +368,7 @@ pub async fn step_register_prover(
     stake_amount: u64,
     witness_encryption: &crate::witness_encryption::WitnessEncryption,
 ) -> Result<Pubkey> {
-    ui::print_step_header(6, 6, "Prover Registration");
+    ui::print_step_header(6, 7, "Prover Registration");
 
     let encryption_pubkey = witness_encryption.public_key();
 
@@ -425,7 +426,7 @@ pub async fn step_register_prover(
 
 /// Step 5: Accept Terms & Conditions
 pub async fn step_terms_acceptance(keypair: &Keypair, backend_url: &str) -> Result<()> {
-    ui::print_step_header(5, 6, "Terms & Conditions");
+    ui::print_step_header(5, 7, "Terms & Conditions");
 
     // Fetch latest terms
     let spinner = ui::Spinner::new("Fetching latest Terms & Conditions...");
@@ -497,4 +498,62 @@ pub async fn step_terms_acceptance(keypair: &Keypair, backend_url: &str) -> Resu
     ui::wait_for_enter()?;
 
     Ok(())
+}
+
+/// Step 0: Chain selection (before all other steps)
+///
+/// Allows the user to select which blockchain to use for the prover node.
+/// Currently only Solana is fully supported, with Aptos and Starknet coming soon.
+pub async fn step_chain_selection() -> Result<ChainType> {
+    ui::print_step_header(0, 7, "Blockchain Selection");
+
+    println!("\n{}", console::style("Select your target blockchain:").bold());
+    println!();
+    println!(
+        "  {}",
+        console::style("The prover node can operate on multiple blockchains.").dim()
+    );
+    println!(
+        "  {}",
+        console::style("Each chain has its own marketplace contract and token economics.").dim()
+    );
+    println!();
+
+    let choice = ui::select(
+        "Choose blockchain:",
+        &[
+            "Solana (SOL) - Production Ready",
+            "Aptos (APT) - Coming Soon",
+            "Starknet (STRK) - Coming Soon",
+        ],
+    )?;
+
+    let chain = match choice {
+        0 => {
+            ui::print_success("Selected: Solana");
+            ChainType::Solana
+        }
+        1 => {
+            ui::print_warning("Aptos support is coming soon!");
+            ui::print_info("For now, please use Solana. Aptos integration is in development.");
+            println!();
+            ui::print_info("Defaulting to Solana...");
+            ChainType::Solana
+        }
+        2 => {
+            ui::print_warning("Starknet support is coming soon!");
+            ui::print_info("For now, please use Solana. Starknet integration is in development.");
+            println!();
+            ui::print_info("Defaulting to Solana...");
+            ChainType::Solana
+        }
+        _ => unreachable!(),
+    };
+
+    println!();
+    ui::print_info(&format!("Chain: {}", chain.as_str()));
+
+    ui::wait_for_enter()?;
+
+    Ok(chain)
 }

@@ -4,7 +4,17 @@ use actix_web::{post, web, HttpRequest, HttpResponse, Responder};
 use serde_json::json;
 
 use crate::db::X402Queries;
+use crate::rate_limit::check_rate_limit;
 use crate::AppState;
+
+fn enforce_rate_limit(data: &web::Data<AppState>) -> Option<HttpResponse> {
+    if !check_rate_limit(&data.rate_limiter) {
+        return Some(HttpResponse::TooManyRequests().json(json!({
+            "error": "Rate limit exceeded"
+        })));
+    }
+    None
+}
 
 /// Validate token and proxy to blink for ZK job creation
 #[post("/gateway/zk/create")]
@@ -110,6 +120,107 @@ pub async fn gateway_fhe_create(
     }
 }
 
+// =============================================================================
+// Futarchy Gateway (anti-spam proxy)
+// =============================================================================
+
+#[post("/gateway/futarchy/markets/validate-and-build")]
+pub async fn futarchy_market_validate(
+    data: web::Data<AppState>,
+    body: web::Json<serde_json::Value>,
+) -> impl Responder {
+    if let Some(resp) = enforce_rate_limit(&data) {
+        return resp;
+    }
+
+    match data.blink_client.proxy_post::<_, serde_json::Value>(
+        "/api/futarchy/markets/validate-and-build",
+        &body.into_inner(),
+        None,
+    ).await {
+        Ok(response) => HttpResponse::Ok().json(response),
+        Err(e) => {
+            log::error!("Blink proxy error: {}", e);
+            HttpResponse::BadGateway().json(json!({"error": "Backend service unavailable"}))
+        }
+    }
+}
+
+#[post("/gateway/futarchy/markets/{id}/bet/validate-and-build")]
+pub async fn futarchy_bet_validate(
+    data: web::Data<AppState>,
+    path: web::Path<String>,
+    body: web::Json<serde_json::Value>,
+) -> impl Responder {
+    if let Some(resp) = enforce_rate_limit(&data) {
+        return resp;
+    }
+
+    let id = path.into_inner();
+    let target = format!("/api/futarchy/markets/{}/bet/validate-and-build", id);
+    match data.blink_client.proxy_post::<_, serde_json::Value>(
+        &target,
+        &body.into_inner(),
+        None,
+    ).await {
+        Ok(response) => HttpResponse::Ok().json(response),
+        Err(e) => {
+            log::error!("Blink proxy error: {}", e);
+            HttpResponse::BadGateway().json(json!({"error": "Backend service unavailable"}))
+        }
+    }
+}
+
+#[post("/gateway/futarchy/markets/{id}/settle/validate-and-build")]
+pub async fn futarchy_settle_validate(
+    data: web::Data<AppState>,
+    path: web::Path<String>,
+    body: web::Json<serde_json::Value>,
+) -> impl Responder {
+    if let Some(resp) = enforce_rate_limit(&data) {
+        return resp;
+    }
+
+    let id = path.into_inner();
+    let target = format!("/api/futarchy/markets/{}/settle/validate-and-build", id);
+    match data.blink_client.proxy_post::<_, serde_json::Value>(
+        &target,
+        &body.into_inner(),
+        None,
+    ).await {
+        Ok(response) => HttpResponse::Ok().json(response),
+        Err(e) => {
+            log::error!("Blink proxy error: {}", e);
+            HttpResponse::BadGateway().json(json!({"error": "Backend service unavailable"}))
+        }
+    }
+}
+
+#[post("/gateway/futarchy/markets/{id}/claim/validate-and-build")]
+pub async fn futarchy_claim_validate(
+    data: web::Data<AppState>,
+    path: web::Path<String>,
+    body: web::Json<serde_json::Value>,
+) -> impl Responder {
+    if let Some(resp) = enforce_rate_limit(&data) {
+        return resp;
+    }
+
+    let id = path.into_inner();
+    let target = format!("/api/futarchy/markets/{}/claim/validate-and-build", id);
+    match data.blink_client.proxy_post::<_, serde_json::Value>(
+        &target,
+        &body.into_inner(),
+        None,
+    ).await {
+        Ok(response) => HttpResponse::Ok().json(response),
+        Err(e) => {
+            log::error!("Blink proxy error: {}", e);
+            HttpResponse::BadGateway().json(json!({"error": "Backend service unavailable"}))
+        }
+    }
+}
+
 /// Gateway health check - verifies blink connectivity
 #[actix_web::get("/gateway/health")]
 pub async fn gateway_health(data: web::Data<AppState>) -> impl Responder {
@@ -134,5 +245,9 @@ pub async fn gateway_health(data: web::Data<AppState>) -> impl Responder {
 pub fn configure_gateway_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(gateway_zk_create)
         .service(gateway_fhe_create)
+        .service(futarchy_market_validate)
+        .service(futarchy_bet_validate)
+        .service(futarchy_settle_validate)
+        .service(futarchy_claim_validate)
         .service(gateway_health);
 }

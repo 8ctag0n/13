@@ -87,6 +87,10 @@ async fn main() -> std::io::Result<()> {
     log::info!("  Gateway (token-validated proxy):");
     log::info!("  POST   /gateway/zk/create          (validate + proxy ZK job)");
     log::info!("  POST   /gateway/fhe/create         (validate + proxy FHE job)");
+    log::info!("  POST   /gateway/futarchy/markets/validate-and-build");
+    log::info!("  POST   /gateway/futarchy/markets/{id}/bet/validate-and-build");
+    log::info!("  POST   /gateway/futarchy/markets/{id}/settle/validate-and-build");
+    log::info!("  POST   /gateway/futarchy/markets/{id}/claim/validate-and-build");
     log::info!("  GET    /gateway/health             (gateway health check)");
     log::info!("");
     log::info!("  Prover Gateway (signature-authenticated):");

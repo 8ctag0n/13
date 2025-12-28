@@ -48,15 +48,34 @@ if curl -s http://localhost:8899/health 2>/dev/null | grep -q "ok" && \
 fi
 
 # ============================================================================
-# STEP 2: Build program and backend
+# STEP 2: Build programs and backend
 # ============================================================================
-log_step "Building Solana program..."
+log_step "Building Solana programs..."
 
-if [ ! -f "src/programs/target/deploy/zyberlink.so" ]; then
-    cd src/programs && cargo build-sbf 2>&1 | tail -5
+# List of programs in dependency order
+PROGRAMS=("bedrock" "fhe_generator" "zk_generator" "threshold" "futarchy_markets")
+
+# Check if any program needs building
+NEED_BUILD=false
+for prog in "${PROGRAMS[@]}"; do
+    if [ ! -f "src/programs/target/deploy/${prog}.so" ]; then
+        NEED_BUILD=true
+        break
+    fi
+done
+
+if [ "$NEED_BUILD" = true ]; then
+    cd src/programs && cargo build-sbf 2>&1 | tail -10
     cd "$PROJECT_ROOT"
 fi
-log_ok "Program ready"
+
+for prog in "${PROGRAMS[@]}"; do
+    if [ -f "src/programs/target/deploy/${prog}.so" ]; then
+        log_ok "$prog ready"
+    else
+        log_error "$prog not found"
+    fi
+done
 
 log_step "Building backend (blink-server)..."
 if [ ! -f "target/release/blink-server" ]; then
@@ -72,11 +91,21 @@ log_step "Starting all containers..."
 # Stop old containers and volumes (fresh start each time)
 podman-compose down -v 2>/dev/null || true
 
-# Create .env.containers with program ID
-PROGRAM_ID=$(solana address --keypair src/programs/target/deploy/zyberlink-keypair.json)
+# Create .env.containers with all program IDs
+BEDROCK_ID=$(solana address --keypair src/programs/target/deploy/bedrock-keypair.json)
+FHE_GENERATOR_ID=$(solana address --keypair src/programs/target/deploy/fhe_generator-keypair.json)
+ZK_GENERATOR_ID=$(solana address --keypair src/programs/target/deploy/zk_generator-keypair.json)
+THRESHOLD_ID=$(solana address --keypair src/programs/target/deploy/threshold-keypair.json)
+FUTARCHY_ID=$(solana address --keypair src/programs/target/deploy/futarchy_markets-keypair.json)
+
 cat > .env.containers << EOF
 DB_PASSWORD=dev_password
-PROGRAM_ID=$PROGRAM_ID
+BEDROCK_PROGRAM_ID=$BEDROCK_ID
+FHE_GENERATOR_PROGRAM_ID=$FHE_GENERATOR_ID
+ZK_GENERATOR_PROGRAM_ID=$ZK_GENERATOR_ID
+THRESHOLD_PROGRAM_ID=$THRESHOLD_ID
+FUTARCHY_PROGRAM_ID=$FUTARCHY_ID
+PROGRAM_ID=$BEDROCK_ID
 EOF
 
 # Start all containers at once
@@ -107,24 +136,33 @@ else
 fi
 
 # ============================================================================
-# STEP 4: Deploy program (after all containers are up)
+# STEP 4: Deploy all programs (in dependency order)
 # ============================================================================
-log_step "Deploying program..."
+log_step "Deploying programs..."
 
-solana airdrop 10 --url http://localhost:8899 >/dev/null 2>&1 || true
+solana airdrop 100 --url http://localhost:8899 >/dev/null 2>&1 || true
 
-PROGRAM_KEYPAIR=src/programs/target/deploy/zyberlink-keypair.json
-PROGRAM_PATH=src/programs/target/deploy/zyberlink.so
+# Deploy programs in dependency order
+declare -A PROGRAM_IDS
+PROGRAM_IDS["bedrock"]=$BEDROCK_ID
+PROGRAM_IDS["fhe_generator"]=$FHE_GENERATOR_ID
+PROGRAM_IDS["zk_generator"]=$ZK_GENERATOR_ID
+PROGRAM_IDS["threshold"]=$THRESHOLD_ID
+PROGRAM_IDS["futarchy_markets"]=$FUTARCHY_ID
 
-if solana program deploy "$PROGRAM_PATH" \
-    --url http://localhost:8899 \
-    --program-id "$PROGRAM_KEYPAIR" \
-    > /tmp/deploy-output.log 2>&1; then
+for prog in bedrock fhe_generator zk_generator threshold futarchy_markets; do
+    KEYPAIR="src/programs/target/deploy/${prog}-keypair.json"
+    SO_FILE="src/programs/target/deploy/${prog}.so"
 
-    log_ok "Program deployed: $PROGRAM_ID"
-else
-    log_error "Deploy failed. Check: tail -20 /tmp/deploy-output.log"
-fi
+    if solana program deploy "$SO_FILE" \
+        --url http://localhost:8899 \
+        --program-id "$KEYPAIR" \
+        > /tmp/deploy-${prog}.log 2>&1; then
+        log_ok "$prog deployed: ${PROGRAM_IDS[$prog]}"
+    else
+        log_warn "$prog deploy failed (check /tmp/deploy-${prog}.log)"
+    fi
+done
 
 # ============================================================================
 # STEP 5: Create backend keypair and fund it
@@ -179,7 +217,12 @@ echo "  - Nginx LB:   http://localhost:9000"
 echo "  - Frontend:   http://localhost:9000"
 echo "  - API:        http://localhost:9000/api/"
 echo ""
-echo "Program ID: $PROGRAM_ID"
+echo "Program IDs:"
+echo "  - Bedrock:       $BEDROCK_ID"
+echo "  - FHE Generator: $FHE_GENERATOR_ID"
+echo "  - ZK Generator:  $ZK_GENERATOR_ID"
+echo "  - Threshold:     $THRESHOLD_ID"
+echo "  - Futarchy:      $FUTARCHY_ID"
 echo ""
 echo "Next steps:"
 echo "  make c2   # Init marketplace + register provers"

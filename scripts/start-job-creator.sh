@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Start the job creator heartbeat
+# Start the dev-job heartbeat
 #
 
 set -e
@@ -23,28 +23,26 @@ export $(grep -v '^#' src/blink-server/.env | xargs)
 
 echo ""
 echo "==========================================="
-echo "  Job Creator - Heartbeat Mode"
+echo "  Dev Job - Heartbeat Mode"
 echo "==========================================="
 echo ""
 
-log_step "Building job-creator..."
-cd src/job-creator
-cargo build --release 2>&1 | tail -5
-cd ../..
+log_step "Building zyb-cli..."
+cargo build --release -p zyb-cli 2>&1 | tail -5
 log_ok "Built successfully"
 
-log_step "Funding job creator wallet..."
+log_step "Funding dev-job wallet..."
 
 # Create keypair if doesn't exist
 if [ ! -f "/tmp/job-creator-keypair.json" ]; then
-    echo "Creating job creator keypair..."
+    echo "Creating dev-job keypair..."
     solana-keygen new --no-bip39-passphrase --force --outfile /tmp/job-creator-keypair.json >/dev/null 2>&1
 fi
 
 JOB_CREATOR_ADDR=$(solana address --keypair /tmp/job-creator-keypair.json)
 BALANCE=$(solana balance --keypair /tmp/job-creator-keypair.json --url $SOLANA_RPC_URL 2>/dev/null | awk '{print $1}')
 
-echo "Job creator address: $JOB_CREATOR_ADDR"
+echo "Dev job address: $JOB_CREATOR_ADDR"
 echo "Current balance: $BALANCE SOL"
 
 # Airdrop if balance is low (less than 50 SOL)
@@ -64,7 +62,7 @@ echo "This will create a new FHE job every 10 seconds"
 echo "Watch the provers claim and process them!"
 echo ""
 echo "Logs to monitor:"
-echo "  - Job creator: This terminal"
+echo "  - Dev job: This terminal"
 echo "  - Provers: tail -f /tmp/prover-*.log"
 echo "  - Backend: tail -f /tmp/blink-server.log"
 echo ""
@@ -75,4 +73,4 @@ RUST_LOG=info \
 SOLANA_RPC_URL=$SOLANA_RPC_URL \
 PROGRAM_ID=$PROGRAM_ID \
 USER_KEYPAIR=/tmp/job-creator-keypair.json \
-cargo run --manifest-path src/job-creator/Cargo.toml --release
+cargo run --release -p zyb-cli -- dev-job run

@@ -34,7 +34,7 @@ pub struct ValidateTokenResponse {
 impl X402Client {
     pub fn new(base_url: &str) -> Self {
         let client = Client::builder()
-            .timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(30))
             .build()
             .expect("Failed to create HTTP client");
 
@@ -42,6 +42,16 @@ impl X402Client {
             client,
             base_url: base_url.trim_end_matches('/').to_string(),
         }
+    }
+
+    /// Get base URL for proxying
+    pub fn base_url(&self) -> &str {
+        &self.base_url
+    }
+
+    /// Get HTTP client for proxying
+    pub fn client(&self) -> &Client {
+        &self.client
     }
 
     pub async fn get_quote(&self, circuit_type: u8, payer: &str) -> Result<QuoteResponse, reqwest::Error> {

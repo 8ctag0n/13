@@ -187,7 +187,7 @@ curl -X POST http://localhost:8080/api/estimate-cost \
 2. **Use the returned cost** as your minimum payment
 3. **Create the job** with sufficient funds in escrow
 
-See [DYNAMIC_PRICING_USAGE.md](./DYNAMIC_PRICING_USAGE.md#for-job-creators) for complete examples.
+See [DYNAMIC_PRICING_USAGE.md](./DYNAMIC_PRICING_USAGE.md#for-job-creators) for complete examples (dev-job usage).
 
 ### For Provers (2 minutes)
 
@@ -446,6 +446,6 @@ Found an issue in the pricing logic or documentation?
 
 **Ready to get started?**
 
-- **Creators:** Jump to [DYNAMIC_PRICING_USAGE.md - For Job Creators](./DYNAMIC_PRICING_USAGE.md#for-job-creators)
+- **Creators:** Jump to [DYNAMIC_PRICING_USAGE.md - For Job Creators](./DYNAMIC_PRICING_USAGE.md#for-job-creators) (dev-job)
 - **Provers:** Jump to [DYNAMIC_PRICING_USAGE.md - For Provers](./DYNAMIC_PRICING_USAGE.md#for-provers)
 - **Developers:** Jump to [DYNAMIC_PRICING_USAGE.md - SDK Integration](./DYNAMIC_PRICING_USAGE.md#sdk-integration-examples)

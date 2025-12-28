@@ -144,4 +144,74 @@ impl BlinkClient {
 
         response.json::<ProverStatus>().await
     }
+
+    // =========================================================================
+    // pBTCFi Methods
+    // =========================================================================
+
+    /// POST /internal/witness
+    ///
+    /// Store witness/ciphertext data in blink-server
+    pub async fn store_witness(
+        &self,
+        _commitment: &str,
+        ciphertext: &[u8],
+    ) -> Result<(), reqwest::Error> {
+        let url = format!("{}/internal/witness", self.base_url);
+        let response = self
+            .client
+            .post(&url)
+            .header("Content-Type", "application/octet-stream")
+            .body(ciphertext.to_vec())
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            return Err(response.error_for_status().unwrap_err());
+        }
+
+        Ok(())
+    }
+
+    /// POST /internal/pbtcfi/create-loan
+    ///
+    /// Create a pBTCFi loan in blink-server
+    pub async fn create_pbtcfi_loan(
+        &self,
+        chain: &str,
+        borrower: &str,
+        commitment: &str,
+        deposit_tx_hash: &str,
+    ) -> Result<String, reqwest::Error> {
+        let url = format!("{}/internal/pbtcfi/create-loan", self.base_url);
+
+        #[derive(Serialize)]
+        struct CreateLoanRequest<'a> {
+            chain: &'a str,
+            borrower: &'a str,
+            btc_commitment: &'a str,
+            deposit_tx_hash: &'a str,
+        }
+
+        #[derive(Deserialize)]
+        struct CreateLoanResponse {
+            loan_id: String,
+        }
+
+        let request = CreateLoanRequest {
+            chain,
+            borrower,
+            btc_commitment: commitment,
+            deposit_tx_hash,
+        };
+
+        let response = self.client.post(&url).json(&request).send().await?;
+
+        if !response.status().is_success() {
+            return Err(response.error_for_status().unwrap_err());
+        }
+
+        let result: CreateLoanResponse = response.json().await?;
+        Ok(result.loan_id)
+    }
 }
