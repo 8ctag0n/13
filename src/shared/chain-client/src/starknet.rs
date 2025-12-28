@@ -3,11 +3,32 @@
 //! This module provides a concrete implementation of the ChainClient trait
 //! for Starknet blockchain.
 //!
-//! **Status**: Placeholder - awaiting Starknet SDK integration
+//! When compiled with the `starknet` feature, supports transaction signing
+//! using starknet-rs SDK.
 
 use crate::{ChainClient, ChainClientError, Result, TransactionStatus};
 use crate::signature::SignatureVerifier;
 use async_trait::async_trait;
+
+/// Normalize a Starknet hex address to exactly 64 hex characters (32 bytes)
+/// This handles addresses that may be missing leading zeros
+fn normalize_starknet_hex(hex: &str) -> String {
+    let hex = hex.strip_prefix("0x").unwrap_or(hex);
+    if hex.len() < 64 {
+        format!("0x{:0>64}", hex)
+    } else {
+        format!("0x{}", hex)
+    }
+}
+
+#[cfg(feature = "starknet")]
+use starknet_core::types::{Felt, Call, BlockId, BlockTag};
+#[cfg(feature = "starknet")]
+use starknet_providers::{Provider, jsonrpc::{HttpTransport, JsonRpcClient}};
+#[cfg(feature = "starknet")]
+use starknet_signers::{LocalWallet, SigningKey};
+#[cfg(feature = "starknet")]
+use starknet_accounts::{Account, ExecutionEncoding, SingleOwnerAccount};
 
 /// Starknet chain client
 ///
@@ -259,14 +280,93 @@ impl ChainClient for StarknetClient {
 
     async fn execute_contract(
         &self,
-        _program_address: &str,
-        _method: &str,
-        _args: &[u8],
-        _signer: &str,
+        program_address: &str,
+        method: &str,
+        args: &[u8],
+        signer: &str,
     ) -> Result<String> {
-        Err(ChainClientError::NotImplemented(
-            "Starknet client not yet implemented - awaiting Phase 2-6".to_string(),
-        ))
+        #[cfg(not(feature = "starknet"))]
+        {
+            let _ = (program_address, method, args, signer);
+            return Err(ChainClientError::NotImplemented(
+                "Starknet signing requires 'starknet' feature".to_string(),
+            ));
+        }
+
+        #[cfg(feature = "starknet")]
+        {
+            use url::Url;
+
+            // Parse args as JSON: { "calldata": ["0x...", ...], "private_key": "0x..." }
+            #[derive(serde::Deserialize)]
+            struct ExecuteArgs {
+                calldata: Vec<String>,
+                private_key: String,
+            }
+
+            let execute_args: ExecuteArgs = serde_json::from_slice(args)
+                .map_err(|e| ChainClientError::Deserialization(format!(
+                    "Invalid execute args (expected {{calldata, private_key}}): {}", e
+                )))?;
+
+            // Parse calldata as Felt
+            let calldata: Vec<Felt> = execute_args.calldata.iter()
+                .map(|s| Felt::from_hex(s))
+                .collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(|e| ChainClientError::Generic(format!("Invalid calldata: {}", e)))?;
+
+            // Parse contract address, method selector, and signer address
+            // Normalize addresses to ensure proper 64-char hex format
+            let contract_address = Felt::from_hex(&normalize_starknet_hex(program_address))
+                .map_err(|e| ChainClientError::Generic(format!("Invalid contract address: {}", e)))?;
+            let selector = Felt::from_hex(method)
+                .map_err(|e| ChainClientError::Generic(format!("Invalid method selector: {}", e)))?;
+            let signer_address = Felt::from_hex(&normalize_starknet_hex(signer))
+                .map_err(|e| ChainClientError::Generic(format!("Invalid signer address: {}", e)))?;
+
+            // Parse private key and create signing key
+            let private_key = Felt::from_hex(&execute_args.private_key)
+                .map_err(|e| ChainClientError::Generic(format!("Invalid private key: {}", e)))?;
+            let signing_key = SigningKey::from_secret_scalar(private_key);
+            let signer_wallet = LocalWallet::from_signing_key(signing_key);
+
+            // Create RPC provider
+            let rpc_url = Url::parse(&self.rpc_url)
+                .map_err(|e| ChainClientError::Generic(format!("Invalid RPC URL: {}", e)))?;
+            let provider = JsonRpcClient::new(HttpTransport::new(rpc_url));
+
+            // Get chain ID from provider
+            let chain_id = provider.chain_id().await
+                .map_err(|e| ChainClientError::Generic(format!("Failed to get chain ID: {}", e)))?;
+
+            // Create SingleOwnerAccount
+            let mut account = SingleOwnerAccount::new(
+                provider,
+                signer_wallet,
+                signer_address,
+                chain_id,
+                ExecutionEncoding::New,
+            );
+
+            // Set block_id for nonce and gas estimation
+            account.set_block_id(BlockId::Tag(BlockTag::Latest));
+
+            // Build the call
+            let call = Call {
+                to: contract_address,
+                selector,
+                calldata,
+            };
+
+            // Execute the transaction (v3)
+            let execution = account.execute_v3(vec![call]);
+
+            let result = execution.send().await
+                .map_err(|e| ChainClientError::Generic(format!("Transaction execution failed: {}", e)))?;
+
+            // Return transaction hash as hex string
+            Ok(format!("{:#x}", result.transaction_hash))
+        }
     }
 
     async fn subscribe_account(&self, _address: &str) -> Result<u64> {

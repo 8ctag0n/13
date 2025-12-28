@@ -230,7 +230,7 @@ async fn upsert_job(db_pool: &PgPool, pubkey: &Pubkey, job: &JobAccount) -> anyh
     // Convert witness_hash bytes to hex string for database storage
     let witness_hash_hex = hex::encode(job.witness_hash);
 
-    sqlx::query!(
+    sqlx::query(
         r#"
         INSERT INTO blockchain_jobs (
             job_id,
@@ -256,23 +256,23 @@ async fn upsert_job(db_pool: &PgPool, pubkey: &Pubkey, job: &JobAccount) -> anyh
             completed_at = EXCLUDED.completed_at,
             witness_hash = EXCLUDED.witness_hash,
             synced_at = NOW()
-        "#,
-        job.id as i64,
-        pubkey.to_string(),
-        job.creator.to_string(),
-        job.prover.map(|p| p.to_string()),
-        status_str,
-        circuit_type_str,
-        job.price_lamports as i64,
-        created_at,
-        claimed_at,
-        completed_at,
-        timeout_at,
-        required_provers,
-        consensus_threshold,
-        fhe_operation,
-        witness_hash_hex,
+        "#
     )
+    .bind(job.id as i64)
+    .bind(pubkey.to_string())
+    .bind(job.creator.to_string())
+    .bind(job.prover.map(|p| p.to_string()))
+    .bind(status_str)
+    .bind(circuit_type_str)
+    .bind(job.price_lamports as i64)
+    .bind(created_at)
+    .bind(claimed_at)
+    .bind(completed_at)
+    .bind(timeout_at)
+    .bind(required_provers)
+    .bind(consensus_threshold)
+    .bind(fhe_operation)
+    .bind(witness_hash_hex)
     .execute(db_pool)
     .await
     .map_err(|e| anyhow::anyhow!("Database upsert failed: {}", e))?;

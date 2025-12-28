@@ -1,8 +1,15 @@
+pub mod multi_chain;
+
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use solana_sdk::pubkey::Pubkey;
 use std::path::PathBuf;
 use std::time::Duration;
+
+pub use multi_chain::{
+    ProverConfigFile, ProverSettings, WitnessSettings, ChainConfig,
+    SolanaChainConfig, StarknetChainConfig, AptosChainConfig,
+};
 
 /// Runtime configuration for the prover node
 #[derive(Debug, Clone)]

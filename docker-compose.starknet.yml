@@ -11,10 +11,10 @@ services:
     networks:
       - starknet-network
 
-  katana:
-    image: ghcr.io/dojoengine/dojo:latest
-    container_name: pbtcfi-katana
-    command: katana --dev --http.addr 0.0.0.0
+  devnet:
+    image: docker.io/shardlabs/starknet-devnet-rs:latest
+    container_name: pbtcfi-devnet
+    command: --seed 0 --port 5050
     ports:
       - "5050:5050"
     networks:

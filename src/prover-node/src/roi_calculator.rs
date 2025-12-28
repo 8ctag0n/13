@@ -1,5 +1,60 @@
 use log::{info, warn};
+use serde::{Deserialize, Serialize};
 use zyberlink_types::CircuitType;
+
+/// Operation mode for the prover node
+///
+/// Controls how strictly the prover evaluates job profitability
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OperationMode {
+    /// Only accept jobs with ROI >= min_roi_threshold
+    /// For production provers focused on profitability
+    #[default]
+    Profit,
+
+    /// Accept jobs that at least break even (ROI >= 0%)
+    /// For provers willing to contribute without losing money
+    Contributor,
+
+    /// Accept all jobs regardless of profitability
+    /// For testing, development, or subsidized operation
+    Subsidize,
+}
+
+impl OperationMode {
+    /// Returns the effective minimum ROI for this mode
+    ///
+    /// - Profit: uses the configured min_roi_threshold
+    /// - Contributor: 0% (break-even)
+    /// - Subsidize: -∞ (accepts everything)
+    pub fn effective_min_roi(&self, configured_min_roi: f64) -> f64 {
+        match self {
+            OperationMode::Profit => configured_min_roi,
+            OperationMode::Contributor => 0.0,
+            OperationMode::Subsidize => f64::NEG_INFINITY,
+        }
+    }
+
+    /// Human-readable description
+    pub fn description(&self) -> &'static str {
+        match self {
+            OperationMode::Profit => "profit-focused (ROI >= threshold)",
+            OperationMode::Contributor => "contributor (break-even, ROI >= 0%)",
+            OperationMode::Subsidize => "subsidize (accepts all jobs)",
+        }
+    }
+}
+
+impl std::fmt::Display for OperationMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            OperationMode::Profit => write!(f, "profit"),
+            OperationMode::Contributor => write!(f, "contributor"),
+            OperationMode::Subsidize => write!(f, "subsidize"),
+        }
+    }
+}
 
 /// ROI calculation result for a job
 #[derive(Debug, Clone)]
@@ -34,14 +89,14 @@ pub struct ROICalculator {
     /// Operational cost multiplier (infrastructure, electricity, etc.)
     /// Default: 1.5 (50% overhead on computational cost)
     operational_cost_multiplier: f64,
+
+    /// Operation mode (profit, contributor, subsidize)
+    mode: OperationMode,
 }
 
 impl Default for ROICalculator {
     fn default() -> Self {
-        // 0.0% min ROI for demo mode - accepts all jobs regardless of profitability
-        // TODO: For production, implement proactive pricing validation (Strategy 3)
-        // and timeout+refund mechanism (Strategy 2) to handle unprofitable jobs properly
-        Self::new(0.0, 1.5)
+        Self::new(0.0, 1.5, OperationMode::default())
     }
 }
 
@@ -51,11 +106,23 @@ impl ROICalculator {
     /// # Arguments
     /// * `min_roi_percentage` - Minimum ROI % to accept job (e.g., 20.0 = 20%)
     /// * `operational_cost_multiplier` - Cost multiplier for overhead (e.g., 1.5 = 50% overhead)
-    pub fn new(min_roi_percentage: f64, operational_cost_multiplier: f64) -> Self {
+    /// * `mode` - Operation mode (profit, contributor, subsidize)
+    pub fn new(min_roi_percentage: f64, operational_cost_multiplier: f64, mode: OperationMode) -> Self {
         Self {
             min_roi_percentage,
             operational_cost_multiplier,
+            mode,
         }
+    }
+
+    /// Get the current operation mode
+    pub fn mode(&self) -> OperationMode {
+        self.mode
+    }
+
+    /// Get the effective minimum ROI based on mode
+    fn effective_min_roi(&self) -> f64 {
+        self.mode.effective_min_roi(self.min_roi_percentage)
     }
 
     /// Evaluate if a job is profitable based on its parameters
@@ -100,7 +167,8 @@ impl ROICalculator {
             0.0
         };
 
-        let is_profitable = roi_percentage >= self.min_roi_percentage;
+        let effective_min = self.effective_min_roi();
+        let is_profitable = roi_percentage >= effective_min;
 
         let roi = JobROI {
             revenue_per_prover,
@@ -112,10 +180,11 @@ impl ROICalculator {
             is_profitable,
         };
 
-        // Log evaluation
+        // Log evaluation based on mode
         if is_profitable {
             info!(
-                "Job is PROFITABLE - Op: {}, Tier: {}, Revenue: {} lamports, Cost: {} lamports, Profit: {} lamports, ROI: {:.1}%",
+                "Job ACCEPTED [{}] - Op: {}, Tier: {}, Revenue: {} lamports, Cost: {} lamports, Profit: {} lamports, ROI: {:.1}%",
+                self.mode,
                 fhe_operation.name(),
                 roi.complexity_tier,
                 revenue_per_prover,
@@ -125,14 +194,15 @@ impl ROICalculator {
             );
         } else {
             warn!(
-                "Job is NOT PROFITABLE - Op: {}, Tier: {}, Revenue: {} lamports, Cost: {} lamports, Loss: {} lamports, ROI: {:.1}% (min: {:.1}%)",
+                "Job REJECTED [{}] - Op: {}, Tier: {}, Revenue: {} lamports, Cost: {} lamports, Loss: {} lamports, ROI: {:.1}% (min: {:.1}%)",
+                self.mode,
                 fhe_operation.name(),
                 roi.complexity_tier,
                 revenue_per_prover,
                 total_cost,
                 profit,
                 roi_percentage,
-                self.min_roi_percentage
+                effective_min
             );
         }
 
@@ -161,7 +231,7 @@ impl ROICalculator {
             roi_percentage,
             complexity_tier: 1,
             timeout_seconds: 60,
-            is_profitable: roi_percentage >= self.min_roi_percentage,
+            is_profitable: roi_percentage >= self.effective_min_roi(),
         }
     }
 
@@ -240,7 +310,7 @@ mod tests {
 
     #[test]
     fn test_roi_percentage_calculation() {
-        let calculator = ROICalculator::new(50.0, 1.0); // 50% min ROI, no overhead
+        let calculator = ROICalculator::new(50.0, 1.0, OperationMode::Profit); // 50% min ROI, no overhead
         let circuit = CircuitType::FheComputation(FheOperation::Multiply(10));
 
         // 0.003 SOL for 3 provers, cost is 0.001 SOL

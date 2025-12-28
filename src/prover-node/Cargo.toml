@@ -34,6 +34,10 @@ serde_json = "1.0"
 serde-big-array = "0.5"
 bincode = "1.3"
 hex = "0.4"
+bcs = "0.1"
+sha3 = "0.10"
+tiny-keccak = "2"
+toml = "0.8"
 
 solana-sdk.workspace = true
 solana-client.workspace = true
@@ -60,6 +64,7 @@ rand = "0.8"
 # Encryption dependencies
 chacha20poly1305 = "0.10"
 x25519-dalek = { version = "2.0", features = ["reusable_secrets", "static_secrets"] }
+ed25519-dalek = "2.0"
 borsh = "1.5"
 zeroize = { version = "1.3", features = ["derive"] }
 
@@ -68,8 +73,16 @@ reqwest = { version = "0.12", features = ["blocking", "json"] }
 blake2 = "0.10"
 base64 = "0.22"
 
+# ECDSA signing for FHE results (Sprint 2/3)
+# k256 for secp256k1 (legacy), starknet-crypto for STARK curve (native Cairo verification)
+k256 = { version = "0.13", features = ["ecdsa", "sha256"] }
+starknet-crypto = "0.8"
+
 # FHE (Fully Homomorphic Encryption) - using shared crate
 zyberlink-fhe = { path = "../shared/fhe" }
+
+# Private Lending vertical (Aptos LTV verification)
+private_lending = { path = "../verticals/private_lending" }
 
 # Futarchy FHE SDK for encrypted bet amounts (FheUint64)
 fhe-client-sdk = { path = "../../sdks/fhe-client-sdk" }

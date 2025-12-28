@@ -50,13 +50,18 @@
 
 use solana_program::declare_id;
 
-declare_id!("FutMkts111111111111111111111111111111111111");
+declare_id!("5B8x1aJEHsMLqqKDYVQe2dTA38hbie1QXX2JSmPAxWJT");
 
 pub mod error;
 pub mod instruction;
+pub mod instruction_v2;
+pub mod instruction_v3;
 pub mod processor;
+pub mod processor_v2;
+pub mod processor_v3;
 pub mod state;
 pub mod cpi;
+pub mod verifier;
 
 #[cfg(not(feature = "no-entrypoint"))]
 pub mod entrypoint;

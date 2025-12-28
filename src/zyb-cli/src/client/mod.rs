@@ -2,6 +2,8 @@
 //!
 //! Provides a simple interface to interact with ZK job endpoints.
 
+pub mod futarchy;
+
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 

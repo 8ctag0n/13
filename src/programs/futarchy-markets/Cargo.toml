@@ -11,11 +11,17 @@ name = "futarchy_markets"
 [features]
 no-entrypoint = []
 default = []
+# Allow mock proofs for testing (bypasses Groth16 verification)
+# NEVER enable in production builds!
+mock-proofs = []
 
 [dependencies]
 solana-program.workspace = true
 borsh.workspace = true
 thiserror.workspace = true
+
+# Groth16 verification (uses Solana BN254 syscalls)
+groth16-solana = "0.2"
 
 # Workspace dependencies for types and shared code
 zyberlink-types = { path = "../../shared/types" }

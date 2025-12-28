@@ -35,6 +35,9 @@ pub enum CircuitType {
     MarketBet = 30,
     MarketBetWithPoI = 31,
     MarketClaim = 32,
+    PlaceBetPrivate = 33,    // Futarchy V2: private bet with balance commitments
+    ClaimPrivate = 34,       // Futarchy V2: private claim with nullifier
+    WithdrawPrivate = 36,    // Futarchy V2: private withdrawal
 
     // Portfolio circuits (v2.0)
     PortfolioCompliance = 40,
@@ -64,6 +67,9 @@ impl CircuitType {
             30 => Some(CircuitType::MarketBet),
             31 => Some(CircuitType::MarketBetWithPoI),
             32 => Some(CircuitType::MarketClaim),
+            33 => Some(CircuitType::PlaceBetPrivate),
+            34 => Some(CircuitType::ClaimPrivate),
+            36 => Some(CircuitType::WithdrawPrivate),
             40 => Some(CircuitType::PortfolioCompliance),
             41 => Some(CircuitType::PortfolioNetWorth),
             50 => Some(CircuitType::FutarchyConditional),
@@ -95,7 +101,10 @@ impl CircuitType {
             // Markets
             CircuitType::MarketBet => 4,        // market_id, bet_commitment, balance_proof, position
             CircuitType::MarketBetWithPoI => 5, // + blacklist_root
-            CircuitType::MarketClaim => 3,      // market_id, outcome, claim_commitment
+            CircuitType::MarketClaim => 8,      // market_id, nullifier, payout_amount, resolution, total_pool, winning_pool, bet_commitment, timestamp
+            CircuitType::PlaceBetPrivate => 5,  // old_balance_commitment, new_balance_commitment, bet_commitment, market_id, max_bet
+            CircuitType::ClaimPrivate => 7,     // bet_commitment, nullifier_hash, old/new_balance_commitment, resolution, winning_pool, losing_pool
+            CircuitType::WithdrawPrivate => 3,  // old_balance_commitment, new_balance_commitment, withdraw_amount
 
             // Portfolio
             CircuitType::PortfolioCompliance => 3, // compliance_root, threshold, timestamp
@@ -118,6 +127,9 @@ impl CircuitType {
             | CircuitType::MarketBet
             | CircuitType::MarketBetWithPoI
             | CircuitType::MarketClaim
+            | CircuitType::PlaceBetPrivate
+            | CircuitType::ClaimPrivate
+            | CircuitType::WithdrawPrivate
             | CircuitType::PortfolioCompliance
             | CircuitType::PortfolioNetWorth => 256,
 
@@ -142,6 +154,9 @@ impl CircuitType {
             CircuitType::MarketBet => "market_bet",
             CircuitType::MarketBetWithPoI => "market_bet_poi",
             CircuitType::MarketClaim => "market_claim",
+            CircuitType::PlaceBetPrivate => "place_bet_private",
+            CircuitType::ClaimPrivate => "claim_private",
+            CircuitType::WithdrawPrivate => "withdraw_private",
             CircuitType::PortfolioCompliance => "portfolio_compliance",
             CircuitType::PortfolioNetWorth => "portfolio_net_worth",
             CircuitType::FutarchyConditional => "futarchy_conditional",
@@ -180,6 +195,9 @@ mod tests {
             CircuitType::ProofOfInnocence,
             CircuitType::PrivateVote,
             CircuitType::MarketBet,
+            CircuitType::PlaceBetPrivate,
+            CircuitType::ClaimPrivate,
+            CircuitType::WithdrawPrivate,
         ];
 
         for circuit in circuits {

@@ -73,6 +73,36 @@ pub enum FutarchyError {
 
     #[error("Invalid governance action")]
     InvalidAction,
+
+    #[error("Invalid owner")]
+    InvalidOwner,
+
+    #[error("Position already claimed")]
+    PositionAlreadyClaimed,
+
+    #[error("Already claimed (nullifier exists)")]
+    AlreadyClaimed,
+
+    #[error("Unauthorized oracle")]
+    UnauthorizedOracle,
+
+    #[error("Betting period not closed")]
+    BettingNotClosed,
+
+    #[error("Market is not a governance market")]
+    NotGovernanceMarket,
+
+    #[error("Unauthorized authority")]
+    UnauthorizedAuthority,
+
+    #[error("No winners in market")]
+    NoWinners,
+
+    #[error("Bet was not on winning side")]
+    NotWinner,
+
+    #[error("Action already executed")]
+    AlreadyExecuted,
 }
 
 impl From<FutarchyError> for ProgramError {

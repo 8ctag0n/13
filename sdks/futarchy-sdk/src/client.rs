@@ -100,27 +100,31 @@ impl FutarchyClient {
         build_settle_market_ix(&self.program_id, oracle, market_id, outcome)
     }
 
+    /// Build ClaimPayout instruction.
+    ///
+    /// Uses NullifierAccount PDA for unlimited scalability.
+    /// Requires bet_commitment to derive Position PDA for verification.
     pub fn claim_payout(
         &self,
         user: &Pubkey,
         market_id: u64,
         claim_nullifier: [u8; 32],
+        bet_commitment: [u8; 32],
         proof: Vec<u8>,
         public_inputs: Vec<u8>,
         payout_amount: u64,
         zk_generator_program: &Pubkey,
-        include_position: bool,
     ) -> Result<Instruction> {
         build_claim_payout_ix(
             &self.program_id,
             user,
             market_id,
             claim_nullifier,
+            bet_commitment,
             proof,
             public_inputs,
             payout_amount,
             zk_generator_program,
-            include_position,
         )
     }
 
@@ -218,8 +222,8 @@ impl FutarchyClient {
         query_market(&self.rpc_client, &self.program_id, market_id).await
     }
 
-    pub async fn get_position(&self, market_id: u64, user: &Pubkey) -> Result<Position> {
-        query_position(&self.rpc_client, &self.program_id, market_id, user).await
+    pub async fn get_position(&self, market_id: u64, user: &Pubkey, bet_commitment: &[u8; 32]) -> Result<Position> {
+        query_position(&self.rpc_client, &self.program_id, market_id, user, bet_commitment).await
     }
 
     pub async fn get_all_markets(&self) -> Result<Vec<(Pubkey, Market)>> {
@@ -258,8 +262,8 @@ impl FutarchyClient {
         find_market_pda(&self.program_id, market_id)
     }
 
-    pub fn find_position_pda(&self, market_id: u64, user: &Pubkey) -> PdaDerivation {
-        find_position_pda(&self.program_id, market_id, user)
+    pub fn find_position_pda(&self, market_id: u64, user: &Pubkey, bet_commitment: &[u8; 32]) -> PdaDerivation {
+        find_position_pda(&self.program_id, market_id, user, bet_commitment)
     }
 
     pub fn find_escrow_pda(&self, market_id: u64) -> PdaDerivation {

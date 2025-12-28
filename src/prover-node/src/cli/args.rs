@@ -7,6 +7,14 @@ pub struct ProverArgs {
     #[command(subcommand)]
     pub command: Option<ProverCommand>,
 
+    // ========== Multi-Chain Configuration ==========
+
+    /// Path to TOML configuration file (overrides CLI flags)
+    #[arg(short, long, env = "PROVER_CONFIG")]
+    pub config: Option<String>,
+
+    // ========== Legacy CLI Flags (for backward compatibility) ==========
+
     /// Solana RPC URL
     #[arg(short, long, default_value = "http://localhost:8899", global = true)]
     pub rpc_url: String,
@@ -44,40 +52,66 @@ pub struct ProverArgs {
     pub max_concurrent_jobs: usize,
 
     /// Gateway URL for witness storage and proof submission
-    #[arg(long, default_value = "http://localhost:8080")]
+    #[arg(long, default_value = "http://localhost:8080", global = true)]
     pub gateway_url: String,
 
     /// FHE server key file path (required for FHE jobs)
-    #[arg(long)]
+    #[arg(long, global = true)]
     pub fhe_server_key_path: Option<String>,
 
     /// Enable TUI (Terminal User Interface) mode
-    #[arg(long)]
+    #[arg(long, global = true)]
     pub tui_mode: bool,
 
     /// Blink backend URL for ZK job coordination
-    #[arg(long, default_value = "http://localhost:3000")]
+    #[arg(long, default_value = "http://localhost:3000", global = true)]
     pub blink_backend_url: String,
 
     /// Path to ZK circuits directory
-    #[arg(long, default_value = "./prover-circuits")]
+    #[arg(long, default_value = "./prover-circuits", global = true)]
     pub zk_circuits_path: String,
 
     /// Enable Futarchy FHE job processing
-    #[arg(long)]
+    #[arg(long, global = true)]
     pub enable_futarchy: bool,
 
     /// Futarchy blink-server URL (for FHE job polling)
-    #[arg(long, default_value = "http://localhost:8090")]
+    #[arg(long, default_value = "http://localhost:8090", global = true)]
     pub futarchy_server_url: String,
 
     /// ZK Generator program ID (for new architecture)
-    #[arg(long, env = "ZK_GENERATOR_PROGRAM_ID")]
+    #[arg(long, env = "ZK_GENERATOR_PROGRAM_ID", global = true)]
     pub zk_generator_program: Option<String>,
 
     /// FHE Generator program ID (for new architecture)
-    #[arg(long, env = "FHE_GENERATOR_PROGRAM_ID")]
+    #[arg(long, env = "FHE_GENERATOR_PROGRAM_ID", global = true)]
     pub fhe_generator_program: Option<String>,
+
+    /// Futarchy Markets program ID
+    #[arg(long, env = "FUTARCHY_PROGRAM_ID", global = true)]
+    pub futarchy_program_id: Option<String>,
+
+    // ========== Starknet Configuration ==========
+
+    /// Blockchain to use (solana, starknet)
+    #[arg(long, default_value = "solana", env = "PROVER_CHAIN")]
+    pub chain: String,
+
+    /// Starknet RPC URL
+    #[arg(long, default_value = "http://localhost:5050", env = "STARKNET_RPC_URL")]
+    pub starknet_rpc_url: String,
+
+    /// Starknet PbtcfiJobs contract address
+    #[arg(long, env = "STARKNET_CONTRACT_ADDRESS")]
+    pub starknet_contract_address: Option<String>,
+
+    /// Starknet prover account address
+    #[arg(long, env = "STARKNET_PROVER_ADDRESS")]
+    pub starknet_prover_address: Option<String>,
+
+    /// Starknet prover private key (hex format, e.g., 0x...)
+    #[arg(long, env = "STARKNET_PRIVATE_KEY")]
+    pub starknet_private_key: Option<String>,
 }
 
 #[derive(Parser, Debug)]

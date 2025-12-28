@@ -81,8 +81,8 @@ pub enum FutarchyInstruction {
     ///
     /// Accounts expected:
     /// 0. `[writable, signer]` User claiming payout
-    /// 1. `[writable]` Market account (PDA)
-    /// 2. `[writable]` Position account (PDA, optional)
+    /// 1. `[]` Market account (PDA)
+    /// 2. `[writable]` Nullifier account (PDA) - will be created
     /// 3. `[writable]` Escrow account (PDA)
     /// 4. `[]` ZK-generator program
     /// 5. `[]` System program
@@ -264,6 +264,7 @@ mod tests {
             public_inputs: vec![1u8; 80],
             amount: 500_000_000,
             circuit_type: 30,
+            ciphertext_hash: None,
             encrypted_bet_amount: None,
             side: None,
         };

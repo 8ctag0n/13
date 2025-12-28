@@ -109,7 +109,7 @@ async fn upsert_prover(
     // Convert encryption_pubkey to hex string
     let encryption_pubkey_hex = hex::encode(prover.encryption_pubkey);
 
-    sqlx::query!(
+    sqlx::query(
         r#"
         INSERT INTO provers (
             pubkey,
@@ -137,19 +137,19 @@ async fn upsert_prover(
             encryption_pubkey = EXCLUDED.encryption_pubkey,
             last_seen_at = NOW(),
             synced_at = NOW()
-        "#,
-        pubkey.to_string(),
-        prover.authority.to_string(),
-        prover.stake_amount as i64,
-        prover.reputation_score as i32,
-        prover.is_active,
-        prover.total_jobs_completed as i64,
-        prover.total_jobs_failed as i64,
-        prover.avg_completion_time_secs as i32,
-        prover.total_earnings_lamports as i64,
-        encryption_pubkey_hex,
-        prover.registration_timestamp as f64,
+        "#
     )
+    .bind(pubkey.to_string())
+    .bind(prover.authority.to_string())
+    .bind(prover.stake_amount as i64)
+    .bind(prover.reputation_score as i32)
+    .bind(prover.is_active)
+    .bind(prover.total_jobs_completed as i64)
+    .bind(prover.total_jobs_failed as i64)
+    .bind(prover.avg_completion_time_secs as i32)
+    .bind(prover.total_earnings_lamports as i64)
+    .bind(encryption_pubkey_hex)
+    .bind(prover.registration_timestamp as f64)
     .execute(db_pool)
     .await
     .map_err(|e| anyhow::anyhow!("Database upsert failed: {}", e))?;

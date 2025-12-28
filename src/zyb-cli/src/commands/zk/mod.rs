@@ -22,6 +22,10 @@ pub async fn create_command(
     timeout: Option<i32>,
     keypair_path: Option<PathBuf>,
     rpc_url: String,
+    chain: String,
+    starknet_rpc_url: String,
+    starknet_account: Option<String>,
+    starknet_private_key: Option<String>,
     skip_confirm: bool,
 ) -> Result<()> {
     // Validate circuit type
@@ -99,13 +103,17 @@ pub async fn create_command(
     };
 
     // Check if payment flow is enabled
-    let response = if let Some(keypair_path_buf) = keypair_path {
-        // New payment flow with Solana
-        execute_payment_flow_helper(
+    let response = if keypair_path.is_some() || starknet_account.is_some() {
+        // New payment flow with multi-chain support
+        execute_payment_flow_multichain(
             &client,
             request,
-            &keypair_path_buf,
+            &chain,
+            keypair_path,
             &rpc_url,
+            starknet_rpc_url,
+            starknet_account,
+            starknet_private_key,
             circuit_type,
             &creator,
             skip_confirm,
@@ -366,7 +374,7 @@ fn colorize_status(status: &str) -> String {
     }
 }
 
-/// Execute payment flow with Solana
+/// Execute payment flow with multi-chain support (legacy wrapper for backward compatibility)
 pub async fn execute_payment_flow_helper(
     client: &ZkClient,
     request: CreateJobRequest,
@@ -376,7 +384,41 @@ pub async fn execute_payment_flow_helper(
     payer: &str,
     skip_confirm: bool,
 ) -> Result<crate::client::CreateJobResponse> {
-    use crate::solana::{execute_payment, signer::lamports_to_sol};
+    // Use Solana by default for backward compatibility
+    execute_payment_flow_multichain(
+        client,
+        request,
+        "solana",
+        Some(keypair_path.clone()),
+        rpc_url,
+        "http://localhost:5050".to_string(),
+        None,
+        None,
+        circuit_type,
+        payer,
+        skip_confirm,
+    )
+    .await
+}
+
+/// Execute payment flow with full multi-chain support
+pub async fn execute_payment_flow_multichain(
+    client: &ZkClient,
+    request: CreateJobRequest,
+    chain: &str,
+    keypair_path: Option<PathBuf>,
+    rpc_url: &str,
+    starknet_rpc_url: String,
+    starknet_account: Option<String>,
+    starknet_private_key: Option<String>,
+    circuit_type: u8,
+    payer: &str,
+    skip_confirm: bool,
+) -> Result<crate::client::CreateJobResponse> {
+    use crate::chains::{Chain, ChainClient};
+
+    // Parse chain
+    let chain_type = Chain::from_str(chain)?;
 
     // Step 1: Get price quote
     println!("{}", "Getting price quote...".cyan());
@@ -388,12 +430,45 @@ pub async fn execute_payment_flow_helper(
 
     println!();
     println!("{}", "Payment Information:".green().bold());
+    println!("  Chain: {}", chain_type);
     println!("  Circuit Type: {}", circuit_type);
-    println!(
-        "  Price: {} SOL ({} lamports)",
-        lamports_to_sol(quote.price_lamports),
-        quote.price_lamports
-    );
+
+    // Create chain client and format price
+    let (chain_client, formatted_price): (Box<dyn ChainClient>, String) = match chain_type {
+        Chain::Solana => {
+            use crate::chains::solana::{SolanaChainClient, lamports_to_sol};
+
+            let keypair = keypair_path.ok_or_else(|| {
+                anyhow::anyhow!("Solana keypair required. Use --keypair or set SOLANA_KEYPAIR")
+            })?;
+
+            let client = SolanaChainClient::new(rpc_url.to_string(), keypair);
+            let formatted = format!("{} SOL ({} lamports)",
+                lamports_to_sol(quote.price_lamports),
+                quote.price_lamports
+            );
+
+            (Box::new(client), formatted)
+        }
+        Chain::Starknet => {
+            use crate::chains::starknet::{StarknetChainClient, wei_to_eth};
+
+            let client = StarknetChainClient::new(
+                starknet_rpc_url,
+                starknet_account,
+                starknet_private_key,
+            )?;
+
+            let formatted = format!("{} ETH ({} wei)",
+                wei_to_eth(quote.price_lamports),
+                quote.price_lamports
+            );
+
+            (Box::new(client), formatted)
+        }
+    };
+
+    println!("  Price: {}", formatted_price);
     println!("  Recipient: {}", quote.payment_recipient);
     println!();
 
@@ -425,27 +500,17 @@ pub async fn execute_payment_flow_helper(
             .unwrap(),
     );
 
-    spinner.set_message("Loading keypair...");
-
-    let keypair_path_str = keypair_path
-        .to_str()
-        .ok_or_else(|| anyhow::anyhow!("Invalid keypair path"))?;
-
     spinner.set_message("Building transaction...");
 
-    let signature = execute_payment(
-        rpc_url,
-        keypair_path_str,
-        &quote.payment_recipient,
-        quote.price_lamports,
-    )
-    .await
-    .context("Failed to execute payment")?;
+    let signature = chain_client
+        .send_payment(&quote.payment_recipient, quote.price_lamports)
+        .await
+        .context("Failed to execute payment")?;
 
     spinner.finish_and_clear();
 
     println!("{}", "Payment successful!".green().bold());
-    println!("  Transaction: {}", signature.to_string().yellow());
+    println!("  Transaction: {}", signature.yellow());
     println!();
 
     // Step 4: Create job with payment signature
@@ -458,7 +523,7 @@ pub async fn execute_payment_flow_helper(
     spinner.set_message("Creating ZK job...");
 
     let response = client
-        .create_job_with_payment(request, &signature.to_string())
+        .create_job_with_payment(request, &signature)
         .await
         .context("Failed to create ZK job with payment")?;
 

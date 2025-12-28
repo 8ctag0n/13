@@ -14,6 +14,9 @@ path = "src/main.rs"
 zyberlink-sdk = { path = "../../sdks/rust" }
 zyberlink-types = { path = "../shared/types" }
 zyberlink-fhe = { path = "../shared/fhe" }
+fhe-generator-sdk = { path = "../programs/sdks/fhe-generator-sdk" }
+futarchy-sdk = { path = "../../sdks/futarchy-sdk" }
+zyberlink-chain-client = { path = "../shared/chain-client", optional = true }
 
 # FHE
 tfhe = { version = "0.10", features = ["integer", "x86_64-unix"] }
@@ -24,11 +27,15 @@ base64 = "0.22"
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"
+borsh = "1.5"
 
 # Crypto
 sha3 = "0.10"
 blake2 = "0.10"
 hex = "0.4"
+num-bigint = "0.4"
+light-poseidon = "0.2"  # Compatible with circomlib Poseidon
+ark-bn254 = "0.4"       # BN254 curve for Poseidon (must match light-poseidon)
 
 # Error handling
 anyhow = "1.0"
@@ -37,7 +44,7 @@ thiserror = "1.0"
 # CLI utilities
 colored = "2.1"
 atty = "0.2"
-clap = { version = "4.4", features = ["derive"] }
+clap = { version = "4.4", features = ["derive", "env"] }
 chrono = { version = "0.4", features = ["serde"] }
 dialoguer = "0.11"
 console = "0.15"
@@ -60,8 +67,12 @@ indicatif = "0.17"
 solana-sdk = "2.3"
 solana-client = "2.3"
 
+# Async trait for chain abstraction
+async-trait = "0.1"
+
 [features]
 default = []
+starknet = ["zyberlink-chain-client", "zyberlink-chain-client/starknet"]
 
 [lib]
 path = "src/lib.rs"
