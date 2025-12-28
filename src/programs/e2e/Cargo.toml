@@ -23,7 +23,7 @@ fhe-generator-sdk = { path = "../sdks/fhe-generator-sdk" }
 
 # Shared types
 zyberlink-types = { path = "../../../kernel/types" }
-zyberlink-jobs = { path = "../../shared/jobs" }
+zyberlink-jobs = { path = "../../../packages/jobs" }
 
 # Para tests reales contra localhost
 anyhow = "1.0"

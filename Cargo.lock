@@ -2760,27 +2760,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6d5a32815ae3f33302d95fdcb2ce17862f8c65363dcfd29360480ba1001fc9c"
 
 [[package]]
-name = "futarchy-sdk"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64 0.21.7",
- "bincode",
- "borsh 1.6.0",
- "num-bigint 0.4.6",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "solana-account-decoder",
- "solana-client",
- "solana-program",
- "solana-program-test",
- "solana-sdk",
- "thiserror 1.0.69",
- "tokio",
-]
-
-[[package]]
 name = "futures"
 version = "0.3.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2964,6 +2943,27 @@ checksum = "f0d8a4362ccb29cb0b265253fb0a2728f592895ee6854fd9bc13f2ffda266ff1"
 dependencies = [
  "opaque-debug",
  "polyval",
+]
+
+[[package]]
+name = "governance-sdk"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.21.7",
+ "bincode",
+ "borsh 1.6.0",
+ "num-bigint 0.4.6",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "solana-account-decoder",
+ "solana-client",
+ "solana-program",
+ "solana-program-test",
+ "solana-sdk",
+ "thiserror 1.0.69",
+ "tokio",
 ]
 
 [[package]]
@@ -12149,7 +12149,7 @@ dependencies = [
  "dirs 5.0.1",
  "env_logger 0.11.8",
  "fhe-generator-sdk",
- "futarchy-sdk",
+ "governance-sdk",
  "hex",
  "indicatif",
  "light-poseidon",
@@ -12205,7 +12205,7 @@ dependencies = [
  "bs58",
  "chrono",
  "env_logger 0.11.8",
- "futarchy-sdk",
+ "governance-sdk",
  "hex",
  "log",
  "num-bigint 0.4.6",
@@ -12316,7 +12316,7 @@ dependencies = [
  "ff",
  "fhe-client-sdk",
  "fhe-generator-sdk",
- "futarchy-sdk",
+ "governance-sdk",
  "group",
  "halo2_proofs",
  "hex",

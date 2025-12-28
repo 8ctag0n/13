@@ -47,7 +47,7 @@ log.workspace = true
 chrono = "0.4"
 
 # Shared libraries (core dependencies)
-zyberlink-jobs = { path = "../../src/shared/jobs" }
+zyberlink-jobs = { path = "../../packages/jobs" }
 zyberlink-types = { path = "../../kernel/types" }
 
 # TODO: Add when programs have no-entrypoint features

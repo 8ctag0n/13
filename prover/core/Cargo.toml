@@ -46,7 +46,7 @@ solana-account-decoder.workspace = true
 
 zyberlink-sdk = { path = "../../sdk/rust" }
 zyberlink-unified-sdk = { path = "../../sdk/unified" }
-futarchy-sdk = { path = "../../verticals/governance/sdk/rust" }
+futarchy-sdk = { package = "governance-sdk", path = "../../verticals/governance/sdk/rust" }
 zyberlink-types = { path = "../../kernel/types" }
 zyberlink-chain-client = { path = "../../packages/chain-client", features = ["aptos", "starknet"] }
 bedrock-sdk = { path = "../../src/programs/sdks/bedrock-sdk" }
@@ -82,7 +82,7 @@ starknet-crypto = "0.8"
 zyberlink-fhe = { path = "../../kernel/fhe" }
 
 # Private Lending vertical (Aptos LTV verification)
-private_lending = { path = "../verticals/private_lending" }
+private_lending = { path = "../../verticals/private_lending" }
 
 # Futarchy FHE SDK for encrypted bet amounts (FheUint64)
 fhe-client-sdk = { path = "../../sdks/fhe-client-sdk" }

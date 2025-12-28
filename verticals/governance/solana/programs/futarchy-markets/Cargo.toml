@@ -25,7 +25,7 @@ groth16-solana = "0.2"
 
 # Workspace dependencies for types and shared code
 zyberlink-types = { path = "../../../../../kernel/types" }
-zyberlink-jobs = { path = "../../../../../src/shared/jobs" }
+zyberlink-jobs = { path = "../../../../../../packages/jobs" }
 
 # Core programs for CPI
 bedrock = { path = "../../../../../chain/solana/bedrock", features = ["no-entrypoint"] }
