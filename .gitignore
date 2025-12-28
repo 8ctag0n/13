@@ -474,3 +474,4 @@ releases/
 
 # Private planning docs (not tracked)
 private/
+.sqlx/

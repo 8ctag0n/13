@@ -1533,7 +1533,6 @@ async fn upload_witness(data: web::Data<AppState>, body: web::Bytes) -> impl Res
 /// Download encrypted witness data by commitment hash.
 /// First checks the witnesses table, then attempts to reconstruct from
 /// blockchain_jobs + temp_job_data if not found.
-#[get("/internal/witness/{commitment}")]
 #[get("/witness/{commitment}")]
 async fn get_witness(data: web::Data<AppState>, commitment: web::Path<String>) -> impl Responder {
     log::info!("Fetching witness for commitment: {}", *commitment);

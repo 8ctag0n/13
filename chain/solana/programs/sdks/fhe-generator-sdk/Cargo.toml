@@ -10,5 +10,5 @@ description = "Client SDK for interacting with ZyberLink FHE Generator program"
 solana-program.workspace = true
 solana-sdk.workspace = true
 borsh.workspace = true
-fhe-generator = { path = "../../../../chain/solana/fhe-generator", features = ["no-entrypoint"] }
+fhe-generator = { path = "../../fhe-generator", features = ["no-entrypoint"] }
 bedrock-sdk = { path = "../bedrock-sdk" }

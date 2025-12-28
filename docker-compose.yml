@@ -160,8 +160,6 @@ services:
       interval: 30s
       timeout: 3s
       retries: 3
-    profiles:
-      - with-nginx
 
   # ============================================
   # Frontend (Svelte)
@@ -177,8 +175,6 @@ services:
     expose:
       - "80"
     restart: unless-stopped
-    profiles:
-      - with-frontend
 
 volumes:
   postgres_data:

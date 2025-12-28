@@ -1,4 +1,4 @@
-#[WARN]/bin/bash
+#!/bin/bash
 #
 # Check status of all ZyberLink localnet services
 #
@@ -52,7 +52,7 @@ for i in 1 2 3; do
     if [ -f "/tmp/prover-$i-keypair.json" ]; then
         ADDR=$(solana address --keypair /tmp/prover-$i-keypair.json 2>/dev/null)
         BALANCE=$(solana balance --keypair /tmp/prover-$i-keypair.json --url http://localhost:8899 2>/dev/null | awk '{print $1}')
-        if [ [WARN] -z "$BALANCE" ]; then
+        if [ -n "$BALANCE" ]; then
             echo -e "  ${GREEN}[OK]${NC} Prover $i: $BALANCE SOL ($ADDR)"
         else
             echo -e "  ${YELLOW}[WARN]${NC} Prover $i: No balance (validator down?)"
@@ -100,11 +100,11 @@ if [ "$TOTAL" -eq 3 ]; then
 elif [ "$TOTAL" -gt 0 ]; then
     echo -e "${YELLOW}Status: Partial ($TOTAL/3 services up)${NC}"
     echo ""
-    echo "Run: ./localnet-start-all.sh"
+    echo "Run: make l1 (or deployment/scripts/start-localnet.sh)"
 else
     echo -e "${RED}Status: System down${NC}"
     echo ""
-    echo "Run: ./localnet-start-all.sh"
+    echo "Run: make l1 (or deployment/scripts/start-localnet.sh)"
 fi
 echo -e "${BLUE}=======================================${NC}"
 echo ""

@@ -3,9 +3,13 @@
 
 set -e
 
-# Get script directory and project root
+# Get script directory and project root (two levels up from deployment/scripts/)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
+PROJECT_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
+cd "$PROJECT_ROOT"
+
+# Create log directory
+mkdir -p ~/zyberlink-logs
 
 echo "======================================"
 echo "  ZyberLink Demo Stack Launcher"
@@ -37,12 +41,16 @@ pkill -f blink-server || true
 sleep 1
 
 # Load env from backend if exists, otherwise use defaults
-if [ -f "src/blink-server/.env" ]; then
-    export $(grep -v '^#' src/blink-server/.env | xargs)
+if [ -f "services/blink-server/.env" ]; then
+    export $(grep -v '^#' services/blink-server/.env | xargs)
+elif [ -f ".env.containers" ]; then
+    export $(grep -v '^#' .env.containers | xargs)
+    export DATABASE_URL=postgresql://zyberlink:dev_password@localhost:5432/zyberlink
+    export SOLANA_RPC_URL=http://localhost:8899
 else
     export DATABASE_URL=postgresql://zyberlink:dev_password@localhost:5432/zyberlink
     export SOLANA_RPC_URL=http://localhost:8899
-    export PROGRAM_ID=ZyberLinkProgram11111111111111111111111111
+    export PROGRAM_ID=11111111111111111111111111111111
 fi
 
 RUST_LOG=info \
@@ -92,12 +100,12 @@ sleep 2
 # Start frontend
 echo "[5/6] Starting frontend..."
 pkill -f "vite" || true
-cd src/webapp
+cd apps/webapp
 npm run dev > ~/zyberlink-logs/frontend.log 2>&1 &
 FRONTEND_PID=$!
 echo "       Frontend PID: $FRONTEND_PID"
 sleep 3
-cd ../..
+cd "$PROJECT_ROOT"
 
 echo "[6/6] All services started!"
 echo ""

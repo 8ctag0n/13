@@ -1,9 +1,13 @@
 [workspace]
 members = [
-    "bedrock",
-    "zk-generator",
-    "fhe-generator",
-    "threshold",
+    "programs/bedrock",
+    "programs/zk-generator",
+    "programs/fhe-generator",
+    "programs/threshold",
+    "programs/futarchy-markets",
+    "programs/sdks/bedrock-sdk",
+    "programs/sdks/fhe-generator-sdk",
+    "programs/sdks/zk-generator-sdk",
 ]
 resolver = "2"
 
@@ -22,7 +26,7 @@ zyberlink-crypto = { path = "../../kernel/crypto" }
 zyberlink-jobs = { path = "../../packages/jobs" }
 
 # Internal programs (for CPI)
-bedrock = { path = "bedrock", features = ["no-entrypoint"] }
+bedrock = { path = "programs/bedrock", features = ["no-entrypoint"] }
 
 # Solana
 solana-program = "2.3"

@@ -16,9 +16,9 @@ log_step() { echo -e "\n${BLUE}[STEP]${NC} $1"; }
 log_ok() { echo -e "${GREEN}[OK]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
-# Get the project root directory (parent of scripts/)
+# Get the project root directory (two levels up from scripts/)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+PROJECT_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
 
 # Change to project root
 cd "$PROJECT_ROOT"
@@ -35,7 +35,7 @@ echo ""
 if solana cluster-version --url http://localhost:8899 >/dev/null 2>&1 && \
    curl -s http://127.0.0.1:8080/health >/dev/null 2>&1; then
     log_ok "System already running!"
-    scripts/localnet-status.sh
+    deployment/scripts/localnet-status.sh
     exit 0
 fi
 
@@ -51,7 +51,7 @@ pkill -f zyberlink-prover || true
 sleep 2
 
 # Run setup
-if scripts/setup-localnet.sh > /tmp/setup.log 2>&1; then
+if deployment/scripts/setup-localnet.sh > /tmp/setup.log 2>&1; then
     log_ok "Infrastructure ready"
 else
     log_error "Setup failed. Check: tail -50 /tmp/setup.log"
@@ -62,7 +62,17 @@ fi
 # ============================================================================
 log_step "Starting backend server..."
 
-export $(grep -v '^#' services/blink-server/.env | xargs)
+# Load env from .env.containers if exists, otherwise use defaults
+if [ -f ".env.containers" ]; then
+    export $(grep -v '^#' .env.containers | xargs)
+elif [ -f "services/blink-server/.env" ]; then
+    export $(grep -v '^#' services/blink-server/.env | xargs)
+else
+    # Default values for localnet
+    export DATABASE_URL=postgresql://zyberlink:dev_password@localhost:5432/zyberlink
+    export SOLANA_RPC_URL=http://localhost:8899
+    export PROGRAM_ID=${PROGRAM_ID:-11111111111111111111111111111111}
+fi
 
 RUST_LOG=info \
 DATABASE_URL=$DATABASE_URL \
@@ -109,7 +119,7 @@ fi
 # ============================================================================
 log_step "Starting prover nodes..."
 
-if scripts/localnet-start-provers.sh > /tmp/provers.log 2>&1; then
+if deployment/scripts/localnet-start-provers.sh > /tmp/provers.log 2>&1; then
     log_ok "3 provers started"
 else
     log_error "Provers failed. Check: tail -20 /tmp/provers.log"
@@ -119,7 +129,7 @@ fi
 # STEP 7: Verify everything
 # ============================================================================
 sleep 2
-scripts/localnet-status.sh
+deployment/scripts/localnet-status.sh
 
 echo ""
 echo "==========================================="
@@ -127,8 +137,8 @@ echo "  System Ready!"
 echo "==========================================="
 echo ""
 echo "Quick commands:"
-echo "  - Status:  scripts/localnet-status.sh"
-echo "  - Stop:    scripts/stop-localnet.sh"
+echo "  - Status:  deployment/scripts/localnet-status.sh"
+echo "  - Stop:    make localnet-stop"
 echo ""
 echo "Logs:"
 echo "  - Validator: tail -f /tmp/solana-validator.log"

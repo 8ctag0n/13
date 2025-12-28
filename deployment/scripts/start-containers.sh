@@ -24,7 +24,7 @@ log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+PROJECT_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
 cd "$PROJECT_ROOT"
 
 echo ""
@@ -52,28 +52,31 @@ fi
 # ============================================================================
 log_step "Building Solana programs..."
 
+# Programs location after refactor
+PROGRAMS_DIR="chain/solana"
+
 # List of programs in dependency order
 PROGRAMS=("bedrock" "fhe_generator" "zk_generator" "threshold" "futarchy_markets")
 
 # Check if any program needs building
 NEED_BUILD=false
 for prog in "${PROGRAMS[@]}"; do
-    if [ ! -f "programs/target/deploy/${prog}.so" ]; then
+    if [ ! -f "${PROGRAMS_DIR}/target/deploy/${prog}.so" ]; then
         NEED_BUILD=true
         break
     fi
 done
 
 if [ "$NEED_BUILD" = true ]; then
-    cd programs && cargo build-sbf 2>&1 | tail -10
+    cd "${PROGRAMS_DIR}" && cargo build-sbf 2>&1 | tail -10
     cd "$PROJECT_ROOT"
 fi
 
 for prog in "${PROGRAMS[@]}"; do
-    if [ -f "programs/target/deploy/${prog}.so" ]; then
+    if [ -f "${PROGRAMS_DIR}/target/deploy/${prog}.so" ]; then
         log_ok "$prog ready"
     else
-        log_error "$prog not found"
+        log_warn "$prog not found (may not be critical)"
     fi
 done
 
@@ -92,11 +95,11 @@ log_step "Starting all containers..."
 podman-compose down -v 2>/dev/null || true
 
 # Create .env.containers with all program IDs
-BEDROCK_ID=$(solana address --keypair programs/target/deploy/bedrock-keypair.json)
-FHE_GENERATOR_ID=$(solana address --keypair programs/target/deploy/fhe_generator-keypair.json)
-ZK_GENERATOR_ID=$(solana address --keypair programs/target/deploy/zk_generator-keypair.json)
-THRESHOLD_ID=$(solana address --keypair programs/target/deploy/threshold-keypair.json)
-FUTARCHY_ID=$(solana address --keypair programs/target/deploy/futarchy_markets-keypair.json)
+BEDROCK_ID=$(solana address --keypair ${PROGRAMS_DIR}/target/deploy/bedrock-keypair.json)
+FHE_GENERATOR_ID=$(solana address --keypair ${PROGRAMS_DIR}/target/deploy/fhe_generator-keypair.json)
+ZK_GENERATOR_ID=$(solana address --keypair ${PROGRAMS_DIR}/target/deploy/zk_generator-keypair.json)
+THRESHOLD_ID=$(solana address --keypair ${PROGRAMS_DIR}/target/deploy/threshold-keypair.json)
+FUTARCHY_ID=$(solana address --keypair ${PROGRAMS_DIR}/target/deploy/futarchy_markets-keypair.json 2>/dev/null || echo "NOT_DEPLOYED")
 
 cat > .env.containers << EOF
 DB_PASSWORD=dev_password
@@ -151,8 +154,13 @@ PROGRAM_IDS["threshold"]=$THRESHOLD_ID
 PROGRAM_IDS["futarchy_markets"]=$FUTARCHY_ID
 
 for prog in bedrock fhe_generator zk_generator threshold futarchy_markets; do
-    KEYPAIR="programs/target/deploy/${prog}-keypair.json"
-    SO_FILE="programs/target/deploy/${prog}.so"
+    KEYPAIR="${PROGRAMS_DIR}/target/deploy/${prog}-keypair.json"
+    SO_FILE="${PROGRAMS_DIR}/target/deploy/${prog}.so"
+
+    if [ ! -f "$SO_FILE" ]; then
+        log_warn "$prog.so not found, skipping"
+        continue
+    fi
 
     if solana program deploy "$SO_FILE" \
         --url http://localhost:8899 \
