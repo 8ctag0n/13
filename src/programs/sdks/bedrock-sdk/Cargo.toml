@@ -10,7 +10,7 @@ description = "Client SDK for interacting with ZyberLink Bedrock program"
 solana-program.workspace = true
 solana-sdk.workspace = true
 borsh.workspace = true
-bedrock = { path = "../../bedrock", features = ["no-entrypoint"] }
+bedrock = { path = "../../../../chain/solana/bedrock", features = ["no-entrypoint"] }
 
 [dev-dependencies]
 solana-client.workspace = true

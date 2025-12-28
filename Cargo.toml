@@ -20,6 +20,7 @@ members = [
 exclude = [
     "src/___dump/job-creator",  # Deprecated E2E testing tool (moved to dump)
     "src/programs",     # Separate workspace for Solana BPF
+    "chain/solana",
     "tests/e2e",        # E2E tests use solana-program-test which requires BPF
     "sdks/fhe-client-sdk",  # Standalone FHE SDK with heavy tfhe-rs dependency
     "sdks/zk-prover-sdk",   # TypeScript/Bun SDK for ZK proof generation
@@ -38,6 +39,8 @@ authors = ["ZyberLink Team"]
 [workspace.dependencies]
 # Shared types
 zyberlink-types = { path = "kernel/types" }
+zyberlink-crypto = { path = "kernel/crypto" }
+zyberlink-fhe = { path = "kernel/fhe" }
 zyberlink-jobs = { path = "src/shared/jobs" }
 zyberlink-chain-client = { path = "src/shared/chain-client" }
 
