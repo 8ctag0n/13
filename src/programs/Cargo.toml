@@ -28,7 +28,7 @@ thiserror = "1.0"
 
 # Shared libraries (using relative path outside workspace)
 zyberlink-types = { path = "../../kernel/types" }
-zyberlink-jobs = { path = "../shared/jobs" }
+zyberlink-jobs = { path = "../../packages/jobs" }
 
 # Internal programs (for CPI)
 bedrock = { path = "bedrock", features = ["no-entrypoint"] }

@@ -1,25 +1,26 @@
 [workspace]
 members = [
-    "sdks/rust",
-    "sdks/futarchy-sdk",
-    "sdks/unified",
-    "src/prover-node",
-    "src/witness-storage",
-    "src/blink-server",
-    "src/x402-server",
-    "src/public-api",
+    "sdk/rust",
+    "verticals/governance/sdk/rust",
+    "sdk/unified",
+    "prover/core",
+    "services/witness-storage",
+    "services/blink-server",
+    "services/x402-server",
+    "services/public-api",
     "kernel/types",
     "kernel/crypto",
     "kernel/fhe",
-    "src/shared/jobs",
-    "src/shared/chain-client",
-    "src/zyb-cli",
-    "src/test-utils",
-    "src/verticals/private_lending",
+    "packages/jobs",
+    "packages/chain-client",
+    "cli/core",
+    "packages/test-utils",
+    "verticals/private_lending",
 ]
 exclude = [
     "src/___dump/job-creator",  # Deprecated E2E testing tool (moved to dump)
     "src/programs",     # Separate workspace for Solana BPF
+    "deployment/scripts/archive", # Archived scripts
     "chain/solana",
     "tests/e2e",        # E2E tests use solana-program-test which requires BPF
     "sdks/fhe-client-sdk",  # Standalone FHE SDK with heavy tfhe-rs dependency
@@ -41,8 +42,8 @@ authors = ["ZyberLink Team"]
 zyberlink-types = { path = "kernel/types" }
 zyberlink-crypto = { path = "kernel/crypto" }
 zyberlink-fhe = { path = "kernel/fhe" }
-zyberlink-jobs = { path = "src/shared/jobs" }
-zyberlink-chain-client = { path = "src/shared/chain-client" }
+zyberlink-jobs = { path = "packages/jobs" }
+zyberlink-chain-client = { path = "packages/chain-client" }
 
 # Solana (updated to 2.3.x for better compatibility)
 solana-program = "2.3"

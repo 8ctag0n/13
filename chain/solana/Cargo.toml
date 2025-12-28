@@ -19,7 +19,7 @@ zyberlink-types = { path = "../../kernel/types" }
 zyberlink-crypto = { path = "../../kernel/crypto" }
 
 # Shared libraries
-zyberlink-jobs = { path = "../../src/shared/jobs" }
+zyberlink-jobs = { path = "../../packages/jobs" }
 
 # Internal programs (for CPI)
 bedrock = { path = "bedrock", features = ["no-entrypoint"] }

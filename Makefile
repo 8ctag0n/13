@@ -19,9 +19,9 @@ help: ## Show this help message
 # Demo Commands (Main)
 # ============================================================================
 
-demo-up: ## Start complete demo stack (validator + backend + provers + frontend)
+demo-up: build-all ## Start complete demo stack (validator + backend + provers + frontend)
 	@echo "$(BLUE)Starting ZyberLink demo stack...$(NC)"
-	@./start-demo.sh
+	@./deployment/scripts/start-demo.sh
 
 demo-down: stop ## Stop all demo services
 
@@ -33,16 +33,16 @@ demo-restart: demo-down demo-up ## Restart complete demo stack
 
 start: ## Start complete localnet (setup + deploy + services)
 	@echo "$(BLUE)Starting ZyberLink localnet (full setup)...$(NC)"
-	@scripts/start-localnet.sh
+	@deployment/scripts/start-localnet.sh
 
 stop: ## Stop all services
 	@echo "$(BLUE)Stopping all services...$(NC)"
-	@scripts/stop-localnet.sh
+	@deployment/scripts/stop-localnet.sh
 
 restart: stop start ## Restart all services (full setup)
 
 status: ## Check status of all services
-	@scripts/localnet-status.sh
+	@deployment/scripts/localnet-status.sh
 
 # ============================================================================
 # Marketplace Commands
@@ -50,11 +50,11 @@ status: ## Check status of all services
 
 init-marketplace: ## Initialize marketplace on-chain
 	@echo "$(BLUE) Initializing marketplace...$(NC)"
-	@if [ ! -f "src/blink-server/.env" ]; then \
-		echo "$(RED)ERROR: src/blink-server/.env not found. Run 'make start' first$(NC)"; \
+	@if [ ! -f "services/blink-server/.env" ]; then \
+		echo "$(RED)ERROR: services/blink-server/.env not found. Run 'make start' first$(NC)"; \
 		exit 1; \
 	fi
-	@export $$(grep -v '^#' src/blink-server/.env | xargs) && \
+	@export $$(grep -v '^#' services/blink-server/.env | xargs) && \
 	cargo run --manifest-path src/programs/sdks/bedrock-sdk/Cargo.toml --example initialize_bedrock
 
 check-provers: ## Check if provers are registered in marketplace
@@ -73,7 +73,7 @@ check-provers: ## Check if provers are registered in marketplace
 
 start-provers: ## Start 3 prover nodes
 	@echo "$(BLUE) Starting prover nodes...$(NC)"
-	@scripts/localnet-start-provers.sh
+	@deployment/scripts/localnet-start-provers.sh
 
 stop-provers: ## Stop all prover nodes
 	@echo "$(BLUE)⏹️  Stopping provers...$(NC)"
@@ -98,8 +98,8 @@ stop-validator: ## Stop Solana validator
 
 start-backend: ## Start blink-server (internal backend on :8080)
 	@echo "$(BLUE) Starting blink-server (internal backend)...$(NC)"
-	@if [ -f "src/blink-server/.env" ]; then \
-		export $$(grep -v '^#' src/blink-server/.env | xargs); \
+	@if [ -f "services/blink-server/.env" ]; then \
+		export $$(grep -v '^#' services/blink-server/.env | xargs); \
 	fi; \
 	RUST_LOG=info HOST=127.0.0.1 PORT=8080 ./target/release/blink-server > /tmp/blink-server.log 2>&1 &
 	@sleep 2
@@ -221,11 +221,11 @@ build-all: build-program build-backend build-public-api build-x402 build-prover 
 
 setup: ## Setup infrastructure (validator, database, deploy program)
 	@echo "$(BLUE)  Setting up infrastructure...$(NC)"
-	@scripts/setup-localnet.sh
+	@deployment/scripts/setup-localnet.sh
 
 deploy: build-program ## Build and deploy Solana program
 	@echo "$(BLUE) Deploying program to localnet...$(NC)"
-	@scripts/setup-localnet.sh
+	@deployment/scripts/setup-localnet.sh
 
 # ============================================================================
 # Database Commands
@@ -254,7 +254,7 @@ db-reset: ## Reset database (drop and recreate)
 
 db-migrate: ## Run database migrations manually
 	@echo "$(BLUE)Running database migrations...$(NC)"
-	@for f in src/blink-server/migrations/*.sql; do \
+	@for f in services/blink-server/migrations/*.sql; do \
 		echo "  Applying: $$(basename $$f)"; \
 		podman exec -i zyberlink-postgres psql -U zyberlink -d zyberlink < "$$f" 2>/dev/null || true; \
 	done
@@ -287,16 +287,16 @@ test-e2e: ## Run end-to-end tests
 
 create-job: ## Create a single test job
 	@echo "$(BLUE) Creating test job...$(NC)"
-	@if [ ! -f "src/blink-server/.env" ]; then \
-		echo "$(RED)ERROR: src/blink-server/.env not found. Run 'make start' first$(NC)"; \
+	@if [ ! -f "services/blink-server/.env" ]; then \
+		echo "$(RED)ERROR: services/blink-server/.env not found. Run 'make start' first$(NC)"; \
 		exit 1; \
 	fi
-	@export $$(grep -v '^#' src/blink-server/.env | xargs) && \
-	cargo run --manifest-path sdks/rust/Cargo.toml --example create_test_job
+	@export $$(grep -v '^#' services/blink-server/.env | xargs) && \
+	cargo run --manifest-path sdk/rust/Cargo.toml --example create_test_job
 
 start-job-creator: ## Start dev-job runner (creates jobs every 10 seconds)
 	@echo "$(BLUE) Starting dev-job...$(NC)"
-	@scripts/start-job-creator.sh
+	@deployment/scripts/start-job-creator.sh
 
 list-jobs: ## List all jobs from API
 	@echo "$(BLUE) Fetching jobs from public-api...$(NC)"
@@ -308,12 +308,12 @@ list-jobs-active: ## List only active jobs
 
 inspect-accounts: ## Inspect all on-chain accounts (jobs, provers)
 	@echo "$(BLUE) Inspecting on-chain accounts...$(NC)"
-	@if [ ! -f "src/blink-server/.env" ]; then \
-		echo "$(RED)ERROR: src/blink-server/.env not found. Run 'make start' first$(NC)"; \
+	@if [ ! -f "services/blink-server/.env" ]; then \
+		echo "$(RED)ERROR: services/blink-server/.env not found. Run 'make start' first$(NC)"; \
 		exit 1; \
 	fi
-	@export $$(grep -v '^#' src/blink-server/.env | xargs) && \
-	cargo run --manifest-path sdks/rust/Cargo.toml --example inspect_accounts
+	@export $$(grep -v '^#' services/blink-server/.env | xargs) && \
+	cargo run --manifest-path sdk/rust/Cargo.toml --example inspect_accounts
 
 watch-jobs: ## Watch jobs in real-time (refresh every 5s)
 	@echo "$(BLUE) Watching jobs (Ctrl+C to stop)...$(NC)"
@@ -452,7 +452,7 @@ check-balances: ## Check balances of all wallets
 
 docker-up: ## Start full stack with Docker Compose (postgres + backend + frontend)
 	@echo "$(BLUE)Starting full Docker stack...$(NC)"
-	@docker-compose -f infra/docker/docker-compose.full.yml up -d
+	@docker-compose -f deployment/infra/docker/docker-compose.full.yml up -d
 	@echo "$(GREEN)Stack started!$(NC)"
 	@echo "  - Frontend: http://localhost:5173"
 	@echo "  - Backend:  http://localhost:8080"
@@ -460,19 +460,19 @@ docker-up: ## Start full stack with Docker Compose (postgres + backend + fronten
 
 docker-down: ## Stop Docker stack
 	@echo "$(BLUE)Stopping Docker stack...$(NC)"
-	@docker-compose -f infra/docker/docker-compose.full.yml down
+	@docker-compose -f deployment/infra/docker/docker-compose.full.yml down
 
 docker-logs: ## Show Docker stack logs
-	@docker-compose -f infra/docker/docker-compose.full.yml logs -f
+	@docker-compose -f deployment/infra/docker/docker-compose.full.yml logs -f
 
 docker-build: ## Rebuild Docker images
 	@echo "$(BLUE)Building Docker images...$(NC)"
-	@docker-compose -f infra/docker/docker-compose.full.yml build
+	@docker-compose -f deployment/infra/docker/docker-compose.full.yml build
 
 docker-restart: docker-down docker-up ## Restart Docker stack
 
 docker-status: ## Show Docker container status
-	@docker-compose -f infra/docker/docker-compose.full.yml ps
+	@docker-compose -f deployment/infra/docker/docker-compose.full.yml ps
 
 # ============================================================================
 # Production Docker Commands
@@ -480,21 +480,21 @@ docker-status: ## Show Docker container status
 
 prod-up: ## Start production stack (nginx + backend + postgres)
 	@echo "$(BLUE)Starting production stack...$(NC)"
-	@docker-compose -f infra/docker/docker-compose.prod.yml up -d --build
+	@docker-compose -f deployment/infra/docker/docker-compose.prod.yml up -d --build
 	@echo "$(GREEN)Production stack running!$(NC)"
 	@echo "  - Web: http://localhost (or port in .env)"
 	@echo "  - API: proxied through nginx at /api/"
 
 prod-down: ## Stop production stack
-	@docker-compose -f infra/docker/docker-compose.prod.yml down
+	@docker-compose -f deployment/infra/docker/docker-compose.prod.yml down
 
 prod-logs: ## Show production logs
-	@docker-compose -f infra/docker/docker-compose.prod.yml logs -f
+	@docker-compose -f deployment/infra/docker/docker-compose.prod.yml logs -f
 
 prod-restart: prod-down prod-up ## Restart production stack
 
 prod-status: ## Show production container status
-	@docker-compose -f infra/docker/docker-compose.prod.yml ps
+	@docker-compose -f deployment/infra/docker/docker-compose.prod.yml ps
 
 # ============================================================================
 # Quick Start Workflows
@@ -523,11 +523,11 @@ dev: demo-up ## Quick start for development (use after first setup)
 
 localnet-start: ## [STEP 1] Start localnet: validator + db + deploy + backend + provers
 	@echo "$(BLUE)Starting ZyberLink localnet (full setup)...$(NC)"
-	@scripts/start-localnet.sh
+	@deployment/scripts/start-localnet.sh
 
 localnet-init: ## [STEP 2] Initialize marketplace on-chain (run once after setup)
 	@echo "$(BLUE)Initializing marketplace...$(NC)"
-	@scripts/init-marketplace.sh
+	@deployment/scripts/init-marketplace.sh
 
 localnet-jobs: ## [STEP 3] Start dev-job runner (auto-creates jobs every 10s)
 	@echo "$(BLUE)Starting dev-job (auto-creating jobs)...$(NC)"
@@ -538,7 +538,7 @@ localnet-jobs: ## [STEP 3] Start dev-job runner (auto-creates jobs every 10s)
 		echo "Creating dev-job keypair..."; \
 		solana-keygen new --no-bip39-passphrase --force --outfile /tmp/job-creator-keypair.json >/dev/null 2>&1; \
 	fi
-	@export $$(grep -v '^#' src/blink-server/.env | xargs) && \
+	@export $$(grep -v '^#' services/blink-server/.env | xargs) && \
 	ADDR=$$(solana address --keypair /tmp/job-creator-keypair.json); \
 	echo "  Dev job: $$ADDR"; \
 	solana airdrop 100 $$ADDR --url $$SOLANA_RPC_URL 2>/dev/null || echo "  (airdrop may have failed)"; \
@@ -546,9 +546,9 @@ localnet-jobs: ## [STEP 3] Start dev-job runner (auto-creates jobs every 10s)
 	echo "  Balance: $$BALANCE"
 	@# Build zyb-cli
 	@echo "  Building zyb-cli..."
-	@cargo build --release -p zyb-cli 2>&1 | tail -3
+	@cargo build --release -p zyb-cli --manifest-path cli/core/Cargo.toml 2>&1 | tail -3
 	@# Start dev-job in background (pointing to public-api on 3000)
-	@export $$(grep -v '^#' src/blink-server/.env | xargs) && \
+	@export $$(grep -v '^#' services/blink-server/.env | xargs) && \
 	RUST_LOG=info \
 	BACKEND_URL=http://localhost:3000 \
 	SOLANA_RPC_URL=$$SOLANA_RPC_URL \
@@ -634,7 +634,7 @@ c0: ## [CONTAINER] Reset: stop containers + clean volumes
 	@echo "$(GREEN)Container environment reset. Ready for 'make c1'$(NC)"
 
 c1: ## [CONTAINER] Start: validator (host) + containers (postgres, backend, webapp, nginx)
-	@scripts/start-containers.sh
+	@deployment/scripts/start-containers.sh
 
 c2: ## [CONTAINER] Initialize marketplace + register provers
 	@echo "$(BLUE)Initializing marketplace and registering provers...$(NC)"
@@ -712,7 +712,7 @@ c3: ## [CONTAINER] Start provers + dev-job (local binaries)
 	solana airdrop 100 $$ADDR --url http://localhost:8899 2>/dev/null || true; \
 	BALANCE=$$(solana balance --keypair /tmp/job-creator-keypair.json --url http://localhost:8899 2>/dev/null); \
 	echo "  Balance: $$BALANCE"
-	@cargo build --release -p zyb-cli 2>&1 | tail -2
+	@cargo build --release -p zyb-cli --manifest-path cli/core/Cargo.toml 2>&1 | tail -2
 	@export $$(grep -v '^#' .env.containers | xargs) && \
 	RUST_LOG=info \
 	BACKEND_URL=http://localhost:9000 \
@@ -778,8 +778,8 @@ e2e-poi: ## [E2E] Run PoI verification test: CountIf([15,20,25,17], >= 18) -> ex
 	@if [ -f ".env.containers" ]; then \
 		ENV_FILE=".env.containers"; \
 		BACKEND="http://localhost:9000"; \
-	elif [ -f "src/blink-server/.env" ]; then \
-		ENV_FILE="src/blink-server/.env"; \
+	elif [ -f "services/blink-server/.env" ]; then \
+		ENV_FILE="services/blink-server/.env"; \
 		BACKEND="http://localhost:3000"; \
 	else \
 		echo "$(RED)ERROR: No env file found. Run 'make c1' or 'make l1' first$(NC)"; \
@@ -787,7 +787,7 @@ e2e-poi: ## [E2E] Run PoI verification test: CountIf([15,20,25,17], >= 18) -> ex
 	fi; \
 	echo "Using env: $$ENV_FILE, backend: $$BACKEND"; \
 	echo "Building zyb-cli..."; \
-	cargo build --release -p zyb-cli 2>&1 | tail -3; \
+	cargo build --release -p zyb-cli --manifest-path cli/core/Cargo.toml 2>&1 | tail -3; \
 	if [ ! -f "/tmp/job-creator-keypair.json" ]; then \
 		solana-keygen new --no-bip39-passphrase --force --outfile /tmp/job-creator-keypair.json >/dev/null 2>&1; \
 	fi; \
@@ -806,8 +806,8 @@ e2e-sum: ## [E2E] Run Sum verification test: Sum([10,20,30]) -> expect 60
 	@if [ -f ".env.containers" ]; then \
 		ENV_FILE=".env.containers"; \
 		BACKEND="http://localhost:9000"; \
-	elif [ -f "src/blink-server/.env" ]; then \
-		ENV_FILE="src/blink-server/.env"; \
+	elif [ -f "services/blink-server/.env" ]; then \
+		ENV_FILE="services/blink-server/.env"; \
 		BACKEND="http://localhost:3000"; \
 	else \
 		echo "$(RED)ERROR: No env file found. Run 'make c1' or 'make l1' first$(NC)"; \
@@ -815,7 +815,7 @@ e2e-sum: ## [E2E] Run Sum verification test: Sum([10,20,30]) -> expect 60
 	fi; \
 	echo "Using env: $$ENV_FILE, backend: $$BACKEND"; \
 	echo "Building zyb-cli..."; \
-	cargo build --release -p zyb-cli 2>&1 | tail -3; \
+	cargo build --release -p zyb-cli --manifest-path cli/core/Cargo.toml 2>&1 | tail -3; \
 	if [ ! -f "/tmp/job-creator-keypair.json" ]; then \
 		solana-keygen new --no-bip39-passphrase --force --outfile /tmp/job-creator-keypair.json >/dev/null 2>&1; \
 	fi; \
@@ -844,11 +844,11 @@ e2e-all: ## [E2E] Run all verification tests (sequential)
 e2e-poi-devnet: ## [DEVNET E2E] Run PoI verification test on devnet
 	@echo "$(BLUE)Running PoI E2E Verification Test on DEVNET...$(NC)"
 	@if [ ! -f ".env.devnet" ]; then \
-		echo "$(RED)ERROR: .env.devnet not found. Run './scripts/setup-devnet.sh' first$(NC)"; \
+		echo "$(RED)ERROR: .env.devnet not found. Run './deployment/scripts/setup-devnet.sh' first$(NC)"; \
 		exit 1; \
 	fi
 	@echo "Building zyb-cli..."
-	@cargo build --release -p zyb-cli 2>&1 | tail -3
+	@cargo build --release -p zyb-cli --manifest-path cli/core/Cargo.toml 2>&1 | tail -3
 	@if [ ! -f "keypairs/job-creator.json" ]; then \
 		echo "Creating dev-job keypair..."; \
 		solana-keygen new --no-bip39-passphrase --force --outfile keypairs/job-creator.json >/dev/null 2>&1; \
@@ -872,11 +872,11 @@ e2e-poi-devnet: ## [DEVNET E2E] Run PoI verification test on devnet
 e2e-sum-devnet: ## [DEVNET E2E] Run Sum verification test on devnet
 	@echo "$(BLUE)Running Sum E2E Verification Test on DEVNET...$(NC)"
 	@if [ ! -f ".env.devnet" ]; then \
-		echo "$(RED)ERROR: .env.devnet not found. Run './scripts/setup-devnet.sh' first$(NC)"; \
+		echo "$(RED)ERROR: .env.devnet not found. Run './deployment/scripts/setup-devnet.sh' first$(NC)"; \
 		exit 1; \
 	fi
 	@echo "Building zyb-cli..."
-	@cargo build --release -p zyb-cli 2>&1 | tail -3
+	@cargo build --release -p zyb-cli --manifest-path cli/core/Cargo.toml 2>&1 | tail -3
 	@if [ ! -f "keypairs/job-creator.json" ]; then \
 		echo "Creating dev-job keypair..."; \
 		solana-keygen new --no-bip39-passphrase --force --outfile keypairs/job-creator.json >/dev/null 2>&1; \
@@ -920,7 +920,7 @@ d0: ## [DEVNET] Reset: stop containers + clean volumes
 d1: ## [DEVNET] Start containers (postgres, backend, webapp, nginx) - NO validator
 	@echo "$(BLUE)Starting devnet containers (no validator)...$(NC)"
 	@if [ ! -f ".env.devnet" ]; then \
-		echo "$(RED)ERROR: .env.devnet not found. Run './scripts/setup-devnet.sh' first$(NC)"; \
+		echo "$(RED)ERROR: .env.devnet not found. Run './deployment/scripts/setup-devnet.sh' first$(NC)"; \
 		exit 1; \
 	fi
 	@export $$(grep -v '^#' .env.devnet | xargs) && \
@@ -935,7 +935,7 @@ d1: ## [DEVNET] Start containers (postgres, backend, webapp, nginx) - NO validat
 d1-fresh: ## [DEVNET] Rebuild containers from scratch (no cache) and start
 	@echo "$(BLUE)Rebuilding devnet containers (no cache)...$(NC)"
 	@if [ ! -f ".env.devnet" ]; then \
-		echo "$(RED)ERROR: .env.devnet not found. Run './scripts/setup-devnet.sh' first$(NC)"; \
+		echo "$(RED)ERROR: .env.devnet not found. Run './deployment/scripts/setup-devnet.sh' first$(NC)"; \
 		exit 1; \
 	fi
 	@export $$(grep -v '^#' .env.devnet | xargs) && \
@@ -949,7 +949,7 @@ d1-fresh: ## [DEVNET] Rebuild containers from scratch (no cache) and start
 d2: ## [DEVNET] Initialize marketplace + register provers on devnet
 	@echo "$(BLUE)Initializing marketplace on devnet...$(NC)"
 	@if [ ! -f ".env.devnet" ]; then \
-		echo "$(RED)ERROR: .env.devnet not found. Run './scripts/setup-devnet.sh' first$(NC)"; \
+		echo "$(RED)ERROR: .env.devnet not found. Run './deployment/scripts/setup-devnet.sh' first$(NC)"; \
 		exit 1; \
 	fi
 	@export $$(grep -v '^#' .env.devnet | xargs) && \
@@ -986,7 +986,7 @@ d2: ## [DEVNET] Initialize marketplace + register provers on devnet
 d3: ## [DEVNET] Start provers (connect to devnet)
 	@echo "$(BLUE)Starting provers for devnet...$(NC)"
 	@if [ ! -f ".env.devnet" ]; then \
-		echo "$(RED)ERROR: .env.devnet not found. Run './scripts/setup-devnet.sh' first$(NC)"; \
+		echo "$(RED)ERROR: .env.devnet not found. Run './deployment/scripts/setup-devnet.sh' first$(NC)"; \
 		exit 1; \
 	fi
 	@-pkill -f "zyberlink-prover" 2>/dev/null || true
@@ -1080,7 +1080,7 @@ x402-flow: ## [x402] Test full payment flow (quote -> pay -> token)
 	@echo "$(BLUE)Testing x402 full payment flow...$(NC)"
 	@if [ -f ".env.containers" ]; then \
 		BACKEND="http://localhost:9000"; \
-	elif [ -f "src/blink-server/.env" ]; then \
+	elif [ -f "services/blink-server/.env" ]; then \
 		BACKEND="http://localhost:3000"; \
 	else \
 		echo "$(RED)ERROR: No env file found. Run 'make c1' or 'make l1' first$(NC)"; \
@@ -1210,7 +1210,7 @@ prover-fmt: ## Format prover-node code
 
 prover-setup-circuits: ## Setup circuits directory for prover
 	@echo "$(BLUE)Setting up prover circuits...$(NC)"
-	@bash scripts/setup_prover_circuits.sh
+	@bash deployment/scripts/setup_prover_circuits.sh
 	@echo "$(GREEN)✓ Circuits setup complete$(NC)"
 
 prover-verify-deps: ## Verify prover dependencies (snarkjs, etc.)
@@ -1234,22 +1234,22 @@ prover-refactor-health: prover-verify-deps prover-check prover-lint prover-fmt-c
 	@echo "$(GREEN)====================================$(NC)"
 	@echo ""
 	@echo "Metrics:"
-	@echo "  main.rs lines: $$(wc -l src/prover-node/src/main.rs | awk '{print $$1}')"
-	@echo "  Total modules: $$(find src/prover-node/src -name '*.rs' | wc -l)"
+	@echo "  main.rs lines: $$(wc -l prover/core/src/main.rs | awk '{print $$1}')"
+	@echo "  Total modules: $$(find prover/core/src -name '*.rs' | wc -l)"
 	@echo ""
 
 prover-stats: ## Show prover code statistics
 	@echo "$(BLUE)Prover Node Statistics:$(NC)"
 	@echo ""
 	@echo "File sizes:"
-	@wc -l src/prover-node/src/main.rs
-	@wc -l src/prover-node/src/core/*.rs 2>/dev/null || echo "  core/* (not yet created)"
-	@wc -l src/prover-node/src/engines/*.rs 2>/dev/null || echo "  engines/* (not yet created)"
-	@wc -l src/prover-node/src/services/*.rs 2>/dev/null || echo "  services/* (not yet created)"
-	@wc -l src/prover-node/src/cli/*.rs 2>/dev/null || echo "  cli/* (not yet created)"
+	@wc -l prover/core/src/main.rs
+	@wc -l prover/core/src/core/*.rs 2>/dev/null || echo "  core/* (not yet created)"
+	@wc -l prover/core/src/engines/*.rs 2>/dev/null || echo "  engines/* (not yet created)"
+	@wc -l prover/core/src/services/*.rs 2>/dev/null || echo "  services/* (not yet created)"
+	@wc -l prover/core/src/cli/*.rs 2>/dev/null || echo "  cli/* (not yet created)"
 	@echo ""
 	@echo "Module structure:"
-	@tree -L 3 src/prover-node/src/ 2>/dev/null || ls -R src/prover-node/src/
+	@tree -L 3 prover/core/src/ 2>/dev/null || ls -R prover/core/src/
 
 prover-clean: ## Clean prover build artifacts
 	@echo "$(BLUE)Cleaning prover-node build artifacts...$(NC)"
