@@ -55,7 +55,7 @@ init-marketplace: ## Initialize marketplace on-chain
 		exit 1; \
 	fi
 	@export $$(grep -v '^#' services/blink-server/.env | xargs) && \
-	cargo run --manifest-path src/programs/sdks/bedrock-sdk/Cargo.toml --example initialize_bedrock
+	cargo run --manifest-path programs/sdks/bedrock-sdk/Cargo.toml --example initialize_bedrock
 
 check-provers: ## Check if provers are registered in marketplace
 	@echo "$(BLUE) Checking prover registration...$(NC)"
@@ -184,7 +184,7 @@ logs: ## Tail all logs
 
 build-program: ## Build Solana program
 	@echo "$(BLUE) Building Solana program...$(NC)"
-	@cd src/programs && cargo build-sbf
+	@cd programs && cargo build-sbf
 	@echo "$(GREEN) Program built$(NC)"
 
 build-backend: ## Build backend server (blink-server)
@@ -275,7 +275,7 @@ test: ## Run tests
 
 test-program: ## Run Solana program tests
 	@echo "$(BLUE) Running program tests...$(NC)"
-	@cd src/programs && cargo test-sbf
+	@cd programs && cargo test-sbf
 
 test-e2e: ## Run end-to-end tests
 	@echo "$(BLUE) Running E2E tests...$(NC)"
@@ -332,7 +332,7 @@ watch-jobs: ## Watch jobs in real-time (refresh every 5s)
 clean: ## Clean build artifacts
 	@echo "$(BLUE) Cleaning build artifacts...$(NC)"
 	@cargo clean
-	@cd src/programs && cargo clean
+	@cd programs && cargo clean
 	@echo "$(GREEN) Build artifacts cleaned$(NC)"
 
 clean-logs: ## Remove all log files
@@ -645,7 +645,7 @@ c2: ## [CONTAINER] Initialize marketplace + register provers
 	@echo ""
 	@echo "Step 1/3: Initializing marketplace..."
 	@export $$(grep -v '^#' .env.containers | xargs) && \
-	SOLANA_RPC_URL=http://localhost:8899 cargo run --manifest-path src/programs/sdks/bedrock-sdk/Cargo.toml --example initialize_bedrock
+	SOLANA_RPC_URL=http://localhost:8899 cargo run --manifest-path programs/sdks/bedrock-sdk/Cargo.toml --example initialize_bedrock
 	@echo "$(GREEN)  Marketplace initialized$(NC)"
 	@echo ""
 	@echo "Step 2/3: Building prover binary..."
@@ -958,7 +958,7 @@ d2: ## [DEVNET] Initialize marketplace + register provers on devnet
 	@echo ""
 	@echo "Step 1/3: Initializing marketplace..."
 	@export $$(grep -v '^#' .env.devnet | xargs) && \
-	cargo run --manifest-path src/programs/sdks/bedrock-sdk/Cargo.toml --example initialize_bedrock 2>&1 | tail -5
+	cargo run --manifest-path programs/sdks/bedrock-sdk/Cargo.toml --example initialize_bedrock 2>&1 | tail -5
 	@echo "$(GREEN)  Marketplace initialized$(NC)"
 	@echo ""
 	@echo "Step 2/3: Building prover binary..."
@@ -1285,7 +1285,7 @@ p-stats: prover-stats
 
 e2e-real-check: ## Check E2E tests compilation
 	@echo "$(BLUE)Checking E2E tests compilation...$(NC)"
-	@cd src/programs/e2e && cargo check
+	@cd programs/e2e && cargo check
 	@echo "$(GREEN)✓ E2E tests compile$(NC)"
 
 e2e-real: ## Run E2E tests against localhost stack (requires l1 running)
@@ -1295,19 +1295,19 @@ e2e-real: ## Run E2E tests against localhost stack (requires l1 running)
 	@echo "  1. make l1 (stack running)"
 	@echo "  2. Programs deployed"
 	@echo ""
-	@cd src/programs/e2e && cargo test real_stack -- --ignored --nocapture
+	@cd programs/e2e && cargo test real_stack -- --ignored --nocapture
 
 e2e-real-zk: ## Run only ZK flow E2E test
 	@echo "$(BLUE)Running ZK full flow E2E test...$(NC)"
-	@cd src/programs/e2e && cargo test test_zk_full_flow_with_cpi -- --ignored --nocapture
+	@cd programs/e2e && cargo test test_zk_full_flow_with_cpi -- --ignored --nocapture
 
 e2e-real-prover: ## Run prover verification E2E test
 	@echo "$(BLUE)Running prover verification E2E test...$(NC)"
-	@cd src/programs/e2e && cargo test test_prover_verification -- --ignored --nocapture
+	@cd programs/e2e && cargo test test_prover_verification -- --ignored --nocapture
 
 e2e-real-connection: ## Test connection to localhost stack
 	@echo "$(BLUE)Testing localhost stack connection...$(NC)"
-	@cd src/programs/e2e && cargo test test_real_stack_connection -- --ignored --nocapture
+	@cd programs/e2e && cargo test test_real_stack_connection -- --ignored --nocapture
 
 e2e-real-all: e2e-real-check e2e-real ## Run all E2E real stack tests
 

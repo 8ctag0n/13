@@ -14,7 +14,7 @@ path = "src/main.rs"
 zyberlink-sdk = { path = "../../sdk/rust" }
 zyberlink-types = { path = "../../kernel/types" }
 zyberlink-fhe = { path = "../../kernel/fhe" }
-fhe-generator-sdk = { path = "../../src/programs/sdks/fhe-generator-sdk" }
+fhe-generator-sdk = { path = "../../programs/sdks/fhe-generator-sdk" }
 futarchy-sdk = { package = "governance-sdk", path = "../../verticals/governance/sdk/rust" }
 zyberlink-chain-client = { path = "../../packages/chain-client", optional = true }
 

@@ -58,19 +58,19 @@ PROGRAMS=("bedrock" "fhe_generator" "zk_generator" "threshold" "futarchy_markets
 # Check if any program needs building
 NEED_BUILD=false
 for prog in "${PROGRAMS[@]}"; do
-    if [ ! -f "src/programs/target/deploy/${prog}.so" ]; then
+    if [ ! -f "programs/target/deploy/${prog}.so" ]; then
         NEED_BUILD=true
         break
     fi
 done
 
 if [ "$NEED_BUILD" = true ]; then
-    cd src/programs && cargo build-sbf 2>&1 | tail -10
+    cd programs && cargo build-sbf 2>&1 | tail -10
     cd "$PROJECT_ROOT"
 fi
 
 for prog in "${PROGRAMS[@]}"; do
-    if [ -f "src/programs/target/deploy/${prog}.so" ]; then
+    if [ -f "programs/target/deploy/${prog}.so" ]; then
         log_ok "$prog ready"
     else
         log_error "$prog not found"
@@ -92,11 +92,11 @@ log_step "Starting all containers..."
 podman-compose down -v 2>/dev/null || true
 
 # Create .env.containers with all program IDs
-BEDROCK_ID=$(solana address --keypair src/programs/target/deploy/bedrock-keypair.json)
-FHE_GENERATOR_ID=$(solana address --keypair src/programs/target/deploy/fhe_generator-keypair.json)
-ZK_GENERATOR_ID=$(solana address --keypair src/programs/target/deploy/zk_generator-keypair.json)
-THRESHOLD_ID=$(solana address --keypair src/programs/target/deploy/threshold-keypair.json)
-FUTARCHY_ID=$(solana address --keypair src/programs/target/deploy/futarchy_markets-keypair.json)
+BEDROCK_ID=$(solana address --keypair programs/target/deploy/bedrock-keypair.json)
+FHE_GENERATOR_ID=$(solana address --keypair programs/target/deploy/fhe_generator-keypair.json)
+ZK_GENERATOR_ID=$(solana address --keypair programs/target/deploy/zk_generator-keypair.json)
+THRESHOLD_ID=$(solana address --keypair programs/target/deploy/threshold-keypair.json)
+FUTARCHY_ID=$(solana address --keypair programs/target/deploy/futarchy_markets-keypair.json)
 
 cat > .env.containers << EOF
 DB_PASSWORD=dev_password
@@ -151,8 +151,8 @@ PROGRAM_IDS["threshold"]=$THRESHOLD_ID
 PROGRAM_IDS["futarchy_markets"]=$FUTARCHY_ID
 
 for prog in bedrock fhe_generator zk_generator threshold futarchy_markets; do
-    KEYPAIR="src/programs/target/deploy/${prog}-keypair.json"
-    SO_FILE="src/programs/target/deploy/${prog}.so"
+    KEYPAIR="programs/target/deploy/${prog}-keypair.json"
+    SO_FILE="programs/target/deploy/${prog}.so"
 
     if solana program deploy "$SO_FILE" \
         --url http://localhost:8899 \

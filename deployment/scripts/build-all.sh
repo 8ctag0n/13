@@ -27,7 +27,7 @@ echo ""
 
 # Build Solana program
 echo "[4/4] Building Solana program..."
-cd src/programs/zyberlink
+cd programs/zyberlink
 cargo build-sbf
 cd ../../..
 echo "✅ Solana program built"

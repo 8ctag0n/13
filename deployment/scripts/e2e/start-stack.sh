@@ -35,7 +35,7 @@ log_step() {
 }
 
 # Check we're in project root
-if [ ! -f "Cargo.toml" ] || [ ! -d "src/programs" ]; then
+if [ ! -f "Cargo.toml" ] || [ ! -d "programs" ]; then
     log_error "Must run from project root"
     exit 1
 fi
@@ -133,8 +133,8 @@ PROGRAMS=("bedrock" "zk-generator" "fhe-generator")
 declare -A PROGRAM_IDS
 
 for prog in "${PROGRAMS[@]}"; do
-    PROGRAM_PATH="src/programs/target/deploy/${prog}.so"
-    PROGRAM_KEYPAIR="src/programs/target/deploy/${prog}-keypair.json"
+    PROGRAM_PATH="programs/target/deploy/${prog}.so"
+    PROGRAM_KEYPAIR="programs/target/deploy/${prog}-keypair.json"
     DEPLOY_LOG="/tmp/e2e-deploy-${prog}.log"
 
     if [ ! -f "$PROGRAM_PATH" ]; then

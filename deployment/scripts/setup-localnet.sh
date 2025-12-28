@@ -39,7 +39,7 @@ cleanup() {
 }
 
 # Check if running from project root
-if [ ! -f "Cargo.toml" ] || [ ! -d "src/programs" ]; then
+if [ ! -f "Cargo.toml" ] || [ ! -d "programs" ]; then
     log_error "Must run from project root (/home/deploy/experimental/zyberlink-demo)"
     exit 1
 fi
@@ -138,7 +138,7 @@ log_info "Generating program keypairs..."
 PROGRAMS=("bedrock" "zk-generator" "fhe-generator" "threshold" "zyberlink")
 
 for prog in "${PROGRAMS[@]}"; do
-    KEYPAIR="src/programs/target/deploy/${prog}-keypair.json"
+    KEYPAIR="programs/target/deploy/${prog}-keypair.json"
     if [ ! -f "$KEYPAIR" ]; then
         log_info "  Creating keypair for $prog..."
         solana-keygen new --no-bip39-passphrase --force --outfile "$KEYPAIR" >/dev/null 2>&1
@@ -154,8 +154,8 @@ declare -A PROGRAM_IDS
 CORE_PROGRAMS=("bedrock" "zk-generator" "fhe-generator")
 
 for prog in "${CORE_PROGRAMS[@]}"; do
-    PROGRAM_PATH="src/programs/target/deploy/${prog}.so"
-    PROGRAM_KEYPAIR="src/programs/target/deploy/${prog}-keypair.json"
+    PROGRAM_PATH="programs/target/deploy/${prog}.so"
+    PROGRAM_KEYPAIR="programs/target/deploy/${prog}-keypair.json"
 
     if [ ! -f "$PROGRAM_PATH" ]; then
         log_warn "Program binary not found: $PROGRAM_PATH (skipping)"
@@ -190,11 +190,11 @@ for prog in "${CORE_PROGRAMS[@]}"; do
 done
 
 # Legacy program (for compatibility)
-if [ -f "src/programs/target/deploy/zyberlink.so" ]; then
+if [ -f "programs/target/deploy/zyberlink.so" ]; then
     log_info "Deploying legacy zyberlink program..."
-    PROGRAM_KEYPAIR="src/programs/target/deploy/zyberlink-keypair.json"
+    PROGRAM_KEYPAIR="programs/target/deploy/zyberlink-keypair.json"
 
-    if solana program deploy src/programs/target/deploy/zyberlink.so \
+    if solana program deploy programs/target/deploy/zyberlink.so \
         --url http://localhost:8899 \
         --keypair ~/.config/solana/id.json \
         --program-id $PROGRAM_KEYPAIR \

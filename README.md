@@ -27,10 +27,11 @@
 
 | Resource | Path | Description |
 |----------|------|-------------|
-| GitBook Docs | [/docs/book](docs/book) | Full documentation (EN/ES) |
-| Zyb CLI (FHE) | [/src/zyb-cli](src/zyb-cli) | Client-side encryption tool |
-| Rust SDK | [/sdks/rust](sdks/rust) | Integration library for Rust apps |
-| API Reference | [/docs/book/en/guides/api-reference.md](docs/book/en/guides/api-reference.md) | Backend API endpoints |
+| GitBook Docs | [/docs](docs) | Full documentation (EN/ES) |
+| Zyb CLI (FHE) | [/cli/core](cli/core) | Client-side encryption tool |
+Encrypt data locally before sending to the marketplace. Full docs: [/cli/core](cli/core)
+| Rust SDK | [/sdk/rust](sdk/rust) | Integration library for Rust apps |
+| API Reference | [/docs/en/guides](docs/en/guides) | Backend API endpoints |
 
 ## Overview
 
@@ -154,11 +155,11 @@ Threshold(encrypted_age, >= 18) → true/false
 
 ## Zyb CLI (FHE)
 
-Encrypt data locally before sending to the marketplace. Full docs: [/src/zyb-cli](src/zyb-cli)
+Encrypt data locally before sending to the marketplace. Full docs: [/cli/core](cli/core)
 
 ```bash
 # Build
-cargo build --release -p zyb-cli
+cargo build --release --manifest-path cli/core/Cargo.toml
 
 # Encrypt values
 ./target/release/zyb fhe encrypt --values 100,200,300,400,500
@@ -173,7 +174,7 @@ cargo build --release -p zyb-cli
 
 ## SDK Integration
 
-Rust library for programmatic integration. Path: [/sdks/rust](sdks/rust)
+Rust library for programmatic integration. Path: [/sdk/rust](sdk/rust)
 
 ```rust
 use zyberlink_sdk::ZyberClient;
@@ -223,14 +224,16 @@ cargo build --release -p zyb-cli
 ## Project Structure
 
 ```
-src/
+.
+├── apps/            # Frontend apps (webapp, wallet, design-system)
+├── cli/             # Unified CLI (zyb-cli)
+├── deployment/      # Infrastructure (docker, scripts, infra)
+├── packages/        # Shared libraries (chain-client, jobs, etc.)
 ├── programs/        # Solana smart contracts
-├── sdk/             # Rust client library
-├── prover-node/     # Prover daemon
-├── blink-server/    # Backend API
-├── webapp/          # Frontend (Svelte)
-├── zyb-cli/         # Unified CLI (FHE/ZK/dev-job)
-└── shared/          # Shared types
+├── prover/          # Prover node core
+├── sdk/             # Client SDKs (Rust, TypeScript, FHE)
+├── services/        # Backend services (blink-server, public-api, etc.)
+└── verticals/       # Vertical-specific logic (pbtcfi, governance, etc.)
 ```
 
 ## Roadmap

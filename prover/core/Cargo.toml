@@ -49,8 +49,8 @@ zyberlink-unified-sdk = { path = "../../sdk/unified" }
 futarchy-sdk = { package = "governance-sdk", path = "../../verticals/governance/sdk/rust" }
 zyberlink-types = { path = "../../kernel/types" }
 zyberlink-chain-client = { path = "../../packages/chain-client", features = ["aptos", "starknet"] }
-bedrock-sdk = { path = "../../src/programs/sdks/bedrock-sdk" }
-fhe-generator-sdk = { path = "../../src/programs/sdks/fhe-generator-sdk" }
+bedrock-sdk = { path = "../../programs/sdks/bedrock-sdk" }
+fhe-generator-sdk = { path = "../../programs/sdks/fhe-generator-sdk" }
 
 # Halo2 and Zcash Orchard dependencies
 halo2_proofs = "0.3"
@@ -85,7 +85,7 @@ zyberlink-fhe = { path = "../../kernel/fhe" }
 private_lending = { path = "../../verticals/private_lending" }
 
 # Futarchy FHE SDK for encrypted bet amounts (FheUint64)
-fhe-client-sdk = { path = "../../sdks/fhe-client-sdk" }
+fhe-client-sdk = { path = "../../sdk/fhe-client" }
 
 # TUI dependencies
 ratatui = "0.26"

@@ -19,12 +19,11 @@ members = [
 ]
 exclude = [
     "src/___dump/job-creator",  # Deprecated E2E testing tool (moved to dump)
-    "src/programs",     # Separate workspace for Solana BPF
+    "programs",         # Separate workspace for Solana BPF
     "deployment/scripts/archive", # Archived scripts
     "chain/solana",
     "tests/e2e",        # E2E tests use solana-program-test which requires BPF
-    "sdks/fhe-client-sdk",  # Standalone FHE SDK with heavy tfhe-rs dependency
-    "sdks/zk-prover-sdk",   # TypeScript/Bun SDK for ZK proof generation
+    "sdk/fhe-client",       # Standalone FHE SDK with heavy tfhe-rs dependency
 ]
 resolver = "2"
 

@@ -153,7 +153,7 @@ fund_account "$PROVER3_KEYPAIR" "prover-3"
 
 # Build program
 log_info "Compilando programa Solana..."
-cd src/programs
+cd programs
 if [ ! -f "target/deploy/zyberlink.so" ]; then
     cargo build-sbf
     log_ok "Programa compilado"
@@ -164,7 +164,7 @@ cd "$PROJECT_DIR"
 
 # Deploy program
 log_info "Desplegando programa a devnet..."
-PROGRAM_KEYPAIR="src/programs/target/deploy/zyberlink-keypair.json"
+PROGRAM_KEYPAIR="programs/target/deploy/zyberlink-keypair.json"
 
 if [ ! -f "$PROGRAM_KEYPAIR" ]; then
     log_error "No se encuentra keypair del programa"
@@ -178,7 +178,7 @@ DEPLOYED=$(solana program show "$PROGRAM_ID" 2>&1 || echo "not found")
 if [[ "$DEPLOYED" == *"not found"* ]] || [[ "$DEPLOYED" == *"does not exist"* ]]; then
     log_info "Desplegando programa por primera vez..."
     solana program deploy \
-        src/programs/target/deploy/zyberlink.so \
+        programs/target/deploy/zyberlink.so \
         --program-id "$PROGRAM_KEYPAIR" \
         --keypair "$FUNDER_KEYPAIR"
     log_ok "Programa desplegado"

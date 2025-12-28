@@ -31,7 +31,7 @@ log_step() {
 }
 
 # Check we're in project root
-if [ ! -f "Cargo.toml" ] || [ ! -d "src/programs" ]; then
+if [ ! -f "Cargo.toml" ] || [ ! -d "programs" ]; then
     log_error "Must run from project root"
     exit 1
 fi
@@ -43,19 +43,19 @@ log_step "E2E Setup - Building Infrastructure"
 # ============================================================================
 log_step "STEP 1: Compiling Solana Programs"
 
-if [ ! -d "src/programs" ]; then
-    log_error "src/programs directory not found"
+if [ ! -d "programs" ]; then
+    log_error "programs directory not found"
     exit 1
 fi
 
 log_info "Building programs with cargo build-sbf..."
-if cargo build-sbf --manifest-path src/programs/Cargo.toml > /tmp/e2e-build-programs.log 2>&1; then
+if cargo build-sbf --manifest-path programs/Cargo.toml > /tmp/e2e-build-programs.log 2>&1; then
     log_info "Programs compiled successfully"
 
     # List compiled programs
-    if [ -d "src/programs/target/deploy" ]; then
+    if [ -d "programs/target/deploy" ]; then
         log_info "Compiled programs:"
-        for prog in src/programs/target/deploy/*.so; do
+        for prog in programs/target/deploy/*.so; do
             if [ -f "$prog" ]; then
                 SIZE=$(du -h "$prog" | cut -f1)
                 log_info "  $(basename $prog): $SIZE"
@@ -186,7 +186,7 @@ echo ""
 echo "E2E Environment Ready:"
 echo ""
 echo "Programs:"
-ls -lh src/programs/target/deploy/*.so 2>/dev/null | awk '{print "  " $9 " (" $5 ")"}'
+ls -lh programs/target/deploy/*.so 2>/dev/null | awk '{print "  " $9 " (" $5 ")"}'
 echo ""
 echo "Binaries:"
 for bin in "${BINARIES[@]}"; do
