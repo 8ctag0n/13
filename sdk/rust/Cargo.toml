@@ -42,7 +42,7 @@ env_logger.workspace = true
 # ZyberLink crates
 zyberlink-types = { path = "../../kernel/types" }
 zyberlink-fhe = { path = "../../kernel/fhe" }
-bedrock-sdk = { path = "../../programs/sdks/bedrock-sdk" }
+bedrock-sdk = { path = "../../chain/solana/programs/sdks/bedrock-sdk" }
 
 # Re-export tfhe types
 tfhe = { version = "0.10", default-features = false, features = ["integer", "x86_64-unix"] }
@@ -50,7 +50,7 @@ tfhe = { version = "0.10", default-features = false, features = ["integer", "x86
 [dev-dependencies]
 solana-program-test.workspace = true
 tokio = { workspace = true, features = ["test-util", "rt-multi-thread", "macros"] }
-zyberlink = { path = "../../src/programs/zyberlink", features = ["no-entrypoint"] }
+zyberlink = { path = "../../chain/solana/programs/zyberlink", features = ["no-entrypoint"] }
 reqwest.workspace = true
 hex.workspace = true
 serde_json.workspace = true

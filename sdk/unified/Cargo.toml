@@ -51,10 +51,10 @@ zyberlink-jobs = { path = "../../packages/jobs" }
 zyberlink-types = { path = "../../kernel/types" }
 
 # TODO: Add when programs have no-entrypoint features
-# bedrock = { path = "../../src/programs/bedrock", features = ["no-entrypoint"], optional = true }
-# fhe-generator = { path = "../../src/programs/fhe-generator", features = ["no-entrypoint"], optional = true }
-# zk-generator = { path = "../../src/programs/zk-generator", features = ["no-entrypoint"], optional = true }
-# futarchy-markets = { path = "../../src/programs/futarchy-markets", features = ["no-entrypoint"], optional = true }
+# bedrock = { path = "../../chain/solana/programs/bedrock", features = ["no-entrypoint"], optional = true }
+# fhe-generator = { path = "../../chain/solana/programs/fhe-generator", features = ["no-entrypoint"], optional = true }
+# zk-generator = { path = "../../chain/solana/programs/zk-generator", features = ["no-entrypoint"], optional = true }
+# futarchy-markets = { path = "../../chain/solana/programs/futarchy-markets", features = ["no-entrypoint"], optional = true }
 
 [dev-dependencies]
 env_logger.workspace = true
