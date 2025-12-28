@@ -1,7 +1,7 @@
 [package]
 name = "e2e-tests"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 
 [dependencies]
 solana-program.workspace = true
@@ -12,9 +12,9 @@ borsh.workspace = true
 tokio.workspace = true
 
 # Los programas (para cargar en tests con simulador)
-bedrock = { path = "../bedrock" }
-zk-generator = { path = "../zk-generator" }
-fhe-generator = { path = "../fhe-generator" }
+bedrock.workspace = true
+zk-generator.workspace = true
+fhe-generator.workspace = true
 
 # Los SDKs (para construir instrucciones)
 bedrock-sdk = { path = "../sdks/bedrock-sdk" }
@@ -22,8 +22,8 @@ zk-generator-sdk = { path = "../sdks/zk-generator-sdk" }
 fhe-generator-sdk = { path = "../sdks/fhe-generator-sdk" }
 
 # Shared types
-zyberlink-types = { path = "../../../kernel/types" }
-zyberlink-jobs = { path = "../../../packages/jobs" }
+zyberlink-types.workspace = true
+zyberlink-jobs.workspace = true
 
 # Para tests reales contra localhost
 anyhow = "1.0"

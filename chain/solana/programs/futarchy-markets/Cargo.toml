@@ -1,8 +1,8 @@
 [package]
 name = "futarchy-markets"
-version = "0.1.0"
-edition = "2021"
-license = "MIT"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
 
 [lib]
 crate-type = ["cdylib", "lib"]
@@ -24,19 +24,19 @@ thiserror.workspace = true
 groth16-solana = "0.2"
 
 # Workspace dependencies for types and shared code
-zyberlink-types = { path = "../../../../../kernel/types" }
-zyberlink-jobs = { path = "../../../../../../packages/jobs" }
+zyberlink-types.workspace = true
+zyberlink-jobs.workspace = true
 
 # Core programs for CPI
-bedrock = { path = "../../../../../chain/solana/bedrock", features = ["no-entrypoint"] }
-zk-generator = { path = "../../../../../chain/solana/zk-generator", features = ["no-entrypoint"] }
-fhe-generator = { path = "../../../../../chain/solana/fhe-generator", features = ["no-entrypoint"] }
+bedrock.workspace = true
+zk-generator.workspace = true
+fhe-generator.workspace = true
 
 [dev-dependencies]
 # Integration tests
 solana-program-test.workspace = true
 solana-sdk.workspace = true
-tokio = { version = "1", features = ["full"] }
+tokio.workspace = true
 
 # Unit tests (ultra fast)
 mollusk-svm = "0.3"

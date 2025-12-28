@@ -5,6 +5,7 @@ members = [
     "programs/fhe-generator",
     "programs/threshold",
     "programs/futarchy-markets",
+    "programs/e2e",
     "programs/sdks/bedrock-sdk",
     "programs/sdks/fhe-generator-sdk",
     "programs/sdks/zk-generator-sdk",
@@ -27,6 +28,8 @@ zyberlink-jobs = { path = "../../packages/jobs" }
 
 # Internal programs (for CPI)
 bedrock = { path = "programs/bedrock", features = ["no-entrypoint"] }
+zk-generator = { path = "programs/zk-generator", features = ["no-entrypoint"] }
+fhe-generator = { path = "programs/fhe-generator", features = ["no-entrypoint"] }
 
 # Solana
 solana-program = "2.3"
