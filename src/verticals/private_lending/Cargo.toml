@@ -12,8 +12,8 @@ path = "mod.rs"
 
 [dependencies]
 # Shared dependencies
-zyberlink-types = { path = "../../shared/types" }
-zyberlink-fhe = { path = "../../shared/fhe" }
+zyberlink-types = { path = "../../../kernel/types" }
+zyberlink-fhe = { path = "../../../kernel/fhe" }
 zyberlink-chain-client = { path = "../../shared/chain-client", features = ["aptos"] }
 
 # Async runtime

@@ -13,7 +13,7 @@ solana-program = "2.1"
 thiserror = "2.0"
 bedrock = { path = "../bedrock", features = ["no-entrypoint"] }
 zyberlink-jobs = { path = "../../shared/jobs" }
-zyberlink-types = { path = "../../shared/types" }
+zyberlink-types = { path = "../../../kernel/types" }
 
 [lib]
 crate-type = ["cdylib", "lib"]

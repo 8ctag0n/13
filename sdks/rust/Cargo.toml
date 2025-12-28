@@ -40,8 +40,8 @@ log.workspace = true
 env_logger.workspace = true
 
 # ZyberLink crates
-zyberlink-types = { path = "../../src/shared/types" }
-zyberlink-fhe = { path = "../../src/shared/fhe" }
+zyberlink-types = { path = "../../kernel/types" }
+zyberlink-fhe = { path = "../../kernel/fhe" }
 bedrock-sdk = { path = "../../src/programs/sdks/bedrock-sdk" }
 
 # Re-export tfhe types

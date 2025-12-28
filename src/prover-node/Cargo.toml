@@ -47,7 +47,7 @@ solana-account-decoder.workspace = true
 zyberlink-sdk = { path = "../../sdks/rust" }
 zyberlink-unified-sdk = { path = "../../sdks/unified" }
 futarchy-sdk = { path = "../../sdks/futarchy-sdk" }
-zyberlink-types = { path = "../shared/types" }
+zyberlink-types = { path = "../../kernel/types" }
 zyberlink-chain-client = { path = "../shared/chain-client", features = ["aptos", "starknet"] }
 bedrock-sdk = { path = "../programs/sdks/bedrock-sdk" }
 fhe-generator-sdk = { path = "../programs/sdks/fhe-generator-sdk" }
@@ -79,7 +79,7 @@ k256 = { version = "0.13", features = ["ecdsa", "sha256"] }
 starknet-crypto = "0.8"
 
 # FHE (Fully Homomorphic Encryption) - using shared crate
-zyberlink-fhe = { path = "../shared/fhe" }
+zyberlink-fhe = { path = "../../kernel/fhe" }
 
 # Private Lending vertical (Aptos LTV verification)
 private_lending = { path = "../verticals/private_lending" }

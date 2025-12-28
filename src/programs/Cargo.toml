@@ -27,7 +27,7 @@ thiserror = "1.0"
 # NOTE: spl-token removed - not used in on-chain program
 
 # Shared libraries (using relative path outside workspace)
-zyberlink-types = { path = "../shared/types" }
+zyberlink-types = { path = "../../kernel/types" }
 zyberlink-jobs = { path = "../shared/jobs" }
 
 # Internal programs (for CPI)

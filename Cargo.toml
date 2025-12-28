@@ -8,9 +8,9 @@ members = [
     "src/blink-server",
     "src/x402-server",
     "src/public-api",
-    "src/shared/types",
-    "src/shared/crypto",
-    "src/shared/fhe",
+    "kernel/types",
+    "kernel/crypto",
+    "kernel/fhe",
     "src/shared/jobs",
     "src/shared/chain-client",
     "src/zyb-cli",
@@ -37,7 +37,7 @@ authors = ["ZyberLink Team"]
 
 [workspace.dependencies]
 # Shared types
-zyberlink-types = { path = "src/shared/types" }
+zyberlink-types = { path = "kernel/types" }
 zyberlink-jobs = { path = "src/shared/jobs" }
 zyberlink-chain-client = { path = "src/shared/chain-client" }
 

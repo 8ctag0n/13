@@ -12,8 +12,8 @@ path = "src/main.rs"
 [dependencies]
 # ZyberLink
 zyberlink-sdk = { path = "../../sdks/rust" }
-zyberlink-types = { path = "../shared/types" }
-zyberlink-fhe = { path = "../shared/fhe" }
+zyberlink-types = { path = "../../kernel/types" }
+zyberlink-fhe = { path = "../../kernel/fhe" }
 fhe-generator-sdk = { path = "../programs/sdks/fhe-generator-sdk" }
 futarchy-sdk = { path = "../../sdks/futarchy-sdk" }
 zyberlink-chain-client = { path = "../shared/chain-client", optional = true }

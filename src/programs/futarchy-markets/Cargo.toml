@@ -24,7 +24,7 @@ thiserror.workspace = true
 groth16-solana = "0.2"
 
 # Workspace dependencies for types and shared code
-zyberlink-types = { path = "../../shared/types" }
+zyberlink-types = { path = "../../../kernel/types" }
 zyberlink-jobs = { path = "../../shared/jobs" }
 
 # Core programs for CPI

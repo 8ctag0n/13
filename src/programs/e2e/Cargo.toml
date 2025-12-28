@@ -22,7 +22,7 @@ zk-generator-sdk = { path = "../sdks/zk-generator-sdk" }
 fhe-generator-sdk = { path = "../sdks/fhe-generator-sdk" }
 
 # Shared types
-zyberlink-types = { path = "../../shared/types" }
+zyberlink-types = { path = "../../../kernel/types" }
 zyberlink-jobs = { path = "../../shared/jobs" }
 
 # Para tests reales contra localhost
