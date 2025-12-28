@@ -1,30 +1,36 @@
 # Chain Layer
 
-Core blockchain infrastructure used across ALL verticals.
+Core blockchain infrastructure.
 
 ## Directory Structure
 
 ```
 chain/
-├── solana/          # Solana BPF programs (core)
-│   ├── bedrock/          # Main ZK verifier
-│   ├── zk-generator/     # ZK proof generation service
-│   ├── fhe-generator/    # FHE encryption service
-│   └── threshold/        # Threshold cryptography
-├── aptos/           # Aptos Move contracts (core)
-│   ├── zk_verifier.move  # Groth16 verification
-│   └── jobs.move         # Job management
-└── starknet/        # Starknet Cairo contracts (core)
-    ├── fhe_verifier.cairo
-    ├── jobs.cairo
-    └── crypto_lib.cairo
+├── solana/                    # Solana BPF workspace
+│   └── programs/
+│       ├── bedrock/           # Main ZK verifier
+│       ├── zk-generator/      # ZK proof generation
+│       ├── fhe-generator/     # FHE encryption
+│       ├── threshold/         # Threshold cryptography
+│       ├── futarchy-markets/  # Governance markets
+│       ├── zyberlink/         # DEPRECATED - legacy monolith
+│       ├── sdks/              # Program SDKs
+│       └── e2e/               # Integration tests
+├── aptos/                     # Aptos Move contracts
+│   └── sources/
+│       ├── zk_verifier.move   # Groth16 verification
+│       └── jobs.move          # Job management
+└── starknet/                  # Starknet Cairo contracts
+    └── src/
+        ├── fhe_verifier.cairo
+        ├── jobs.cairo
+        └── crypto_lib.cairo
 ```
 
-## Principles
+## Notes
 
-**Chain layer contains ONLY infrastructure used by MULTIPLE verticals.**
-
-If a contract/program is vertical-specific (e.g., futarchy-markets for governance), it belongs in `verticals/<domain>/`.
+- `zyberlink/` is deprecated, use modular programs instead
+- `futarchy-markets/` is governance-specific but kept here for Solana workspace cohesion
 
 ## Building
 
