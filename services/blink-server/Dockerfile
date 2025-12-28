@@ -16,7 +16,7 @@ RUN apt-get update && apt-get install -y \
 COPY target/release/blink-server /app/server
 
 # Copy migrations (backend loads from ./blink-server/migrations)
-COPY src/blink-server/migrations /app/blink-server/migrations
+COPY services/blink-server/migrations /app/blink-server/migrations
 
 # Environment defaults
 ENV RUST_LOG=info
