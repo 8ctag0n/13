@@ -1,5 +1,5 @@
 {
-  "name": "@zyber/compliance-kit",
+  "name": "@zyberlink/compliance-kit",
   "version": "0.0.0",
   "description": "Compliance zero-knowledge SDK built on Zyber core circuits",
   "main": "dist/index.js",
@@ -16,7 +16,7 @@
     "prepublishOnly": "bun run build"
   },
   "dependencies": {
-    "@zyber/core": "workspace:*"
+    "@zyberlink/core": "workspace:*"
   },
   "license": "MIT"
 }

@@ -1,7 +1,7 @@
 {
-  "name": "@zyber/private-vote",
+  "name": "@zyberlink/anon-markets",
   "version": "0.0.0",
-  "description": "Private voting SDK built on Zyber core circuits",
+  "description": "Anonymous prediction markets SDK built on Zyber core circuits",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
@@ -16,7 +16,7 @@
     "prepublishOnly": "bun run build"
   },
   "dependencies": {
-    "@zyber/core": "workspace:*"
+    "@zyberlink/core": "workspace:*"
   },
   "license": "MIT"
 }

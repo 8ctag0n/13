@@ -24,13 +24,13 @@ thiserror.workspace = true
 groth16-solana = "0.2"
 
 # Workspace dependencies for types and shared code
-zyberlink-types = { path = "../../../kernel/types" }
-zyberlink-jobs = { path = "../../shared/jobs" }
+zyberlink-types = { path = "../../../../../kernel/types" }
+zyberlink-jobs = { path = "../../../../../src/shared/jobs" }
 
 # Core programs for CPI
-bedrock = { path = "../bedrock", features = ["no-entrypoint"] }
-zk-generator = { path = "../zk-generator", features = ["no-entrypoint"] }
-fhe-generator = { path = "../fhe-generator", features = ["no-entrypoint"] }
+bedrock = { path = "../../../../../chain/solana/bedrock", features = ["no-entrypoint"] }
+zk-generator = { path = "../../../../../chain/solana/zk-generator", features = ["no-entrypoint"] }
+fhe-generator = { path = "../../../../../chain/solana/fhe-generator", features = ["no-entrypoint"] }
 
 [dev-dependencies]
 # Integration tests
