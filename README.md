@@ -151,6 +151,7 @@ Prove age >= 18 without revealing exact age:
 ```
 Threshold(encrypted_age, >= 18) → true/false
 ```
+
 ## Zyb CLI (FHE)
 
 Encrypt data locally before sending to the marketplace. Full docs: [/src/zyb-cli](src/zyb-cli)

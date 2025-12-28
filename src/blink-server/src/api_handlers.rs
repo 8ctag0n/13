@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use solana_sdk::{message::Message, pubkey::Pubkey, transaction::Transaction};
 use solana_client::rpc_client::RpcClient;
+use std::str::FromStr;
 
 use crate::db::{FheResultQueries, InsertJobData, JobQueries, JobStatus, NetworkMetricsQueries, ServerKeyQueries, WitnessQueries};
 use crate::validators::{JobValidator, ValidateJobRequest};
@@ -1533,6 +1534,7 @@ async fn upload_witness(data: web::Data<AppState>, body: web::Bytes) -> impl Res
 /// First checks the witnesses table, then attempts to reconstruct from
 /// blockchain_jobs + temp_job_data if not found.
 #[get("/internal/witness/{commitment}")]
+#[get("/witness/{commitment}")]
 async fn get_witness(data: web::Data<AppState>, commitment: web::Path<String>) -> impl Responder {
     log::info!("Fetching witness for commitment: {}", *commitment);
 
@@ -1724,7 +1726,7 @@ async fn get_fhe_result(
 /// Usage:
 /// 1. Upload server_key via POST /api/server-key/upload (raw bytes)
 /// 2. Use returned server_key_hash in validate-and-build request
-#[post("/internal/server-key/upload")]
+#[post("/api/server-key/upload")]
 async fn upload_server_key(data: web::Data<AppState>, body: web::Bytes) -> impl Responder {
     let size_bytes = body.len();
     log::info!("Received server key upload, size: {} bytes ({:.2} MB)",
@@ -1795,7 +1797,7 @@ async fn upload_server_key(data: web::Data<AppState>, body: web::Bytes) -> impl 
 ///
 /// Check if a server key exists by its hash.
 /// Useful for frontend to check if re-upload is needed.
-#[get("/internal/server-key/{hash}/exists")]
+#[get("/api/server-key/{hash}/exists")]
 async fn check_server_key_exists(
     data: web::Data<AppState>,
     hash: web::Path<String>,
@@ -1818,11 +1820,11 @@ async fn check_server_key_exists(
     }
 }
 
-/// GET /api/jobs/fhe/{job_id}/chain-status
+/// GET /api/jobs/{job_id}/chain-status
 ///
-/// Get FHE job status directly from blockchain_jobs (synced from chain).
+/// Get job status directly from blockchain_jobs (synced from chain).
 /// Useful for getting witness_hash and current on-chain status.
-#[get("/internal/fhe/{job_id}/chain-status")]
+#[get("/api/jobs/{job_id}/chain-status")]
 async fn get_job_chain_status(data: web::Data<AppState>, job_id: web::Path<i64>) -> impl Responder {
     log::info!("Fetching chain status for job_id: {}", *job_id);
 
@@ -1864,11 +1866,11 @@ struct ProverResultRow {
     created_at: Option<chrono::NaiveDateTime>,
 }
 
-/// GET /api/jobs/fhe/{job_id}/provers
+/// GET /api/jobs/{job_id}/provers
 ///
-/// Get list of provers who have submitted results for this FHE job.
+/// Get list of provers who have submitted results for this job.
 /// Returns prover pubkeys, submission times, and consensus status.
-#[get("/internal/fhe/{job_id}/provers")]
+#[get("/api/jobs/{job_id}/provers")]
 async fn get_job_provers(data: web::Data<AppState>, job_id: web::Path<i64>) -> impl Responder {
     log::info!("Fetching provers for job_id: {}", *job_id);
 
@@ -1919,7 +1921,7 @@ async fn get_job_provers(data: web::Data<AppState>, job_id: web::Path<i64>) -> i
     }
 }
 
-/// GET /api/jobs/fhe/{job_id}/result
+/// GET /api/jobs/{job_id}/result
 ///
 /// Get FHE computation result for a completed job.
 /// Searches fhe_results table by job_id directly.
