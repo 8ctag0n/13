@@ -10,7 +10,7 @@ pub struct BlinkClient {
 impl BlinkClient {
     pub fn new(base_url: &str) -> Self {
         let client = Client::builder()
-            .timeout(Duration::from_secs(30))
+            .timeout(Duration::from_secs(120)) // 2min for large witness downloads
             .build()
             .expect("Failed to create HTTP client");
 
@@ -35,6 +35,16 @@ impl BlinkClient {
     ) -> Result<R, reqwest::Error> {
         let url = format!("{}{}", self.base_url, path);
         self.client.post(&url).json(body).send().await?.json().await
+    }
+
+    /// Get base URL for proxying
+    pub fn base_url(&self) -> &str {
+        &self.base_url
+    }
+
+    /// Get HTTP client for proxying
+    pub fn client(&self) -> &Client {
+        &self.client
     }
 
     pub async fn health_check(&self) -> Result<bool, reqwest::Error> {

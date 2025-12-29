@@ -22,7 +22,7 @@ use zyberlink_types::{CircuitType, JobStatus};
 use zyberlink_unified_sdk::query::JobQuery;
 
 // SDKs for new generator programs
-use bedrock_sdk::derive_prover_pda;
+use bedrock_sdk::{derive_prover_pda, instructions as bedrock_instructions};
 use fhe_generator_sdk::{derive_consensus_pda, instructions as fhe_instructions};
 
 /// Solana marketplace wrapper
@@ -121,13 +121,9 @@ impl SolanaMarketplace {
             None
         };
 
-        // Known Bedrock program ID (from scripts/init-bedrock.sh)
-        // TODO: Make this configurable via CLI arg
-        let bedrock_program = Some(
-            "Di2Tu6aNpJpPyxbMAasoLQU2yLqYMFWvUoV7cq7sXfvx"
-                .parse()
-                .expect("Invalid Bedrock program ID")
-        );
+        // Bedrock program ID is the main program_id passed via CLI
+        // The prover registers in Bedrock, and jobs are created in FHE-Generator
+        let bedrock_program = Some(program_id);
 
         Ok(Self {
             client,
@@ -343,14 +339,18 @@ impl MarketplaceOperations for SolanaMarketplace {
     async fn register_prover(
         &self,
         stake: u64,
-        encryption_pubkey: Option<[u8; 32]>,
+        _encryption_pubkey: Option<[u8; 32]>,
     ) -> Result<TransactionResult> {
-        let pubkey = encryption_pubkey.unwrap_or([0u8; 32]);
+        // Use bedrock-sdk for registration (matches deployed program)
+        let prover_wallet = self.keypair.pubkey();
+        let (prover_pda, _) = derive_prover_pda(&self.program_id, &prover_wallet);
 
-        let instruction = self
-            .client
-            .register_prover_instruction(&self.keypair.pubkey(), stake, pubkey)
-            .map_err(|e| MarketplaceError::ChainError(e.to_string()))?;
+        let instruction = bedrock_instructions::register_prover(
+            &self.program_id,
+            &prover_wallet,
+            &prover_pda,
+            stake,
+        );
 
         let signature = self
             .client

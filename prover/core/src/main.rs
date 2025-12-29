@@ -11,6 +11,7 @@ use solana_sdk::{
 use std::{sync::Arc, time::Duration};
 use tokio::time::sleep;
 use zyberlink_sdk::MarketplaceClient;
+use bedrock_sdk::{derive_prover_pda, instructions as bedrock_instructions};
 
 // FHE engine from shared crate
 use zyberlink_fhe::{deserialize_server_key, FheEngine};
@@ -980,18 +981,22 @@ async fn register_prover(args: &ProverArgs, stake_amount: u64) -> Result<()> {
     );
     info!("  Encryption pubkey: {}", hex::encode(encryption_pubkey));
 
-    // Create register instruction
-    let ix =
-        client.register_prover_instruction(&keypair.pubkey(), stake_amount, encryption_pubkey)?;
+    // Use bedrock-sdk for registration (matches deployed program)
+    let prover_wallet = keypair.pubkey();
+    let (prover_pda, _) = derive_prover_pda(&program_id, &prover_wallet);
+
+    let ix = bedrock_instructions::register_prover(
+        &program_id,
+        &prover_wallet,
+        &prover_pda,
+        stake_amount,
+    );
 
     // Send transaction
     let sig = client.send_and_confirm_transaction(&[ix], &[&keypair])?;
 
     info!("Prover registered successfully!");
     info!("  Signature: {}", sig);
-
-    // Verify registration
-    let (prover_pda, _) = client.get_prover_pda(&keypair.pubkey());
     info!("  Prover PDA: {}", prover_pda);
 
     Ok(())

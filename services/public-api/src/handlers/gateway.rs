@@ -30,7 +30,7 @@ fn build_forward_headers(req: &HttpRequest) -> Vec<(String, String)> {
 }
 
 /// GET /gateway/prover/witness/{hash}
-/// Proxy witness download to x402
+/// Proxy witness download to blink-server (where witnesses are stored)
 #[get("/gateway/prover/witness/{hash}")]
 pub async fn get_witness(
     data: web::Data<AppState>,
@@ -38,12 +38,12 @@ pub async fn get_witness(
     hash: web::Path<String>,
 ) -> HttpResponse {
     let witness_hash = hash.into_inner();
-    let url = format!("{}/gateway/prover/witness/{}",
-        data.x402_client.base_url(), witness_hash);
+    let url = format!("{}/witness/{}",
+        data.blink_client.base_url(), witness_hash);
 
     let headers = build_forward_headers(&req);
 
-    let mut request_builder = data.x402_client.client()
+    let mut request_builder = data.blink_client.client()
         .get(&url);
 
     for (name, value) in headers {
@@ -60,9 +60,9 @@ pub async fn get_witness(
                 .body(body)
         }
         Err(e) => {
-            log::error!("Failed to proxy witness request: {}", e);
+            log::error!("Failed to proxy witness request to blink: {}", e);
             HttpResponse::BadGateway().json(serde_json::json!({
-                "error": "Failed to contact x402 server"
+                "error": "Failed to contact blink server"
             }))
         }
     }

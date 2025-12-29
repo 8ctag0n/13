@@ -61,9 +61,10 @@ impl WitnessFetcher {
 
     /// Download encrypted witness from backend using commitment
     /// Retries on 404 with exponential backoff (chain sync may not have run yet)
+    /// Uses /gateway/prover/witness/{hash} which proxies to blink-server
     pub async fn download_witness(&self, commitment: &[u8; 32]) -> Result<Vec<u8>> {
         let commitment_hex = hex::encode(commitment);
-        let url = format!("{}/witness/{}", self.backend_url, commitment_hex);
+        let url = format!("{}/gateway/prover/witness/{}", self.backend_url, commitment_hex);
 
         // Retry configuration: wait for chain sync to populate witness_hash
         const MAX_RETRIES: u32 = 5;
