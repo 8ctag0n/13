@@ -127,6 +127,8 @@ impl JobQuery {
             .get_program_accounts_with_config(&self.fhe_generator_program, config)
             ?;
 
+        log::debug!("FHE query: found {} total accounts from program {}", accounts.len(), self.fhe_generator_program);
+
         // First pass: collect FheConsensusData by job_id
         let mut consensus_by_job: HashMap<u64, FheConsensusData> = HashMap::new();
         for (_pubkey, account) in &accounts {
@@ -140,53 +142,73 @@ impl JobQuery {
 
         // Second pass: find FHE jobs that need provers
         let mut result = Vec::new();
+        let mut size_filtered = 0;
+        let mut deser_failed = 0;
+        let mut circuit_filtered = 0;
         for (pubkey, account) in &accounts {
-            // FheJob is 202 bytes
-            if account.data.len() < 200 || account.data.len() > 210 {
+            // FheJob size varies: 138-202 bytes depending on Option values
+            // (prover=None, proof_hash=None = ~138 bytes)
+            // (prover=Some, proof_hash=Some = ~202 bytes)
+            // Accept range 135-220 to cover all cases
+            if account.data.len() < 135 || account.data.len() > 220 {
+                size_filtered += 1;
                 continue;
             }
 
-            if let Ok(job) = FheJobAccount::deserialize(&mut &account.data[..]) {
-                // Only FHE jobs (circuit_type 4-11)
-                if job.circuit_type < 4 || job.circuit_type > 11 {
+            match FheJobAccount::deserialize(&mut &account.data[..]) {
+                Err(e) => {
+                    deser_failed += 1;
+                    log::trace!("FHE deser failed for {}: {}", pubkey, e);
                     continue;
                 }
-
-                // Check if job needs provers
-                if let Some(consensus) = consensus_by_job.get(&job.common.id) {
-                    // Skip if already have enough provers
-                    if consensus.claimed_count >= consensus.required_provers {
+                Ok(job) => {
+                    // Only FHE jobs (circuit_type 4-11)
+                    if job.circuit_type < 4 || job.circuit_type > 11 {
+                        circuit_filtered += 1;
                         continue;
                     }
 
-                    // Skip if I already claimed this job
-                    let already_claimed = consensus.claimed_provers[..consensus.claimed_count as usize]
-                        .iter()
-                        .any(|p| p == my_pubkey);
-                    if already_claimed {
-                        continue;
-                    }
+                    log::trace!("FHE job {} circuit={} status={:?}", job.common.id, job.circuit_type, job.common.status);
 
-                    // This job needs provers and I haven't claimed it
-                    result.push(UnifiedJob::Fhe {
-                        program_id: self.fhe_generator_program,
-                        address: *pubkey,
-                        common: job.common,
-                        circuit_type: job.circuit_type,
-                        consensus_bump: job.fhe_consensus_bump,
-                    });
-                } else if job.common.status == JobStatus::Pending {
-                    // No consensus data yet = pending, can claim
-                    result.push(UnifiedJob::Fhe {
-                        program_id: self.fhe_generator_program,
-                        address: *pubkey,
-                        common: job.common,
-                        circuit_type: job.circuit_type,
-                        consensus_bump: job.fhe_consensus_bump,
-                    });
+                    // Check if job needs provers
+                    if let Some(consensus) = consensus_by_job.get(&job.common.id) {
+                        // Skip if already have enough provers
+                        if consensus.claimed_count >= consensus.required_provers {
+                            continue;
+                        }
+
+                        // Skip if I already claimed this job
+                        let already_claimed = consensus.claimed_provers[..consensus.claimed_count as usize]
+                            .iter()
+                            .any(|p| p == my_pubkey);
+                        if already_claimed {
+                            continue;
+                        }
+
+                        // This job needs provers and I haven't claimed it
+                        result.push(UnifiedJob::Fhe {
+                            program_id: self.fhe_generator_program,
+                            address: *pubkey,
+                            common: job.common,
+                            circuit_type: job.circuit_type,
+                            consensus_bump: job.fhe_consensus_bump,
+                        });
+                    } else if job.common.status == JobStatus::Pending {
+                        // No consensus data yet = pending, can claim
+                        result.push(UnifiedJob::Fhe {
+                            program_id: self.fhe_generator_program,
+                            address: *pubkey,
+                            common: job.common,
+                            circuit_type: job.circuit_type,
+                            consensus_bump: job.fhe_consensus_bump,
+                        });
+                    }
                 }
             }
         }
+
+        log::debug!("FHE query stats: size_filtered={}, deser_failed={}, circuit_filtered={}, result={}",
+            size_filtered, deser_failed, circuit_filtered, result.len());
 
         Ok(result)
     }
@@ -262,8 +284,8 @@ impl JobQuery {
 
         let mut jobs = Vec::new();
         for (pubkey, account) in accounts {
-            // ZkJob is 201 bytes
-            if account.data.len() < 200 || account.data.len() > 210 {
+            // ZkJob size varies: ~137-201 bytes depending on Option values
+            if account.data.len() < 135 || account.data.len() > 220 {
                 continue;
             }
 
@@ -299,8 +321,8 @@ impl JobQuery {
 
         let mut jobs = Vec::new();
         for (pubkey, account) in accounts {
-            // FheJob is 202 bytes
-            if account.data.len() < 200 || account.data.len() > 210 {
+            // FheJob size varies: 138-202 bytes depending on Option values
+            if account.data.len() < 135 || account.data.len() > 220 {
                 continue;
             }
 
