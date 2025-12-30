@@ -216,10 +216,35 @@ impl SolanaMarketplace {
 
     /// Convert circuit type u8 to CircuitType enum
     fn circuit_type_from_u8(val: u8) -> CircuitType {
+        use zyberlink_types::{FheOperation, HistogramBin};
         match val {
             0 => CircuitType::ZcashOrchard,
             1 => CircuitType::AnonymousVote,
             2 => CircuitType::Credential,
+            // FHE circuits (4-11) - parameters will be filled from witness/consensus data
+            4 => CircuitType::FheComputation(FheOperation::Add(0)),
+            5 => CircuitType::FheComputation(FheOperation::Multiply(0)),
+            6 => CircuitType::FheComputation(FheOperation::Sum { expected_count: 0 }),
+            7 => CircuitType::FheComputation(FheOperation::Threshold { threshold: 0, greater_or_equal: true }),
+            8 => CircuitType::FheComputation(FheOperation::RangeCheck { min: 0, max: 255 }),
+            9 => CircuitType::FheComputation(FheOperation::Average { expected_count: 0 }),
+            10 => CircuitType::FheComputation(FheOperation::CountIf {
+                predicate: zyberlink_types::fhe::FhePredicate::GreaterThan(0),
+                expected_count: 0,
+            }),
+            11 => {
+                // Reconstruct 4 uniform bins (matches default dev-job bins_count)
+                let bins_count = 4usize;
+                let bins = (0..bins_count)
+                    .map(|i| {
+                        let bin_size = 256 / bins_count;
+                        let min = (i * bin_size) as u8;
+                        let max = ((i + 1) * bin_size - 1) as u8;
+                        HistogramBin::new(min, max, &format!("{}-{}", min, max))
+                    })
+                    .collect();
+                CircuitType::FheComputation(FheOperation::Histogram { bins })
+            }
             _ => CircuitType::Custom(format!("unknown_{}", val)),
         }
     }

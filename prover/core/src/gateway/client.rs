@@ -94,10 +94,13 @@ impl GatewayClient {
 
         #[derive(Deserialize)]
         struct FheResponse {
-            commitment: String,
+            success: bool,
+            job_id: i64,
+            prover: String,
+            result_size: usize,
         }
 
         let resp: FheResponse = response.json().await.context("Failed to parse FHE response")?;
-        Ok(resp.commitment)
+        Ok(format!("job_id={}, size={}", resp.job_id, resp.result_size))
     }
 }

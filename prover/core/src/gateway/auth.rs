@@ -5,24 +5,23 @@ use blake2::{Blake2s256, Digest};
 /// Genera headers de autenticación para requests al gateway
 ///
 /// El mensaje firmado es: "{METHOD}:{PATH}:{TIMESTAMP}:{BODY_HASH}"
+/// Note: x402's FromRequest can't access body, so we use empty body hash for consistency
 pub fn sign_gateway_request(
     keypair: &Keypair,
     method: &str,
     path: &str,
-    body: &[u8],
+    _body: &[u8], // Note: body not included in signature due to x402 FromRequest limitation
 ) -> GatewayAuthHeaders {
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_secs();
 
-    let body_hash = if body.is_empty() {
-        String::new()
-    } else {
-        let mut hasher = Blake2s256::new();
-        hasher.update(body);
-        hex::encode(hasher.finalize())
-    };
+    // Always use empty body hash - x402's FromRequest can't access the body stream
+    // so both sides must use empty body to match
+    let mut hasher = Blake2s256::new();
+    hasher.update(b""); // empty body
+    let body_hash = hex::encode(hasher.finalize());
 
     let message = format!("{}:{}:{}:{}", method, path, timestamp, body_hash);
     let signature = keypair.sign_message(message.as_bytes());

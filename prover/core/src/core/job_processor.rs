@@ -725,11 +725,17 @@ impl JobProcessor {
             job_id
         );
 
-        let stored_commitment = self
+        let stored_commitment = match self
             .gateway_client
             .submit_fhe_result(job_id, proof_bytes)
             .await
-            .context("Failed to submit FHE result to gateway")?;
+        {
+            Ok(c) => c,
+            Err(e) => {
+                error!("[Job {}] Gateway submit error: {:?}", job_id, e);
+                return Err(e).context("Failed to submit FHE result to gateway");
+            }
+        };
 
         info!(
             "[Job {}] FHE result stored with commitment: {}",
