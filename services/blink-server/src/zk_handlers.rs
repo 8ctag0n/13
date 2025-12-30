@@ -176,12 +176,11 @@ async fn validate_and_build_zk_job(
         }));
     }
 
-    // Step 3: Validate public_inputs (non-empty array)
+    // Step 3: Validate public_inputs (optional for some circuit types)
+    // Circuit types 20 (PrivateVote) don't require public inputs
+    // Circuit type 21 (PrivateVoteWithPoI) requires merkle root as public input
     if body.public_inputs.is_empty() {
-        log::warn!("Empty public_inputs array");
-        return HttpResponse::BadRequest().json(json!({
-            "error": "public_inputs cannot be empty"
-        }));
+        log::debug!("Empty public_inputs array for circuit type {}", body.circuit_type);
     }
 
     // Step 4: Extract x402 token if provided

@@ -29,7 +29,7 @@ const QUOTE_EXPIRY_SECS: i64 = 300;
 const TOKEN_EXPIRY_SECS: i64 = 24 * 60 * 60;
 
 /// Protocol fee recipient (treasury)
-const PROTOCOL_FEE_RECIPIENT: &str = "ZYBRtreasury11111111111111111111111111111111";
+const PROTOCOL_FEE_RECIPIENT: &str = "CfNa1QN6d933A986qd8VywkZkpNEQJoGSA1V7upbdmDM";
 
 // =============================================================================
 // Pricing Engine

@@ -15,20 +15,15 @@ use std::collections::HashSet;
 
 /// Verifier for Solana payment transactions
 pub struct SolanaVerifier {
-    rpc_client: RpcClient,
+    rpc_url: String,
     used_signatures: Arc<Mutex<HashSet<String>>>,
 }
 
 impl SolanaVerifier {
     /// Create a new Solana verifier
     pub fn new(rpc_url: &str) -> Self {
-        let rpc_client = RpcClient::new_with_commitment(
-            rpc_url.to_string(),
-            CommitmentConfig::confirmed(),
-        );
-
         Self {
-            rpc_client,
+            rpc_url: rpc_url.to_string(),
             used_signatures: Arc::new(Mutex::new(HashSet::new())),
         }
     }
@@ -64,14 +59,50 @@ impl SolanaVerifier {
         let recipient_pubkey = Pubkey::from_str(expected_recipient)
             .map_err(|e| anyhow!("Invalid recipient pubkey: {}", e))?;
 
-        // Fetch transaction from RPC
-        let transaction = self.rpc_client
-            .get_transaction_with_config(&signature, solana_client::rpc_config::RpcTransactionConfig {
-                encoding: Some(solana_transaction_status::UiTransactionEncoding::Json),
-                commitment: Some(CommitmentConfig::confirmed()),
-                max_supported_transaction_version: Some(0),
+        // Fetch transaction from RPC using spawn_blocking to avoid blocking the async runtime
+        // Retry up to 5 times with 1s delay to handle propagation delays
+        let rpc_url = self.rpc_url.clone();
+        let sig = signature;
+        let mut transaction = None;
+        let mut last_error = None;
+
+        for attempt in 0..5 {
+            if attempt > 0 {
+                tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+            }
+
+            let url = rpc_url.clone();
+            let s = sig;
+            let result = tokio::task::spawn_blocking(move || {
+                let rpc_client = RpcClient::new_with_commitment(
+                    url,
+                    CommitmentConfig::confirmed(),
+                );
+                rpc_client.get_transaction_with_config(&s, solana_client::rpc_config::RpcTransactionConfig {
+                    encoding: Some(solana_transaction_status::UiTransactionEncoding::Json),
+                    commitment: Some(CommitmentConfig::confirmed()),
+                    max_supported_transaction_version: Some(0),
+                })
             })
-            .map_err(|e| anyhow!("Failed to fetch transaction: {}", e))?;
+            .await
+            .map_err(|e| anyhow!("spawn_blocking failed: {}", e))?;
+
+            match result {
+                Ok(tx) => {
+                    transaction = Some(tx);
+                    break;
+                }
+                Err(e) => {
+                    last_error = Some(e);
+                    log::debug!("Transaction fetch attempt {} failed, retrying...", attempt + 1);
+                }
+            }
+        }
+
+        let transaction = transaction.ok_or_else(|| {
+            anyhow!("Failed to fetch transaction after 5 attempts: {}",
+                last_error.map(|e| e.to_string()).unwrap_or_else(|| "unknown".to_string()))
+        })?;
 
         // Verify transaction was successful
         if let Some(meta) = &transaction.transaction.meta {
@@ -84,7 +115,7 @@ impl SolanaVerifier {
 
         // Parse the transaction to verify payment details
         // This is a simplified check - in production you'd want more robust verification
-        let verified = self.verify_transaction_details(
+        let verified = Self::verify_transaction_details_static(
             &transaction,
             expected_amount,
             &recipient_pubkey,
@@ -108,8 +139,7 @@ impl SolanaVerifier {
     }
 
     /// Verify transaction details (amount and recipient)
-    fn verify_transaction_details(
-        &self,
+    fn verify_transaction_details_static(
         encoded_tx: &solana_transaction_status::EncodedConfirmedTransactionWithStatusMeta,
         expected_amount: u64,
         recipient_pubkey: &Pubkey,

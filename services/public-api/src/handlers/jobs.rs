@@ -115,7 +115,7 @@ async fn handle_payment_signature(
     let blink_url = std::env::var("BLINK_URL")
         .unwrap_or_else(|_| "http://localhost:8080".to_string());
     let client = reqwest::Client::new();
-    let url = format!("{}/internal/zk", blink_url);
+    let url = format!("{}/internal/zk/validate-and-build", blink_url);
 
     match client.post(&url)
         .json(&body.into_inner())
