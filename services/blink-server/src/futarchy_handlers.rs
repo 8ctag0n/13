@@ -2034,6 +2034,193 @@ pub async fn submit_bet(
 }
 
 // =============================================================================
+// Stats Endpoints
+// =============================================================================
+
+/// GET /api/futarchy/stats
+/// Get comprehensive stats for futarchy markets
+#[get("/api/futarchy/stats")]
+pub async fn get_futarchy_stats(pool: web::Data<PgPool>) -> impl Responder {
+    // Market stats by status
+    let market_stats_result: Result<Vec<(String, i64)>, _> = sqlx::query_as(
+        r#"
+        SELECT status, COUNT(*) as count
+        FROM futarchy_markets
+        GROUP BY status
+        "#
+    )
+    .fetch_all(pool.get_ref())
+    .await;
+
+    // Total bets count
+    let total_bets_result: Result<(i64,), _> = sqlx::query_as(
+        "SELECT COUNT(*) FROM futarchy_positions WHERE status = 'confirmed'"
+    )
+    .fetch_one(pool.get_ref())
+    .await;
+
+    // Bets in last 24h
+    let bets_24h_result: Result<(i64,), _> = sqlx::query_as(
+        r#"
+        SELECT COUNT(*) FROM futarchy_positions
+        WHERE status = 'confirmed'
+        AND created_at >= NOW() - INTERVAL '24 hours'
+        "#
+    )
+    .fetch_one(pool.get_ref())
+    .await;
+
+    // Pool totals
+    let pool_totals_result: Result<(i64, i64, i64), _> = sqlx::query_as(
+        r#"
+        SELECT
+            COALESCE(SUM(yes_pool_lamports), 0) as total_yes,
+            COALESCE(SUM(no_pool_lamports), 0) as total_no,
+            COALESCE(SUM(yes_pool_lamports + no_pool_lamports), 0) as total
+        FROM futarchy_markets
+        WHERE status = 'active'
+        "#
+    )
+    .fetch_one(pool.get_ref())
+    .await;
+
+    // FHE jobs stats
+    let fhe_jobs_result: Result<Vec<(String, i64)>, _> = sqlx::query_as(
+        r#"
+        SELECT status, COUNT(*) as count
+        FROM futarchy_fhe_jobs
+        GROUP BY status
+        "#
+    )
+    .fetch_all(pool.get_ref())
+    .await;
+
+    // Top markets by volume (total pool)
+    let top_markets_result: Result<Vec<(String, String, i64)>, _> = sqlx::query_as(
+        r#"
+        SELECT id, question, (yes_pool_lamports + no_pool_lamports) as total_volume
+        FROM futarchy_markets
+        WHERE status IN ('active', 'resolved')
+        ORDER BY total_volume DESC
+        LIMIT 5
+        "#
+    )
+    .fetch_all(pool.get_ref())
+    .await;
+
+    // Top markets by activity in last 24h
+    let top_markets_24h_result: Result<Vec<(String, String, i64, i64)>, _> = sqlx::query_as(
+        r#"
+        SELECT
+            m.id,
+            m.question,
+            COUNT(p.id) as bets_count,
+            COALESCE(SUM(p.amount_lamports), 0) as volume
+        FROM futarchy_markets m
+        LEFT JOIN futarchy_positions p ON m.id = p.market_id
+        WHERE p.created_at >= NOW() - INTERVAL '24 hours'
+        AND p.status = 'confirmed'
+        GROUP BY m.id, m.question
+        ORDER BY bets_count DESC
+        LIMIT 5
+        "#
+    )
+    .fetch_all(pool.get_ref())
+    .await;
+
+    // Process results
+    let mut markets_total = 0i64;
+    let mut markets_active = 0i64;
+    let mut markets_settled = 0i64;
+    let mut markets_cancelled = 0i64;
+
+    if let Ok(stats) = market_stats_result {
+        for (status, count) in stats {
+            markets_total += count;
+            match status.as_str() {
+                "active" => markets_active = count,
+                "resolved" => markets_settled = count,
+                "cancelled" => markets_cancelled = count,
+                _ => {}
+            }
+        }
+    }
+
+    let total_bets = total_bets_result.unwrap_or((0,)).0;
+    let bets_last_24h = bets_24h_result.unwrap_or((0,)).0;
+
+    let (yes_lamports, no_lamports, total_lamports) = pool_totals_result.unwrap_or((0, 0, 0));
+
+    let mut fhe_pending = 0i64;
+    let mut fhe_processing = 0i64;
+    let mut fhe_completed = 0i64;
+    let mut fhe_failed = 0i64;
+
+    if let Ok(jobs) = fhe_jobs_result {
+        for (status, count) in jobs {
+            match status.as_str() {
+                "pending" => fhe_pending = count,
+                "processing" => fhe_processing = count,
+                "completed" => fhe_completed = count,
+                "failed" => fhe_failed = count,
+                _ => {}
+            }
+        }
+    }
+
+    let top_markets_by_volume: Vec<_> = top_markets_result
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(id, question, total_volume)| {
+            json!({
+                "id": id,
+                "question": question,
+                "total_volume": total_volume
+            })
+        })
+        .collect();
+
+    let top_markets_24h: Vec<_> = top_markets_24h_result
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(id, question, bets_count, volume)| {
+            json!({
+                "id": id,
+                "question": question,
+                "bets_count": bets_count,
+                "volume": volume
+            })
+        })
+        .collect();
+
+    HttpResponse::Ok().json(json!({
+        "markets": {
+            "total": markets_total,
+            "active": markets_active,
+            "settled": markets_settled,
+            "cancelled": markets_cancelled
+        },
+        "bets": {
+            "total": total_bets,
+            "last_24h": bets_last_24h
+        },
+        "pools": {
+            "total_lamports": total_lamports,
+            "yes_lamports": yes_lamports,
+            "no_lamports": no_lamports
+        },
+        "fhe_jobs": {
+            "pending": fhe_pending,
+            "processing": fhe_processing,
+            "completed": fhe_completed,
+            "failed": fhe_failed
+        },
+        "top_markets_by_volume": top_markets_by_volume,
+        "top_markets_24h": top_markets_24h
+    }))
+}
+
+// =============================================================================
 // Health Check
 // =============================================================================
 
@@ -2073,8 +2260,9 @@ pub async fn futarchy_health(pool: web::Data<PgPool>) -> impl Responder {
 /// Configure all futarchy routes
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg
-        // Health
+        // Health & Stats
         .service(futarchy_health)
+        .service(get_futarchy_stats)
         // E2E Bet Flow
         .service(prepare_bet)
         .service(submit_bet)

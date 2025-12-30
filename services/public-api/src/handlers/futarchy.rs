@@ -57,6 +57,11 @@ pub async fn futarchy_health(data: web::Data<AppState>) -> impl Responder {
     proxy_blink_get(data, "/api/futarchy/health").await
 }
 
+#[get("/api/futarchy/stats")]
+pub async fn get_futarchy_stats(data: web::Data<AppState>) -> impl Responder {
+    proxy_blink_get(data, "/api/futarchy/stats").await
+}
+
 #[get("/api/futarchy/markets")]
 pub async fn list_markets(data: web::Data<AppState>) -> impl Responder {
     proxy_blink_get(data, "/api/futarchy/markets").await

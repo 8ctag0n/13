@@ -13,6 +13,7 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
 
     // Quote & Pricing
     cfg.service(quote::get_quote);
+    cfg.service(quote::get_quote_query);
 
     // Jobs
     cfg.service(jobs::create_zk_job);
@@ -28,6 +29,7 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
 
     // Futarchy
     cfg.service(futarchy::futarchy_health);
+    cfg.service(futarchy::get_futarchy_stats);
     cfg.service(futarchy::list_markets);
     cfg.service(futarchy::get_market);
     cfg.service(futarchy::get_market_positions);
