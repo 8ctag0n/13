@@ -419,6 +419,8 @@
     {#if activeTab === 'markets'}
       <FutarchyMarketList
         autoFetch
+        autoRefresh
+        refreshInterval={30000}
         apiBaseUrl={API_BASE}
         status={statusFilter === 'all' ? '' : statusFilter}
         compact={betWizardOpen || statsOpen}

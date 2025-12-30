@@ -1,5 +1,5 @@
 <script>
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, onMount, onDestroy } from 'svelte';
   import FutarchyMarketCard from './FutarchyMarketCard.svelte';
   import TerminalBox from './terminal/TerminalBox.svelte';
   import TerminalButton from './terminal/TerminalButton.svelte';
@@ -14,6 +14,8 @@
   export let showHeader = true;
   export let ctaLabel = '';
   export let autoFetch = false;
+  export let autoRefresh = false;
+  export let refreshInterval = 30000;
   export let apiBaseUrl = '';
   export let status = '';
   export let creator = '';
@@ -26,6 +28,8 @@
   let internalMarkets = markets;
   let lastSignature = '';
   let expandedMarketId = '';
+  let refreshTimer;
+  let lastUpdatedAt = '';
 
   const lamportsPerSol = 1_000_000_000;
 
@@ -79,6 +83,7 @@
         offset
       });
       internalMarkets = (response.markets || []).map(mapMarket);
+      lastUpdatedAt = new Date().toISOString();
       dispatch('loaded', { markets: internalMarkets });
     } catch (err) {
       error = err?.message || 'Failed to load markets';
@@ -86,6 +91,25 @@
     } finally {
       loading = false;
     }
+  }
+
+  function startAutoRefresh() {
+    if (!autoRefresh || refreshTimer) return;
+    refreshTimer = setInterval(() => {
+      fetchMarkets();
+    }, refreshInterval);
+  }
+
+  function stopAutoRefresh() {
+    if (refreshTimer) {
+      clearInterval(refreshTimer);
+      refreshTimer = null;
+    }
+  }
+
+  function formatTimestamp(iso) {
+    if (!iso) return '--';
+    return new Date(iso).toISOString().slice(11, 19);
   }
 
   export async function reload() {
@@ -129,6 +153,22 @@
       expandedMarketId = '';
     }
   }
+
+  $: if (autoRefresh) {
+    startAutoRefresh();
+  } else {
+    stopAutoRefresh();
+  }
+
+  onMount(() => {
+    if (autoRefresh && autoFetch) {
+      startAutoRefresh();
+    }
+  });
+
+  onDestroy(() => {
+    stopAutoRefresh();
+  });
 </script>
 
 <div class="market-list">
@@ -136,7 +176,12 @@
     <TerminalBox tone="violet" dense>
       <div class="list-header">
         <div class="text-mono">
-          <div class="title">{title}</div>
+          <div class="title-row">
+            <div class="title">{title}</div>
+            {#if autoRefresh && lastUpdatedAt}
+              <div class="text-muted text-xs">updated: {formatTimestamp(lastUpdatedAt)}</div>
+            {/if}
+          </div>
           {#if subtitle}
             <div class="subtitle text-muted text-xs">{subtitle}</div>
           {/if}
@@ -188,6 +233,13 @@
     justify-content: space-between;
     align-items: center;
     gap: var(--space-3);
+    flex-wrap: wrap;
+  }
+
+  .title-row {
+    display: flex;
+    gap: var(--space-3);
+    align-items: center;
     flex-wrap: wrap;
   }
 
