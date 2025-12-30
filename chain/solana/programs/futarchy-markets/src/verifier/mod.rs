@@ -7,11 +7,13 @@
 //!
 //! - `mock-proofs`: Bypasses Groth16 verification for testing. NEVER enable in production!
 
+mod claim_blind_vk;
 mod claim_private_v2_vk;
 mod place_bet_blind_vk;
 mod place_bet_private_vk;
 mod withdraw_private_vk;
 
+pub use claim_blind_vk::CLAIM_BLIND_VK;
 pub use claim_private_v2_vk::CLAIM_PRIVATE_V2_VK;
 pub use place_bet_blind_vk::PLACE_BET_BLIND_VK;
 pub use place_bet_private_vk::PLACE_BET_PRIVATE_VK;
@@ -35,6 +37,9 @@ pub const WITHDRAW_NR_INPUTS: usize = 3;
 
 /// Number of public inputs for PlaceBetBlind circuit (V3)
 pub const PLACE_BET_BLIND_NR_INPUTS: usize = 5;
+
+/// Number of public inputs for ClaimBlind circuit (V3)
+pub const CLAIM_BLIND_NR_INPUTS: usize = 6;
 
 /// Error codes for verification
 #[derive(Debug, Clone, Copy)]
@@ -370,6 +375,93 @@ pub fn verify_place_bet_blind_proof(
     }
 
     msg!("PlaceBetBlind proof ACCEPTED (mock mode)");
+    Ok(true)
+}
+
+/// Verify a ClaimBlind proof (V3)
+///
+/// Public inputs (6 field elements = 192 bytes):
+/// 1. bet_secret_commitment (32 bytes)
+/// 2. winning_pool (32 bytes - padded)
+/// 3. losing_pool (32 bytes - padded)
+/// 4. outcome (32 bytes - padded)
+/// 5. claimed_payout (32 bytes - padded)
+/// 6. market_id (32 bytes - padded)
+#[cfg(not(feature = "mock-proofs"))]
+pub fn verify_claim_blind_proof(
+    proof: &[u8],
+    public_inputs: &[u8],
+) -> Result<bool, ProgramError> {
+    msg!("Verifying ClaimBlind proof on-chain (Groth16)");
+
+    let (proof_a, proof_b, proof_c) = parse_proof(proof)?;
+
+    // ClaimBlind has 6 public inputs
+    let expected_size = CLAIM_BLIND_NR_INPUTS * 32;
+    if public_inputs.len() < expected_size {
+        msg!(
+            "Invalid public inputs size: {} < {}",
+            public_inputs.len(),
+            expected_size
+        );
+        return Err(VerifyError::InvalidPublicInputsSize.into());
+    }
+
+    let mut inputs: [[u8; 32]; CLAIM_BLIND_NR_INPUTS] =
+        [[0u8; 32]; CLAIM_BLIND_NR_INPUTS];
+    for i in 0..CLAIM_BLIND_NR_INPUTS {
+        inputs[i].copy_from_slice(&public_inputs[i * 32..(i + 1) * 32]);
+    }
+
+    let mut verifier = Groth16Verifier::<CLAIM_BLIND_NR_INPUTS>::new(
+        &proof_a,
+        &proof_b,
+        &proof_c,
+        &inputs,
+        &CLAIM_BLIND_VK,
+    )
+    .map_err(|e| {
+        msg!("Verifier init error: {:?}", e);
+        VerifyError::ProofParseError
+    })?;
+
+    match verifier.verify() {
+        Ok(()) => {
+            msg!("ClaimBlind proof VERIFIED");
+            Ok(true)
+        }
+        Err(e) => {
+            msg!("ClaimBlind proof INVALID: {:?}", e);
+            Ok(false)
+        }
+    }
+}
+
+/// Mock ClaimBlind proof verification for testing
+#[cfg(feature = "mock-proofs")]
+pub fn verify_claim_blind_proof(
+    proof: &[u8],
+    public_inputs: &[u8],
+) -> Result<bool, ProgramError> {
+    msg!("MOCK: Bypassing ClaimBlind proof verification (mock-proofs feature enabled)");
+
+    // Basic size validation only
+    if proof.len() != GROTH16_PROOF_SIZE {
+        msg!("Invalid proof size: {} != {}", proof.len(), GROTH16_PROOF_SIZE);
+        return Err(VerifyError::InvalidProofSize.into());
+    }
+
+    let expected_size = CLAIM_BLIND_NR_INPUTS * 32;
+    if public_inputs.len() < expected_size {
+        msg!(
+            "Invalid public inputs size: {} < {}",
+            public_inputs.len(),
+            expected_size
+        );
+        return Err(VerifyError::InvalidPublicInputsSize.into());
+    }
+
+    msg!("ClaimBlind proof ACCEPTED (mock mode)");
     Ok(true)
 }
 
