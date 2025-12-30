@@ -24,6 +24,9 @@ test-witnesses/
 *.r1cs
 *.tau
 *.zkey
+
+# Circom compiler binary
+circuits/circom
 # Cargo local config
 .cargo/config.toml
 
