@@ -1,0 +1,122 @@
+# ============================================================================
+# ZyberLink CLI Configuration (zyb.toml)
+# ============================================================================
+#
+# This file provides a unified configuration system for all ZyberLink CLI commands.
+# Copy this file to `zyb.toml` and customize it for your environment.
+#
+# Configuration Priority (Cascade):
+#   1. CLI arguments (highest priority)
+#   2. Profile configuration [profiles.X]
+#   3. Common configuration [common]
+#   4. Environment variables
+#   5. Hardcoded defaults (lowest priority)
+#
+# Usage:
+#   zyb dev-job run --types sum --profile local
+#   zyb market create --profile devnet
+#
+# ============================================================================
+
+[common]
+# Default profile to use when not specified via --profile
+profile = "local"
+
+# Default chain (solana, starknet)
+chain = "solana"
+
+# Enable JSON output by default
+json = false
+
+# Disable auto-airdrop on low balance
+no_airdrop = false
+
+# ============================================================================
+# PROFILES
+# ============================================================================
+
+# Local development environment (solana-test-validator)
+[profiles.local]
+rpc_url = "http://localhost:8899"
+backend_url = "http://localhost:9000"
+witness_url = "http://localhost:9000"
+keypair = "/tmp/demo-keypair.json"
+
+# Program IDs (localnet - update with your deployed addresses)
+bedrock_program_id = "Di2Tu6aNpJpPyxbMAasoLQU2yLqYMFWvUoV7cq7sXfvx"
+fhe_generator_program_id = "C8PpHFCKZ4F2Szbir2EMS4S4H3mwQqHNWUXK1N21nfAB"
+zk_generator_program_id = "Dzvy1pzCBgtMw5Fte2GybpeN2PsLPW8t7zDvLfKpxnSS"
+futarchy_program_id = "2V8E8DJ3M3J2Aombv8hxRq5t2RecjbdW3GpUmSVruuhX"
+
+# Solana Devnet environment
+[profiles.devnet]
+rpc_url = "https://api.devnet.solana.com"
+backend_url = "https://api.zyberlink.dev"
+witness_url = "https://api.zyberlink.dev"
+keypair = "~/.config/solana/id.json"
+
+# Program IDs (devnet - these are examples, update with actual deployed addresses)
+bedrock_program_id = "Di2Tu6aNpJpPyxbMAasoLQU2yLqYMFWvUoV7cq7sXfvx"
+fhe_generator_program_id = "C8PpHFCKZ4F2Szbir2EMS4S4H3mwQqHNWUXK1N21nfAB"
+zk_generator_program_id = "Dzvy1pzCBgtMw5Fte2GybpeN2PsLPW8t7zDvLfKpxnSS"
+futarchy_program_id = "2V8E8DJ3M3J2Aombv8hxRq5t2RecjbdW3GpUmSVruuhX"
+
+# Solana Mainnet environment
+[profiles.mainnet]
+rpc_url = "https://api.mainnet-beta.solana.com"
+backend_url = "https://api.zyberlink.io"
+witness_url = "https://api.zyberlink.io"
+keypair = "~/.config/solana/mainnet-keypair.json"
+
+# Program IDs (mainnet - TBD)
+# bedrock_program_id = "..."
+# fhe_generator_program_id = "..."
+# zk_generator_program_id = "..."
+# futarchy_program_id = "..."
+
+# Custom profile example
+[profiles.custom]
+rpc_url = "https://your-custom-rpc.com"
+backend_url = "https://your-backend.com"
+keypair = "~/.config/solana/custom-keypair.json"
+no_airdrop = true
+json = true
+
+# ============================================================================
+# COMMAND-SPECIFIC DEFAULTS
+# ============================================================================
+
+# Dev-job command defaults
+[dev-job]
+# Default interval between jobs (in seconds)
+interval_secs = 10
+
+# Run only once and exit
+once = false
+
+# Shuffle job order each cycle
+shuffle = false
+
+# ============================================================================
+# NOTES
+# ============================================================================
+#
+# Security:
+#   - This file should NOT contain private keys directly
+#   - Use `keypair` field to point to keypair files
+#   - Add `zyb.toml` to .gitignore to avoid committing secrets
+#
+# Path expansion:
+#   - Tilde (~) expansion is supported for paths
+#   - Example: "~/.config/solana/id.json" expands to your home directory
+#
+# Override priority:
+#   - CLI flags always take precedence over config file
+#   - Example: `zyb dev-job run --rpc-url http://custom:8899 --profile local`
+#     will use http://custom:8899 instead of the local profile's rpc_url
+#
+# Multiple profiles:
+#   - Create as many profiles as needed for different environments
+#   - Switch between them easily: `zyb dev-job run --profile devnet`
+#
+# ============================================================================

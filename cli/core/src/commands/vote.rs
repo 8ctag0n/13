@@ -75,21 +75,29 @@ pub struct CastArgs {
     #[arg(long)]
     pub voter: String,
 
-    /// Server URL
-    #[arg(long, default_value = "http://localhost:3000")]
-    pub server: String,
+    /// Server URL (overrides config and BACKEND_URL env var)
+    #[arg(long)]
+    pub server: Option<String>,
 
     /// Path to output witness file
     #[arg(long, default_value = "./vote_witness.json")]
     pub witness_output: PathBuf,
 
-    /// Path to Solana keypair for payment
+    /// Path to Solana keypair for payment (overrides config and USER_KEYPAIR env var)
     #[arg(long)]
     pub keypair: Option<PathBuf>,
 
-    /// Solana RPC URL
-    #[arg(long, default_value = "https://api.devnet.solana.com")]
-    pub rpc_url: String,
+    /// Solana RPC URL (overrides config and SOLANA_RPC_URL env var)
+    #[arg(long)]
+    pub rpc_url: Option<String>,
+
+    /// Config file path (default: zyb.toml in current directory or ~/.config/zyb/zyb.toml)
+    #[arg(long)]
+    pub config: Option<PathBuf>,
+
+    /// Profile name from config (overrides common.profile)
+    #[arg(long)]
+    pub profile: Option<String>,
 
     /// Skip payment confirmation
     #[arg(long)]
@@ -113,9 +121,17 @@ pub struct VerifyArgs {
     #[arg(long)]
     pub job_id: i64,
 
-    /// Server URL
-    #[arg(long, default_value = "http://localhost:3000")]
-    pub server: String,
+    /// Server URL (overrides config and BACKEND_URL env var)
+    #[arg(long)]
+    pub server: Option<String>,
+
+    /// Config file path (default: zyb.toml in current directory or ~/.config/zyb/zyb.toml)
+    #[arg(long)]
+    pub config: Option<PathBuf>,
+
+    /// Profile name from config (overrides common.profile)
+    #[arg(long)]
+    pub profile: Option<String>,
 }
 
 pub fn handle_vote_command(cmd: VoteCommands) -> Result<()> {
@@ -159,6 +175,38 @@ fn create_poll(args: CreateArgs) -> Result<()> {
 
 #[tokio::main]
 async fn cast_vote(args: CastArgs) -> Result<()> {
+    // Load global config
+    let global_config = crate::config::load_global_config(args.config.clone())?;
+
+    // Get active profile
+    let profile = if let Some(ref cfg) = global_config {
+        if let Some(profile_name) = args.profile.as_ref().or_else(|| cfg.common.profile.as_ref()) {
+            cfg.profiles.get(profile_name).cloned()
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    // Apply cascade for rpc_url: CLI arg > Profile > Env var > Default
+    let rpc_url = args.rpc_url
+        .or_else(|| profile.as_ref().and_then(|p| p.rpc_url.clone()))
+        .or_else(|| std::env::var("SOLANA_RPC_URL").ok())
+        .unwrap_or_else(|| "https://api.devnet.solana.com".to_string());
+
+    // Apply cascade for backend_url: CLI arg > Profile > Env var > Default
+    let backend_url = args.server
+        .or_else(|| profile.as_ref().and_then(|p| p.backend_url.clone()))
+        .or_else(|| std::env::var("BACKEND_URL").ok())
+        .unwrap_or_else(|| "http://localhost:3000".to_string());
+
+    // Apply cascade for keypair: CLI arg > Profile > Env var > None
+    let keypair_path = args.keypair
+        .or_else(|| profile.as_ref().and_then(|p| p.keypair.clone()))
+        .or_else(|| std::env::var("USER_KEYPAIR").ok().map(PathBuf::from))
+        .map(|p| crate::config::expand_tilde(&p));
+
     println!("{}", "Casting private vote...".cyan().bold());
     println!();
     println!("Poll ID: {}", args.poll_id);
@@ -235,7 +283,7 @@ async fn cast_vote(args: CastArgs) -> Result<()> {
         vec![]
     };
 
-    let client = ZkClient::with_url(&args.server);
+    let client = ZkClient::with_url(&backend_url);
 
     let request = CreateJobRequest {
         circuit_type,
@@ -246,14 +294,14 @@ async fn cast_vote(args: CastArgs) -> Result<()> {
     };
 
     // Execute payment flow if keypair provided
-    let response = if let Some(keypair) = args.keypair {
+    let response = if let Some(keypair) = keypair_path {
         use crate::commands::zk::execute_payment_flow_helper;
 
         execute_payment_flow_helper(
             &client,
             request,
             &keypair,
-            &args.rpc_url,
+            &rpc_url,
             circuit_type,
             &args.voter,
             args.skip_confirm,
@@ -296,10 +344,30 @@ fn tally_votes(args: TallyArgs) -> Result<()> {
 
 #[tokio::main]
 async fn verify_result(args: VerifyArgs) -> Result<()> {
+    // Load global config
+    let global_config = crate::config::load_global_config(args.config.clone())?;
+
+    // Get active profile
+    let profile = if let Some(ref cfg) = global_config {
+        if let Some(profile_name) = args.profile.as_ref().or_else(|| cfg.common.profile.as_ref()) {
+            cfg.profiles.get(profile_name).cloned()
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    // Apply cascade for backend_url: CLI arg > Profile > Env var > Default
+    let backend_url = args.server
+        .or_else(|| profile.as_ref().and_then(|p| p.backend_url.clone()))
+        .or_else(|| std::env::var("BACKEND_URL").ok())
+        .unwrap_or_else(|| "http://localhost:3000".to_string());
+
     println!("{}", "Verifying vote result...".cyan().bold());
     println!();
 
-    let client = ZkClient::with_url(&args.server);
+    let client = ZkClient::with_url(&backend_url);
 
     let status = client
         .get_job_status(args.job_id)

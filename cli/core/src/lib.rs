@@ -5,6 +5,7 @@
 pub mod chains;
 pub mod commands;
 pub mod client;
+pub mod config;
 pub mod solana;
 pub mod ui;
 

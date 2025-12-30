@@ -344,13 +344,13 @@ pub struct BetArgs {
     #[arg(long)]
     pub bettor: String,
 
-    /// Server URL (ZK server)
-    #[arg(long, default_value = "http://localhost:3000")]
-    pub server: String,
+    /// Server URL (ZK server) - overrides config and BACKEND_URL env var
+    #[arg(long)]
+    pub server: Option<String>,
 
-    /// Futarchy server URL (for FHE mode)
-    #[arg(long, default_value = "http://localhost:9000")]
-    pub futarchy_server: String,
+    /// Futarchy server URL (for FHE mode) - overrides config
+    #[arg(long)]
+    pub futarchy_server: Option<String>,
 
     /// Use FHE encryption for the bet (enables encrypted pool aggregation)
     #[arg(long)]
@@ -360,13 +360,21 @@ pub struct BetArgs {
     #[arg(long, default_value = "./bet_witness.json")]
     pub witness_output: PathBuf,
 
-    /// Path to Solana keypair for signing transactions
+    /// Path to Solana keypair for signing transactions - overrides config and USER_KEYPAIR env var
     #[arg(long)]
     pub keypair: Option<PathBuf>,
 
-    /// Solana RPC URL
-    #[arg(long, default_value = "http://localhost:8899")]
-    pub rpc_url: String,
+    /// Solana RPC URL - overrides config and SOLANA_RPC_URL env var
+    #[arg(long)]
+    pub rpc_url: Option<String>,
+
+    /// Config file path (default: zyb.toml in current directory or ~/.config/zyb/zyb.toml)
+    #[arg(long)]
+    pub config: Option<PathBuf>,
+
+    /// Profile name from config (overrides common.profile)
+    #[arg(long)]
+    pub profile: Option<String>,
 
     /// Skip payment confirmation
     #[arg(long)]
@@ -456,13 +464,25 @@ pub struct VerifyArgs {
 
 #[derive(Args, Debug)]
 pub struct InitProtocolArgs {
-    /// Path to Solana keypair (authority)
+    /// Path to Solana keypair (authority) - overrides config and USER_KEYPAIR env var
     #[arg(long)]
-    pub keypair: PathBuf,
+    pub keypair: Option<PathBuf>,
 
-    /// Solana RPC URL
-    #[arg(long, default_value = "http://localhost:8899")]
-    pub rpc_url: String,
+    /// Solana RPC URL - overrides config and SOLANA_RPC_URL env var
+    #[arg(long)]
+    pub rpc_url: Option<String>,
+
+    /// Config file path (default: zyb.toml in current directory or ~/.config/zyb/zyb.toml)
+    #[arg(long)]
+    pub config: Option<PathBuf>,
+
+    /// Profile name from config (overrides common.profile)
+    #[arg(long)]
+    pub profile: Option<String>,
+
+    /// Futarchy Markets program ID - overrides config and FUTARCHY_PROGRAM_ID env var
+    #[arg(long)]
+    pub futarchy_program_id: Option<String>,
 }
 
 #[derive(Args, Debug)]
@@ -495,13 +515,25 @@ pub struct CreateV2Args {
     #[arg(long, default_value = "86400")]
     pub timelock: i64,
 
-    /// Path to Solana keypair
+    /// Path to Solana keypair - overrides config and USER_KEYPAIR env var
     #[arg(long)]
-    pub keypair: PathBuf,
+    pub keypair: Option<PathBuf>,
 
-    /// Solana RPC URL
-    #[arg(long, default_value = "http://localhost:8899")]
-    pub rpc_url: String,
+    /// Solana RPC URL - overrides config and SOLANA_RPC_URL env var
+    #[arg(long)]
+    pub rpc_url: Option<String>,
+
+    /// Config file path (default: zyb.toml in current directory or ~/.config/zyb/zyb.toml)
+    #[arg(long)]
+    pub config: Option<PathBuf>,
+
+    /// Profile name from config (overrides common.profile)
+    #[arg(long)]
+    pub profile: Option<String>,
+
+    /// Futarchy Markets program ID - overrides config and FUTARCHY_PROGRAM_ID env var
+    #[arg(long)]
+    pub futarchy_program_id: Option<String>,
 }
 
 #[derive(Args, Debug)]
@@ -967,7 +999,52 @@ async fn create_market(args: CreateArgs) -> Result<()> {
 }
 
 #[tokio::main]
-async fn place_bet(args: BetArgs) -> Result<()> {
+async fn place_bet(mut args: BetArgs) -> Result<()> {
+    // Load global config
+    let global_config = crate::config::load_global_config(args.config.clone())?;
+
+    // Get active profile
+    let profile = if let Some(ref cfg) = global_config {
+        if let Some(profile_name) = args.profile.as_ref().or_else(|| cfg.common.profile.as_ref()) {
+            cfg.profiles.get(profile_name).cloned()
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    // Apply cascade for configuration fields
+    if args.rpc_url.is_none() {
+        args.rpc_url = Some(
+            profile.as_ref().and_then(|p| p.rpc_url.clone())
+                .or_else(|| std::env::var("SOLANA_RPC_URL").ok())
+                .unwrap_or_else(|| "http://localhost:8899".to_string())
+        );
+    }
+
+    if args.server.is_none() {
+        args.server = Some(
+            profile.as_ref().and_then(|p| p.backend_url.clone())
+                .or_else(|| std::env::var("BACKEND_URL").ok())
+                .unwrap_or_else(|| "http://localhost:3000".to_string())
+        );
+    }
+
+    if args.futarchy_server.is_none() {
+        args.futarchy_server = Some(
+            profile.as_ref().and_then(|p| p.backend_url.clone())
+                .or_else(|| std::env::var("FUTARCHY_SERVER_URL").ok())
+                .unwrap_or_else(|| "http://localhost:9000".to_string())
+        );
+    }
+
+    if args.keypair.is_none() {
+        args.keypair = profile.as_ref().and_then(|p| p.keypair.clone())
+            .or_else(|| std::env::var("USER_KEYPAIR").ok().map(PathBuf::from))
+            .map(|p| crate::config::expand_tilde(&p));
+    }
+
     // Validate amount
     if args.amount == 0 {
         anyhow::bail!("Bet amount must be greater than 0");
@@ -1103,7 +1180,9 @@ async fn place_bet_fhe(args: BetArgs) -> Result<()> {
 
     // Step 4: Call prepare endpoint
     println!("{}", "Preparing transaction...".cyan());
-    let futarchy_client = FutarchyClient::with_url(&args.futarchy_server);
+    let futarchy_server = args.futarchy_server.as_ref()
+        .expect("futarchy_server should be resolved in place_bet");
+    let futarchy_client = FutarchyClient::with_url(futarchy_server);
 
     // Generate placeholder proof (256 bytes for Groth16, 80 bytes public inputs)
     // In FHE mode, ZK verification is skipped but size validation still applies
@@ -1141,7 +1220,9 @@ async fn place_bet_fhe(args: BetArgs) -> Result<()> {
         .context("Failed to deserialize unsigned transaction")?;
 
     // Get recent blockhash
-    let rpc_client = solana_client::rpc_client::RpcClient::new(&args.rpc_url);
+    let rpc_url = args.rpc_url.as_ref()
+        .expect("rpc_url should be resolved in place_bet");
+    let rpc_client = solana_client::rpc_client::RpcClient::new(rpc_url);
     let blockhash = rpc_client.get_latest_blockhash()
         .context("Failed to get recent blockhash")?;
 
@@ -1245,7 +1326,9 @@ async fn place_bet_zk(args: BetArgs) -> Result<()> {
         hex::encode(hasher.finalize())
     };
 
-    let client = ZkClient::with_url(&args.server);
+    let server_url = args.server.as_ref()
+        .expect("server should be resolved in place_bet");
+    let client = ZkClient::with_url(server_url);
 
     let request = CreateJobRequest {
         circuit_type: CIRCUIT_MARKET_BET,
@@ -1256,14 +1339,17 @@ async fn place_bet_zk(args: BetArgs) -> Result<()> {
     };
 
     // Execute payment flow if keypair provided
-    let response = if let Some(keypair) = args.keypair {
+    let response = if let Some(ref keypair) = args.keypair {
         use crate::commands::zk::execute_payment_flow_helper;
+
+        let rpc_url = args.rpc_url.as_ref()
+            .expect("rpc_url should be resolved in place_bet");
 
         execute_payment_flow_helper(
             &client,
             request,
-            &keypair,
-            &args.rpc_url,
+            keypair,
+            rpc_url,
             CIRCUIT_MARKET_BET,
             &args.bettor,
             args.skip_confirm,
@@ -1650,13 +1736,49 @@ async fn init_protocol_v2(args: InitProtocolArgs) -> Result<()> {
     use solana_sdk::instruction::{AccountMeta, Instruction};
     use solana_sdk::system_program;
 
+    // Load global config
+    let global_config = crate::config::load_global_config(args.config.clone())?;
+
+    // Get active profile
+    let profile = if let Some(ref cfg) = global_config {
+        if let Some(profile_name) = args.profile.as_ref().or_else(|| cfg.common.profile.as_ref()) {
+            cfg.profiles.get(profile_name).cloned()
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    // Apply cascade for rpc_url
+    let rpc_url = args.rpc_url
+        .or_else(|| profile.as_ref().and_then(|p| p.rpc_url.clone()))
+        .or_else(|| std::env::var("SOLANA_RPC_URL").ok())
+        .unwrap_or_else(|| "http://localhost:8899".to_string());
+
+    // Apply cascade for keypair
+    let keypair_path = args.keypair
+        .or_else(|| profile.as_ref().and_then(|p| p.keypair.clone()))
+        .or_else(|| std::env::var("USER_KEYPAIR").ok().map(PathBuf::from))
+        .map(|p| crate::config::expand_tilde(&p))
+        .ok_or_else(|| anyhow::anyhow!("Keypair is required. Provide via --keypair, config, or USER_KEYPAIR env var"))?;
+
+    // Apply cascade for futarchy_program_id
+    let futarchy_program_id = args.futarchy_program_id
+        .or_else(|| profile.as_ref().and_then(|p| p.futarchy_program_id.clone()))
+        .or_else(|| std::env::var("FUTARCHY_PROGRAM_ID").ok());
+
     println!("{}", "Initializing Protocol V2...".cyan().bold());
     println!();
 
-    let keypair = read_keypair_file(&args.keypair)
+    let keypair = read_keypair_file(&keypair_path)
         .map_err(|e| anyhow::anyhow!("Failed to read keypair: {}", e))?;
     let authority = keypair.pubkey();
-    let program_id = get_futarchy_program_id()?;
+    let program_id = if let Some(pid) = futarchy_program_id {
+        solana_sdk::pubkey::Pubkey::from_str(&pid)?
+    } else {
+        get_futarchy_program_id()?
+    };
 
     let (protocol_vault_pda, _) = solana_sdk::pubkey::Pubkey::find_program_address(
         &[PROTOCOL_VAULT_SEED],
@@ -1679,7 +1801,7 @@ async fn init_protocol_v2(args: InitProtocolArgs) -> Result<()> {
         data: ix_data,
     };
 
-    let rpc_client = solana_client::rpc_client::RpcClient::new(&args.rpc_url);
+    let rpc_client = solana_client::rpc_client::RpcClient::new(&rpc_url);
     let blockhash = rpc_client.get_latest_blockhash()?;
     let mut tx = Transaction::new_with_payer(&[instruction], Some(&authority));
     tx.sign(&[&keypair], blockhash);
@@ -1702,17 +1824,53 @@ async fn create_market_v2(args: CreateV2Args) -> Result<()> {
     use solana_sdk::sysvar;
     use std::io::Write;
 
+    // Load global config
+    let global_config = crate::config::load_global_config(args.config.clone())?;
+
+    // Get active profile
+    let profile = if let Some(ref cfg) = global_config {
+        if let Some(profile_name) = args.profile.as_ref().or_else(|| cfg.common.profile.as_ref()) {
+            cfg.profiles.get(profile_name).cloned()
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    // Apply cascade for rpc_url
+    let rpc_url = args.rpc_url
+        .or_else(|| profile.as_ref().and_then(|p| p.rpc_url.clone()))
+        .or_else(|| std::env::var("SOLANA_RPC_URL").ok())
+        .unwrap_or_else(|| "http://localhost:8899".to_string());
+
+    // Apply cascade for keypair
+    let keypair_path = args.keypair
+        .or_else(|| profile.as_ref().and_then(|p| p.keypair.clone()))
+        .or_else(|| std::env::var("USER_KEYPAIR").ok().map(PathBuf::from))
+        .map(|p| crate::config::expand_tilde(&p))
+        .ok_or_else(|| anyhow::anyhow!("Keypair is required. Provide via --keypair, config, or USER_KEYPAIR env var"))?;
+
+    // Apply cascade for futarchy_program_id
+    let futarchy_program_id = args.futarchy_program_id
+        .or_else(|| profile.as_ref().and_then(|p| p.futarchy_program_id.clone()))
+        .or_else(|| std::env::var("FUTARCHY_PROGRAM_ID").ok());
+
     println!("{}", "Creating Market V2...".cyan().bold());
     println!();
 
-    let keypair = read_keypair_file(&args.keypair)
+    let keypair = read_keypair_file(&keypair_path)
         .map_err(|e| anyhow::anyhow!("Failed to read keypair: {}", e))?;
     let authority = keypair.pubkey();
     let oracle = args.oracle.as_ref()
         .map(|o| solana_sdk::pubkey::Pubkey::from_str(o))
         .transpose()?
         .unwrap_or(authority);
-    let program_id = get_futarchy_program_id()?;
+    let program_id = if let Some(pid) = futarchy_program_id {
+        solana_sdk::pubkey::Pubkey::from_str(&pid)?
+    } else {
+        get_futarchy_program_id()?
+    };
 
     let (market_pda, _) = solana_sdk::pubkey::Pubkey::find_program_address(
         &[MARKET_V2_SEED, &args.market_id.to_le_bytes()], &program_id);
@@ -1751,7 +1909,7 @@ async fn create_market_v2(args: CreateV2Args) -> Result<()> {
     }
 
     let instruction = Instruction { program_id, accounts, data: ix_data };
-    let rpc_client = solana_client::rpc_client::RpcClient::new(&args.rpc_url);
+    let rpc_client = solana_client::rpc_client::RpcClient::new(&rpc_url);
     let blockhash = rpc_client.get_latest_blockhash()?;
     let mut tx = Transaction::new_with_payer(&[instruction], Some(&authority));
     tx.sign(&[&keypair], blockhash);

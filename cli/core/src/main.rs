@@ -16,13 +16,21 @@ use zyb_cli::commands::vote::VoteCommands;
 #[command(about = "ZyberLink unified CLI for FHE and ZK operations")]
 #[command(version)]
 struct Cli {
+    /// Path to config file (default: ./zyb.toml or ~/.config/zyb/zyb.toml)
+    #[arg(long, global = true)]
+    config: Option<PathBuf>,
+
+    /// Profile to use (overrides config file default)
+    #[arg(long, global = true)]
+    profile: Option<String>,
+
     /// Blockchain to use (solana, starknet)
     #[arg(long, default_value = "solana", env = "ZYB_CHAIN", global = true)]
     chain: String,
 
-    /// Solana RPC URL
-    #[arg(long, env = "SOLANA_RPC_URL", default_value = "https://api.devnet.solana.com", global = true)]
-    rpc_url: String,
+    /// Solana RPC URL (use --config and --profile for better config management)
+    #[arg(long, env = "SOLANA_RPC_URL", global = true)]
+    rpc_url: Option<String>,
 
     /// Solana keypair path
     #[arg(long, env = "SOLANA_KEYPAIR", global = true)]
@@ -190,7 +198,7 @@ fn main() -> Result<()> {
                 server,
                 timeout,
                 cli.keypair,
-                cli.rpc_url,
+                cli.rpc_url.unwrap_or_else(|| "https://api.devnet.solana.com".to_string()),
                 cli.chain,
                 cli.starknet_rpc_url,
                 cli.starknet_account,

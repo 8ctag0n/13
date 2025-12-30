@@ -56,7 +56,7 @@ pub enum DevJobCommands {
 
 #[derive(Args, Debug, Clone)]
 pub struct DevJobCommonArgs {
-    /// Config file path (default: dev-job.toml in current directory)
+    /// Config file path (default: zyb.toml in current directory or ~/.config/zyb/zyb.toml)
     #[arg(long)]
     pub config: Option<PathBuf>,
 
@@ -64,19 +64,19 @@ pub struct DevJobCommonArgs {
     #[arg(long)]
     pub profile: Option<String>,
 
-    /// Program ID (overrides PROGRAM_ID env var)
+    /// FHE Generator Program ID (overrides config and PROGRAM_ID/FHE_GENERATOR_PROGRAM_ID env var)
     #[arg(long)]
     pub program_id: Option<String>,
 
-    /// Solana RPC URL (overrides SOLANA_RPC_URL env var)
+    /// Solana RPC URL (overrides config and SOLANA_RPC_URL env var)
     #[arg(long)]
     pub rpc_url: Option<String>,
 
-    /// Backend URL (overrides BACKEND_URL env var)
+    /// Backend URL (overrides config and BACKEND_URL env var)
     #[arg(long)]
     pub backend_url: Option<String>,
 
-    /// Path to Solana keypair JSON (overrides USER_KEYPAIR env var)
+    /// Path to Solana keypair JSON (overrides config and USER_KEYPAIR env var)
     #[arg(long)]
     pub keypair: Option<PathBuf>,
 
@@ -417,26 +417,52 @@ fn load_config(
         .clone()
         .or_else(|| common.and_then(|cfg| cfg.profile.clone()));
 
-    let profile = match (profile_name, file_config.and_then(|cfg| cfg.profiles.as_ref())) {
-        (Some(name), Some(profiles)) => Some(
-            profiles
-                .get(&name)
+    log::debug!("Requested profile: {:?}", profile_name);
+    log::debug!("Available profiles: {:?}",
+        file_config.and_then(|cfg| cfg.profiles.as_ref()).map(|p| p.keys().collect::<Vec<_>>()));
+
+    let profile = match (profile_name.as_ref(), file_config.and_then(|cfg| cfg.profiles.as_ref())) {
+        (Some(name), Some(profiles)) => {
+            let prof = profiles
+                .get(name)
                 .cloned()
-                .ok_or_else(|| anyhow::anyhow!("Profile not found in config: {}", name))?,
-        ),
+                .ok_or_else(|| anyhow::anyhow!("Profile not found in config: {}", name))?;
+            log::debug!("Selected profile '{}' with rpc_url={:?}", name, prof.rpc_url);
+            Some(prof)
+        },
         (Some(name), None) => {
             return Err(anyhow::anyhow!("Profile not found in config: {}", name))
         }
-        (None, _) => None,
+        (None, _) => {
+            log::debug!("No profile specified, using defaults");
+            None
+        }
     };
 
     let rpc_url = args
         .rpc_url
         .clone()
-        .or_else(|| profile.as_ref().and_then(|cfg| cfg.rpc_url.clone()))
-        .or_else(|| common.and_then(|cfg| cfg.rpc_url.clone()))
-        .or_else(|| std::env::var("SOLANA_RPC_URL").ok())
-        .unwrap_or_else(|| "http://localhost:8899".to_string());
+        .or_else(|| {
+            let url = profile.as_ref().and_then(|cfg| cfg.rpc_url.clone());
+            log::debug!("RPC URL from profile: {:?}", url);
+            url
+        })
+        .or_else(|| {
+            let url = common.and_then(|cfg| cfg.rpc_url.clone());
+            log::debug!("RPC URL from common: {:?}", url);
+            url
+        })
+        .or_else(|| {
+            let url = std::env::var("SOLANA_RPC_URL").ok();
+            log::debug!("RPC URL from env SOLANA_RPC_URL: {:?}", url);
+            url
+        })
+        .unwrap_or_else(|| {
+            log::debug!("Using hardcoded default RPC URL");
+            "http://localhost:8899".to_string()
+        });
+
+    log::debug!("Final RPC URL: {}", rpc_url);
 
     let fhe_generator_program_id_str = args
         .program_id
@@ -466,6 +492,9 @@ fn load_config(
         .or_else(|| common.and_then(|cfg| cfg.keypair.clone()))
         .or_else(|| std::env::var("USER_KEYPAIR").ok().map(PathBuf::from))
         .unwrap_or_else(|| PathBuf::from("/tmp/job-creator-keypair.json"));
+
+    // Expand tilde (~) in keypair path
+    let keypair_path = crate::config::expand_tilde(&keypair_path);
 
     let no_airdrop = args.no_airdrop
         || profile.as_ref().and_then(|cfg| cfg.no_airdrop).unwrap_or(false)
@@ -685,16 +714,78 @@ fn apply_plan_config(args: DevJobPlanArgs) -> Result<(DevJobPlanArgs, Option<Dev
 }
 
 fn load_file_config(path: &Option<PathBuf>) -> Result<Option<DevJobFileConfig>> {
-    let config_path = path.clone().unwrap_or_else(|| PathBuf::from("dev-job.toml"));
-    if !config_path.exists() {
-        if path.is_some() {
-            anyhow::bail!("Config file not found: {}", config_path.display());
+    // Try to load global config first (zyb.toml)
+    match crate::config::load_global_config(path.clone()) {
+        Ok(Some(cfg)) => {
+            log::debug!("Loaded zyb.toml successfully, converting to DevJobFileConfig");
+
+            // Convert GlobalConfig to DevJobFileConfig
+            let mut dev_job_file_config = DevJobFileConfig::default();
+
+            // Convert common config
+            dev_job_file_config.common = Some(DevJobCommonFileConfig {
+                profile: cfg.common.profile.clone(),
+                program_id: None,
+                bedrock_program_id: None,
+                zk_generator_program_id: None,
+                rpc_url: None,
+                backend_url: None,
+                keypair: None,
+                no_airdrop: cfg.common.no_airdrop,
+                json: cfg.common.json,
+            });
+
+            // Convert profiles
+            let mut profiles = HashMap::new();
+            for (name, profile) in cfg.profiles.iter() {
+                log::debug!("Converting profile '{}' with rpc_url={:?}", name, profile.rpc_url);
+                profiles.insert(name.clone(), DevJobProfileConfig {
+                    program_id: profile.fhe_generator_program_id.clone(),
+                    bedrock_program_id: profile.bedrock_program_id.clone(),
+                    zk_generator_program_id: profile.zk_generator_program_id.clone(),
+                    rpc_url: profile.rpc_url.clone(),
+                    backend_url: profile.backend_url.clone(),
+                    keypair: profile.keypair.clone(),
+                    no_airdrop: profile.no_airdrop,
+                    json: profile.json,
+                });
+            }
+            if !profiles.is_empty() {
+                dev_job_file_config.profiles = Some(profiles);
+            }
+
+            // Convert dev-job specific config
+            if let Some(dev_job) = cfg.dev_job {
+                dev_job_file_config.run = Some(DevJobRunFileConfig {
+                    types: None,
+                    cases: None,
+                    interval_secs: dev_job.interval_secs,
+                    once: dev_job.once,
+                    shuffle: dev_job.shuffle,
+                });
+            }
+
+            return Ok(Some(dev_job_file_config));
         }
+        Ok(None) => {
+            // No global config found, try legacy dev-job.toml
+            log::debug!("No zyb.toml found, trying legacy dev-job.toml");
+        }
+        Err(e) => {
+            log::warn!("Failed to load zyb.toml: {}", e);
+        }
+    }
+
+    // Fallback to legacy dev-job.toml for backwards compatibility
+    let legacy_path = PathBuf::from("dev-job.toml");
+    if !legacy_path.exists() {
         return Ok(None);
     }
 
-    let contents = std::fs::read_to_string(&config_path)
-        .with_context(|| format!("Failed to read config file {}", config_path.display()))?;
+    log::warn!("Using legacy dev-job.toml. Consider migrating to zyb.toml for better configuration management.");
+
+    let contents = std::fs::read_to_string(&legacy_path)
+        .with_context(|| format!("Failed to read config file {}", legacy_path.display()))?;
     let config: DevJobFileConfig =
         toml::from_str(&contents).context("Failed to parse dev-job.toml")?;
     Ok(Some(config))
@@ -836,11 +927,11 @@ fn spec_from_type(job_type: DevJobType) -> Result<JobSpec> {
             Some(2),
         ),
         DevJobType::Histogram => JobSpec::new(
-            "Histogram [0-9,10-19,20-29,30-39]",
+            "Histogram [0-63,64-127,128-191,192-255]",
             FheOperation::Histogram {
                 bins: default_histogram_bins(),
             },
-            vec![5, 12, 19, 27, 33],
+            vec![10, 70, 140, 200, 230],  // Values spread across all 4 bins
             None,
         ),
     })
@@ -894,11 +985,11 @@ fn specs_from_case(case: DevJobCase) -> Vec<JobSpec> {
                 Some(30),
             ),
             JobSpec::new(
-                "Histogram [0-9,10-19,20-29,30-39]",
+                "Histogram [0-63,64-127,128-191,192-255]",
                 FheOperation::Histogram {
                     bins: default_histogram_bins(),
                 },
-                vec![5, 12, 19, 27, 33],
+                vec![10, 70, 140, 200, 230],
                 None,
             ),
         ],
@@ -940,11 +1031,11 @@ fn specs_from_case(case: DevJobCase) -> Vec<JobSpec> {
                 Some(30),
             ),
             JobSpec::new(
-                "Histogram [0-9,10-19,20-29,30-39]",
+                "Histogram [0-63,64-127,128-191,192-255]",
                 FheOperation::Histogram {
                     bins: default_histogram_bins(),
                 },
-                vec![5, 12, 19, 27, 33],
+                vec![10, 70, 140, 200, 230],
                 None,
             ),
         ],
@@ -952,11 +1043,12 @@ fn specs_from_case(case: DevJobCase) -> Vec<JobSpec> {
 }
 
 fn default_histogram_bins() -> Vec<HistogramBin> {
+    // Use uniform bins that prover can reconstruct from bins_count only
     vec![
-        HistogramBin::new(0, 9, "0-9"),
-        HistogramBin::new(10, 19, "10-19"),
-        HistogramBin::new(20, 29, "20-29"),
-        HistogramBin::new(30, 39, "30-39"),
+        HistogramBin::new(0, 63, "0-63"),
+        HistogramBin::new(64, 127, "64-127"),
+        HistogramBin::new(128, 191, "128-191"),
+        HistogramBin::new(192, 255, "192-255"),
     ]
 }
 
