@@ -488,3 +488,6 @@ zyb.toml
 
 # Keep example template
 !zyb.example.toml
+
+# Job tracking file (local dev only)
+.zyb-jobs.json

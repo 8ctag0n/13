@@ -22,7 +22,7 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use blake2::{Blake2s256, Digest};
 use clap::{Args, Subcommand, ValueEnum};
 use rand::seq::SliceRandom;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::{
     commitment_config::CommitmentConfig,
@@ -52,6 +52,10 @@ pub enum DevJobCommands {
     WebappFlow(DevJobWebappArgs),
     /// Simulate webapp Proof of Innocence flow
     WebappFlowPoi(DevJobCommonArgs),
+    /// Check status of a job by ID
+    Status(DevJobStatusArgs),
+    /// View job history from local tracking file
+    History(DevJobHistoryArgs),
 }
 
 #[derive(Args, Debug, Clone)]
@@ -151,6 +155,30 @@ pub struct DevJobWebappArgs {
     /// Wait for completion and verify result
     #[arg(long)]
     pub verify: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct DevJobStatusArgs {
+    #[command(flatten)]
+    pub common: DevJobCommonArgs,
+
+    /// Job ID to check
+    #[arg(long)]
+    pub job_id: u64,
+}
+
+#[derive(Args, Debug)]
+pub struct DevJobHistoryArgs {
+    #[command(flatten)]
+    pub common: DevJobCommonArgs,
+
+    /// Limit number of jobs to show
+    #[arg(long, short = 'n', default_value = "10")]
+    pub limit: usize,
+
+    /// Show all tracked jobs
+    #[arg(long)]
+    pub all: bool,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum, Deserialize)]
@@ -356,6 +384,15 @@ async fn handle_dev_job_command_async(command: DevJobCommands) -> Result<()> {
                 context.json,
             )
             .await
+        }
+        DevJobCommands::Status(args) => {
+            let file_config = load_file_config(&args.common.config)?;
+            let context = build_context(&args.common, file_config.as_ref()).await?;
+            run_status_command(&context, args.job_id).await
+        }
+        DevJobCommands::History(args) => {
+            let file_config = load_file_config(&args.common.config)?;
+            run_history_command(args, file_config.as_ref()).await
         }
     }
 }
@@ -1137,6 +1174,18 @@ async fn create_and_submit_job(context: &DevJobContext, spec: &JobSpec) -> Resul
 
     let signature = context.rpc_client.send_and_confirm_transaction(&tx)?;
     log::info!("Job {} created, signature: {}", job_id, signature);
+
+    // Track job in local history
+    if let Err(e) = track_job(
+        job_id,
+        circuit_type,
+        spec.operation.name().to_string(),
+        signature.to_string(),
+        context.backend_url.clone(),
+    ) {
+        log::warn!("Failed to track job in history: {}", e);
+    }
+
     emit_json(
         context.json,
         serde_json::json!({
@@ -1179,6 +1228,53 @@ struct ServerKeyUploadResponse {
 struct ValidateAndBuildResponse {
     job_id: u64,
     transaction: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct TrackedJob {
+    job_id: u64,
+    circuit_type: u8,
+    operation_name: String,
+    created_at: String,
+    signature: String,
+    backend_url: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+struct JobHistory {
+    jobs: Vec<TrackedJob>,
+}
+
+impl JobHistory {
+    fn load() -> Result<Self> {
+        let path = Self::get_path();
+        if !path.exists() {
+            return Ok(Self::default());
+        }
+        let content = std::fs::read_to_string(&path)?;
+        let history: JobHistory = serde_json::from_str(&content)?;
+        Ok(history)
+    }
+
+    fn save(&self) -> Result<()> {
+        let path = Self::get_path();
+        let content = serde_json::to_string_pretty(self)?;
+        std::fs::write(&path, content)?;
+        Ok(())
+    }
+
+    fn add_job(&mut self, job: TrackedJob) {
+        self.jobs.push(job);
+        // Keep only last 100 jobs
+        if self.jobs.len() > 100 {
+            self.jobs.drain(0..self.jobs.len() - 100);
+        }
+    }
+
+    fn get_path() -> PathBuf {
+        // Store in current directory
+        PathBuf::from(".zyb-jobs.json")
+    }
 }
 
 async fn run_verified_job(
@@ -1251,6 +1347,18 @@ async fn run_verified_job(
 
     let signature = rpc_client.send_and_confirm_transaction(&tx)?;
     log::info!("  Job {} created, signature: {}", job_id, signature);
+
+    // Track job in local history
+    if let Err(e) = track_job(
+        job_id,
+        circuit_type,
+        operation.name().to_string(),
+        signature.to_string(),
+        backend_url.to_string(),
+    ) {
+        log::warn!("Failed to track job in history: {}", e);
+    }
+
     emit_json(
         emit_json_events,
         serde_json::json!({
@@ -1651,6 +1759,17 @@ async fn run_webapp_flow(
         .context("Failed to submit transaction")?;
     log::info!("  Transaction confirmed: {}", signature);
 
+    // Track job in local history
+    if let Err(e) = track_job(
+        validate_result.job_id,
+        CIRCUIT_FHE_SUM,
+        "Sum".to_string(),
+        signature.to_string(),
+        backend_url.to_string(),
+    ) {
+        log::warn!("Failed to track job in history: {}", e);
+    }
+
     log::info!("[6/{}] Confirming job with backend...", total_steps);
     let confirm_url = format!("{}/api/jobs/{}/confirm", backend_url, validate_result.job_id);
     let confirm_response = http_client
@@ -1893,6 +2012,17 @@ async fn run_webapp_flow_poi(
         .context("Failed to submit transaction")?;
     log::info!("  Transaction confirmed: {}", tx_signature);
 
+    // Track job in local history
+    if let Err(e) = track_job(
+        validate_result.job_id,
+        CIRCUIT_FHE_COUNT_IF,
+        "CountIf".to_string(),
+        tx_signature.to_string(),
+        backend_url.to_string(),
+    ) {
+        log::warn!("Failed to track job in history: {}", e);
+    }
+
     log::info!("[6/8] Confirming job with backend...");
     let confirm_url = format!("{}/api/jobs/{}/confirm", backend_url, validate_result.job_id);
     let _ = http_client
@@ -1977,4 +2107,116 @@ fn emit_json(enabled: bool, value: serde_json::Value) {
     if enabled {
         println!("{}", value);
     }
+}
+
+async fn run_status_command(context: &DevJobContext, job_id: u64) -> Result<()> {
+    log::info!("Fetching status for job {}...", job_id);
+
+    let url = format!("{}/api/jobs/{}", context.backend_url, job_id);
+    let response = context.http_client.get(&url).send().await;
+
+    match response {
+        Ok(resp) if resp.status().is_success() => {
+            let status: serde_json::Value = resp.json().await?;
+
+            log::info!("");
+            log::info!("===========================================");
+            log::info!("  Job Status: {}", job_id);
+            log::info!("===========================================");
+            log::info!("Status:       {}", status["status"].as_str().unwrap_or("unknown"));
+            log::info!("Circuit Type: {}", status["circuit_type"].as_u64().unwrap_or(0));
+            log::info!("Created At:   {}", status["created_at"].as_str().unwrap_or("unknown"));
+
+            if let Some(result) = status.get("result") {
+                log::info!("Result:       {}", result);
+            }
+
+            if let Some(error) = status.get("error") {
+                log::info!("Error:        {}", error);
+            }
+
+            log::info!("===========================================");
+            log::info!("");
+
+            if context.json {
+                println!("{}", serde_json::to_string_pretty(&status)?);
+            }
+
+            Ok(())
+        }
+        Ok(resp) => {
+            anyhow::bail!("Failed to fetch job status: HTTP {}", resp.status())
+        }
+        Err(e) => {
+            anyhow::bail!("Failed to fetch job status: {}", e)
+        }
+    }
+}
+
+async fn run_history_command(
+    args: DevJobHistoryArgs,
+    _file_config: Option<&DevJobFileConfig>,
+) -> Result<()> {
+    let history = JobHistory::load()?;
+
+    if history.jobs.is_empty() {
+        log::info!("No jobs tracked yet.");
+        log::info!("Jobs are automatically tracked when created via 'zyb dev-job run'.");
+        return Ok(());
+    }
+
+    let limit = if args.all {
+        history.jobs.len()
+    } else {
+        args.limit.min(history.jobs.len())
+    };
+
+    log::info!("");
+    log::info!("===========================================");
+    log::info!("  Job History (last {} jobs)", limit);
+    log::info!("===========================================");
+    log::info!("");
+
+    // Show most recent jobs first
+    for job in history.jobs.iter().rev().take(limit) {
+        log::info!("Job ID:        {}", job.job_id);
+        log::info!("Operation:     {}", job.operation_name);
+        log::info!("Circuit Type:  {}", job.circuit_type);
+        log::info!("Created:       {}", job.created_at);
+        log::info!("Signature:     {}", job.signature);
+        log::info!("Backend URL:   {}", job.backend_url);
+        log::info!("-------------------------------------------");
+    }
+
+    log::info!("Total tracked jobs: {}", history.jobs.len());
+    log::info!("History file: {}", JobHistory::get_path().display());
+    log::info!("");
+
+    Ok(())
+}
+
+fn track_job(
+    job_id: u64,
+    circuit_type: u8,
+    operation_name: String,
+    signature: String,
+    backend_url: String,
+) -> Result<()> {
+    let mut history = JobHistory::load().unwrap_or_default();
+
+    let created_at = chrono::Utc::now().to_rfc3339();
+
+    let tracked_job = TrackedJob {
+        job_id,
+        circuit_type,
+        operation_name,
+        created_at,
+        signature,
+        backend_url,
+    };
+
+    history.add_job(tracked_job);
+    history.save()?;
+
+    Ok(())
 }
