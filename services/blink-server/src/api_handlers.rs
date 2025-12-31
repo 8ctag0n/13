@@ -1982,12 +1982,13 @@ async fn get_prover_status(
 ) -> impl Responder {
     log::info!("Checking prover status for pubkey: {}", *pubkey);
 
-    // Query provers table
+    // Query provers table by authority_pubkey (what provers use to authenticate)
+    // Note: pubkey is the PDA address, authority_pubkey is the signing keypair
     let query_result = sqlx::query_as::<_, (bool, i32)>(
         r#"
         SELECT is_active, reputation_score
         FROM provers
-        WHERE pubkey = $1
+        WHERE authority_pubkey = $1 OR pubkey = $1
         "#,
     )
     .bind(&*pubkey)
