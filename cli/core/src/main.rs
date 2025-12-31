@@ -6,6 +6,7 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 use zyb_cli::commands::compliance::ComplianceCommands;
+use zyb_cli::commands::demo::DemoCommands;
 use zyb_cli::commands::dev_job::DevJobCommands;
 use zyb_cli::commands::market::MarketCommands;
 use zyb_cli::commands::profile::ProfileCommands;
@@ -81,6 +82,10 @@ enum Commands {
     /// Developer job runner (testing/demo)
     #[command(subcommand)]
     DevJob(DevJobCommands),
+
+    /// Visual demos for presentations and videos
+    #[command(subcommand)]
+    Demo(DemoCommands),
 
     /// Interactive wizard for creating jobs
     Wizard,
@@ -228,6 +233,10 @@ fn main() -> Result<()> {
 
         Commands::DevJob(dev_job_cmd) => {
             zyb_cli::commands::dev_job::handle_dev_job_command(dev_job_cmd)
+        }
+
+        Commands::Demo(demo_cmd) => {
+            zyb_cli::commands::demo::handle_demo_command(demo_cmd)
         }
 
         Commands::Wizard => zyb_cli::ui::run_wizard(),
