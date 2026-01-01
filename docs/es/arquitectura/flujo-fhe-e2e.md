@@ -148,7 +148,7 @@ El formato witness varía según el tipo de operación:
 [encrypted_data_len: 4 bytes LE] [encrypted_data: N bytes] [server_key: M bytes]
 ```
 
-**Ejemplo en código (job-creator):**
+**Ejemplo en código (dev-job):**
 
 ```rust
 let mut encrypted_input = Vec::new();

@@ -1,0 +1,73 @@
+# ZyberLink Backend Dockerfile (Multi-Binary)
+# ============================================
+# Multi-stage build for Rust backend servers
+# Supports: blink-server, x402-server, public-api
+#
+# Build context: project root (zyberlink-demo/)
+# Usage:
+#   docker build --build-arg BIN_NAME=blink-server -f Dockerfile.backend .
+#   docker build --build-arg BIN_NAME=x402-server -f Dockerfile.backend .
+
+# Stage 1: Build
+FROM rust:1.75-bookworm AS builder
+
+ARG BIN_NAME=blink-server
+
+WORKDIR /app
+
+# Install required system dependencies
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy workspace Cargo files first (for dependency caching)
+COPY Cargo.toml Cargo.lock ./
+
+# Copy all source directories (required for workspace)
+COPY services/ ./services/
+COPY packages/ ./packages/
+COPY kernel/ ./kernel/
+COPY sdks/ ./sdks/
+
+# Build the specified binary
+RUN cargo build --release --bin ${BIN_NAME}
+
+# Prepare migrations if they exist (only for blink-server)
+RUN mkdir -p /app/migrations && \
+    if [ -d "services/${BIN_NAME}/migrations" ]; then \
+        cp -r services/${BIN_NAME}/migrations/* /app/migrations/; \
+    fi
+
+# Stage 2: Runtime
+FROM debian:bookworm-slim
+
+ARG BIN_NAME=blink-server
+
+WORKDIR /app
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    libssl3 \
+    curl \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy the built binary
+COPY --from=builder /app/target/release/${BIN_NAME} /app/server
+
+# Copy migrations if they exist
+COPY --from=builder /app/migrations ./migrations
+
+# Expose ports (overridden by docker-compose)
+EXPOSE 8080
+EXPOSE 8081
+EXPOSE 3000
+
+# Set environment defaults
+ENV RUST_LOG=info
+ENV HOST=0.0.0.0
+
+# Run the server
+CMD ["./server"]

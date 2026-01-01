@@ -6,8 +6,8 @@ Herramientas de línea de comandos para encriptar datos localmente y desencripta
 
 El CLI de FHE de ZyberLink provee dos herramientas esenciales para computaciones que preservan privacidad:
 
-1. **fhe-cli encrypt** - Encripta tus datos localmente antes de enviar a ZyberLink
-2. **fhe-cli decrypt** - Desencripta resultados de computaciones después de que los provers procesen tu trabajo
+1. **zyb fhe encrypt** - Encripta tus datos localmente antes de enviar a ZyberLink
+2. **zyb fhe decrypt** - Desencripta resultados de computaciones después de que los provers procesen tu trabajo
 
 **Garantía de Privacidad:** Tus datos en texto plano nunca salen de tu máquina. Solo el texto cifrado encriptado es subido a la plataforma.
 
@@ -41,29 +41,29 @@ git clone https://github.com/8ctag0n/13.git zyberlink
 cd zyberlink
 
 # Navega al directorio del CLI de FHE
-cd src/fhe-cli
+cd src/zyb-cli
 
 # Compila versión release
 cargo build --release
 
 # Binarios ubicados en:
-# - target/release/fhe-cli
+# - target/release/zyb
 ```
 
 **Verifica la instalación:**
 ```bash
-./target/release/fhe-cli --version
-# Esperado: fhe-cli 0.1.0
+./target/release/zyb --version
+# Esperado: zyb 0.1.0
 ```
 
 ### Agregar a PATH (Opcional)
 
 ```bash
 # Copia el binario a la ruta del sistema
-sudo cp target/release/fhe-cli /usr/local/bin/
+sudo cp target/release/zyb /usr/local/bin/
 
 # Ahora úsalo desde cualquier lugar
-fhe-cli --help
+zyb fhe --help
 ```
 
 ## Inicio Rápido
@@ -71,13 +71,13 @@ fhe-cli --help
 ### 1. Encripta Datos
 
 ```bash
-cd src/fhe-cli
+cd src/zyb-cli
 
 # Encripta un solo valor
-cargo run --release --bin fhe-cli encrypt --values 42
+cargo run --release --bin zyb fhe encrypt --values 42
 
 # Encripta múltiples valores (separados por comas)
-cargo run --release --bin fhe-cli encrypt --values 10,20,30,40,50
+cargo run --release --bin zyb fhe encrypt --values 10,20,30,40,50
 ```
 
 **Salida:**
@@ -128,7 +128,7 @@ Después de que tu trabajo se complete:
 # Descarga resultado encriptado de la plataforma (ej., result.bin)
 
 # Desencripta el resultado
-cargo run --release --bin fhe-cli decrypt \
+cargo run --release --bin zyb fhe decrypt \
   --result-path ~/Downloads/result.bin \
   --client-key-path ./fhe-output/client_key.bin
 ```
@@ -164,7 +164,7 @@ Tus datos permanecieron encriptados en todo momento
 
 **Sintaxis:**
 ```bash
-fhe-cli encrypt --values <VALUES> [--output <PATH>]
+zyb fhe encrypt --values <VALUES> [--output <PATH>]
 ```
 
 **Argumentos:**
@@ -178,16 +178,16 @@ fhe-cli encrypt --values <VALUES> [--output <PATH>]
 
 ```bash
 # Valor único
-fhe-cli encrypt --values 42
+zyb fhe encrypt --values 42
 
 # Múltiples valores
-fhe-cli encrypt --values 10,20,30,40,50
+zyb fhe encrypt --values 10,20,30,40,50
 
 # Directorio de salida personalizado
-fhe-cli encrypt --values 100,200 --output ~/encrypted-data/
+zyb fhe encrypt --values 100,200 --output ~/encrypted-data/
 
 # Dataset grande
-fhe-cli encrypt --values 5,15,25,35,45,55,65,75,85,95
+zyb fhe encrypt --values 5,15,25,35,45,55,65,75,85,95
 ```
 
 **Archivos de Salida:**
@@ -216,7 +216,7 @@ fhe-cli encrypt --values 5,15,25,35,45,55,65,75,85,95
 
 **Sintaxis:**
 ```bash
-fhe-cli decrypt --result-path <PATH> --client-key-path <PATH>
+zyb fhe decrypt --result-path <PATH> --client-key-path <PATH>
 ```
 
 **Argumentos:**
@@ -230,17 +230,17 @@ fhe-cli decrypt --result-path <PATH> --client-key-path <PATH>
 
 ```bash
 # Desencriptación básica
-fhe-cli decrypt \
+zyb fhe decrypt \
   --result-path result.bin \
   --client-key-path ./fhe-output/client_key.bin
 
 # Con rutas absolutas
-fhe-cli decrypt \
+zyb fhe decrypt \
   --result-path ~/Downloads/result_abc123.bin \
   --client-key-path ~/.zyberlink/keys/client_key.bin
 
 # Desencripta resultado de trabajo específico
-fhe-cli decrypt \
+zyb fhe decrypt \
   --result-path ./results/job_42_result.bin \
   --client-key-path ./fhe-output/client_key.bin
 ```
@@ -276,10 +276,10 @@ RESULTADOS:
 #### Paso 1: Encriptar Valores de Donaciones
 
 ```bash
-cd src/fhe-cli
+cd src/zyb-cli
 
 # Encripta montos de donaciones (en dólares)
-cargo run --release --bin fhe-cli encrypt \
+cargo run --release --bin zyb fhe encrypt \
   --values 100,250,75,500,125
 
 # Salida:
@@ -305,7 +305,7 @@ cargo run --release --bin fhe-cli encrypt \
 # Descarga result.bin de la plataforma
 
 # Desencripta
-cargo run --release --bin fhe-cli decrypt \
+cargo run --release --bin zyb fhe decrypt \
   --result-path ~/Downloads/result.bin \
   --client-key-path ./fhe-output/client_key.bin
 
@@ -343,10 +343,10 @@ indices = [10, 25, 50, 75]
 #### Paso 2: Encriptar Índices de Transacciones
 
 ```bash
-cd src/fhe-cli
+cd src/zyb-cli
 
 # Encripta tus índices de transacciones
-cargo run --release --bin fhe-cli encrypt \
+cargo run --release --bin zyb fhe encrypt \
   --values 10,25,50,75
 
 # Salida:
@@ -371,7 +371,7 @@ cargo run --release --bin fhe-cli encrypt \
 ```bash
 # Descarga resultado de la plataforma
 
-cargo run --release --bin fhe-cli decrypt \
+cargo run --release --bin zyb fhe decrypt \
   --result-path result.bin \
   --client-key-path ./fhe-output/client_key.bin
 
@@ -389,7 +389,7 @@ cargo run --release --bin fhe-cli decrypt \
 
 ```bash
 # Encripta tu dataset
-cargo run --release --bin fhe-cli encrypt \
+cargo run --release --bin zyb fhe encrypt \
   --values 15,22,28,35,42,48,55,62,68,75
 
 # Guarda ubicación de clave de cliente
@@ -411,19 +411,19 @@ Trabajo 4: HISTOGRAM - Análisis de distribución
 
 ```bash
 # Desencripta resultado del trabajo 1 (Sum)
-fhe-cli decrypt --result-path result_job1.bin --client-key-path $CLIENT_KEY
+zyb fhe decrypt --result-path result_job1.bin --client-key-path $CLIENT_KEY
 # Resultado: 450
 
 # Desencripta resultado del trabajo 2 (Average)
-fhe-cli decrypt --result-path result_job2.bin --client-key-path $CLIENT_KEY
+zyb fhe decrypt --result-path result_job2.bin --client-key-path $CLIENT_KEY
 # Resultado: 45 (promedio)
 
 # Desencripta resultado del trabajo 3 (CountIf)
-fhe-cli decrypt --result-path result_job3.bin --client-key-path $CLIENT_KEY
+zyb fhe decrypt --result-path result_job3.bin --client-key-path $CLIENT_KEY
 # Resultado: 5 (valores >= 50)
 
 # Desencripta resultado del trabajo 4 (Histogram)
-fhe-cli decrypt --result-path result_job4.bin --client-key-path $CLIENT_KEY
+zyb fhe decrypt --result-path result_job4.bin --client-key-path $CLIENT_KEY
 # Resultados: [3, 4, 3] (bins)
 ```
 
@@ -438,7 +438,7 @@ Organiza datos encriptados por proyecto:
 mkdir -p ~/projects/analytics-demo/encrypted
 
 # Encripta con salida personalizada
-fhe-cli encrypt \
+zyb fhe encrypt \
   --values 10,20,30 \
   --output ~/projects/analytics-demo/encrypted
 
@@ -453,17 +453,17 @@ FHE soporta valores 0-255 (enteros sin signo de 8 bits):
 
 ```bash
 # Valor mínimo
-fhe-cli encrypt --values 0
+zyb fhe encrypt --values 0
 
 # Valor máximo
-fhe-cli encrypt --values 255
+zyb fhe encrypt --values 255
 
 # Mezcla de valores
-fhe-cli encrypt --values 0,50,100,150,200,255
+zyb fhe encrypt --values 0,50,100,150,200,255
 
 # Inválido (dará error)
-fhe-cli encrypt --values 256  # Fuera de rango
-fhe-cli encrypt --values -1   # Negativo no soportado
+zyb fhe encrypt --values 256  # Fuera de rango
+zyb fhe encrypt --values -1   # Negativo no soportado
 ```
 
 **Solución para valores más grandes:**
@@ -499,7 +499,7 @@ datasets=(
 for i in "${!datasets[@]}"; do
   echo "Encriptando dataset $((i+1))..."
 
-  fhe-cli encrypt \
+  zyb fhe encrypt \
     --values "${datasets[$i]}" \
     --output "./encrypted/dataset_$i"
 
@@ -588,7 +588,7 @@ du -h client_key.bin
 # (si encriptaste múltiples veces)
 
 # Re-encripta si es necesario
-fhe-cli encrypt --values 10,20,30
+zyb fhe encrypt --values 10,20,30
 ```
 
 ### Resultado de Desencriptación Incorrecto
@@ -625,7 +625,7 @@ ls -lh witness.bin
 # Reintentar subida
 
 # Re-encripta si el archivo está corrupto
-fhe-cli encrypt --values <ORIGINAL_VALUES>
+zyb fhe encrypt --values <ORIGINAL_VALUES>
 ```
 
 ## Detalles Técnicos
@@ -691,12 +691,12 @@ Tamaño total: 52,428,800 bytes (~52 MB)
 # Encripta múltiples valores a la vez para amortizar costo
 
 # Ineficiente (genera claves 3 veces)
-fhe-cli encrypt --values 10
-fhe-cli encrypt --values 20
-fhe-cli encrypt --values 30
+zyb fhe encrypt --values 10
+zyb fhe encrypt --values 20
+zyb fhe encrypt --values 30
 
 # Eficiente (genera claves una vez)
-fhe-cli encrypt --values 10,20,30
+zyb fhe encrypt --values 10,20,30
 ```
 
 ### Encriptación Paralela (Futuro)
@@ -705,7 +705,7 @@ Actualmente, la encriptación es secuencial. Versiones futuras pueden soportar:
 
 ```bash
 # Encriptación paralela hipotética
-fhe-cli encrypt --values 1,2,3,4,5,6,7,8,9,10 --parallel
+zyb fhe encrypt --values 1,2,3,4,5,6,7,8,9,10 --parallel
 
 # Encriptaría valores en paralelo usando múltiples núcleos CPU
 ```
@@ -751,7 +751,7 @@ async function encryptData(values) {
   const valuesStr = values.join(',');
 
   const { stdout } = await execPromise(
-    `fhe-cli encrypt --values ${valuesStr} --output ./encrypted`
+    `zyb fhe encrypt --values ${valuesStr} --output ./encrypted`
   );
 
   return {
@@ -762,7 +762,7 @@ async function encryptData(values) {
 
 async function decryptResult(resultPath, clientKeyPath) {
   const { stdout } = await execPromise(
-    `fhe-cli decrypt --result-path ${resultPath} --client-key-path ${clientKeyPath}`
+    `zyb fhe decrypt --result-path ${resultPath} --client-key-path ${clientKeyPath}`
   );
 
   // Parsea resultado del stdout
@@ -791,7 +791,7 @@ Para preguntas sobre el CLI de FHE:
 
 ## Documentación Relacionada
 
-- [Código Fuente del CLI de FHE](/src/fhe-cli/) - Detalles de implementación
+- [Código Fuente del CLI de Zyb](/src/zyb-cli/) - Detalles de implementación
 - [Documentación de TFHE-rs](https://docs.zama.ai/tfhe-rs) - Biblioteca FHE
 - [Guía de Operaciones FHE](/docs/book/en/concepts/fhe-operations.md) - Operaciones soportadas
 

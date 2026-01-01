@@ -1,0 +1,13 @@
+[package]
+name = "chain_starknet"
+version = "0.1.0"
+edition = "2024_07"
+
+[dependencies]
+starknet = ">=2.6.0"
+
+[cairo]
+sierra-replace-ids = true
+
+[[target.starknet-contract]]
+allowed-libfuncs-list.name = "experimental"

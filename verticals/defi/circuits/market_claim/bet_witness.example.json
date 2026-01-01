@@ -1,0 +1,8 @@
+{
+  "market_id": 1234567890,
+  "secret": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "blinding": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+  "bet_amount": 1000000000,
+  "bet_side": 1,
+  "bet_commitment": "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+}

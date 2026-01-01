@@ -7,20 +7,19 @@ This directory contains the public documentation for ZyberLink.
 This documentation is available in multiple languages:
 
 - **[English](en/)** - Full documentation in English
-- **[Español](es/)** - Documentación completa en español
-
-## About GitBook
-
-This documentation is designed to be published on GitBook. The structure follows GitBook conventions:
-
-- `SUMMARY.md` - Defines the navigation sidebar
-- `en/` - English documentation
-- `es/` - Spanish documentation
+- **[Espanol](es/)** - Documentacion completa en espanol
 
 ## Navigation
 
+### English Documentation
+- **[Getting Started](en/getting-started/README.md)**: Quickstart, Demo.
+- **[Architecture](en/architecture/README.md)**: System Overview, FHE Design, Tech Stack.
+- **[Guides](en/guides/README.md)**: Tutorials, API Reference, Deployment.
+- **[Wallet Extension](en/wallet-extension/README.md)**: Setup and Development.
+
+### Documentacion en Espanol
+- **[Primeros Pasos](es/primeros-pasos/README.md)**: Inicio Rapido, Demo.
+- **[Arquitectura](es/arquitectura/README.md)**: Vision General, Diseno FHE.
+- **[Guias](es/guias/README.md)**: Tutoriales, Referencia API, Despliegue.
+
 See [SUMMARY.md](SUMMARY.md) for the complete documentation index.
-
----
-
-**Note:** Internal documentation and planning materials are kept separately in `docs-private/` and are not published.

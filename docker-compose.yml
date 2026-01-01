@@ -1,5 +1,7 @@
-# ZyberLink Docker Compose
-# Scalable architecture with load balancing
+# ZyberLink Docker Compose - 3-Layer Architecture
+# ================================================
+# Arquitectura de 3 capas con load balancing:
+#   public-api:3000 (expuesto) -> x402:8081 (interno) -> blink:8080 (interno)
 
 services:
   # ============================================
@@ -8,7 +10,7 @@ services:
   validator:
     build:
       context: .
-      dockerfile: infra/docker/Dockerfile.validator
+      dockerfile: deployment/infra/docker/Dockerfile.validator
     ports:
       - "8899:8899"
       - "8900:8900"
@@ -23,68 +25,6 @@ services:
       start_period: 60s
 
   # ============================================
-  # NGINX Load Balancer
-  # ============================================
-  nginx:
-    image: docker.io/library/nginx:alpine
-    ports:
-      - "9000:80"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-    depends_on:
-      - webapp
-      - backend
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost/health"]
-      interval: 30s
-      timeout: 3s
-      retries: 3
-
-  # ============================================
-  # Frontend (Svelte) - 2 replicas
-  # ============================================
-  webapp:
-    build:
-      context: ./src/webapp
-      args:
-        VITE_API_URL: ""
-        VITE_SOLANA_RPC_URL: "http://localhost:8899"
-    deploy:
-      replicas: 2
-    expose:
-      - "80"
-    restart: unless-stopped
-
-  # ============================================
-  # Backend API (Rust) - 2 replicas
-  # ============================================
-  backend:
-    build:
-      context: .
-      dockerfile: src/blink-server/Dockerfile
-    deploy:
-      replicas: 2
-    expose:
-      - "8080"
-    volumes:
-      - /tmp/backend-keypair.json:/app/keypair.json:ro
-    environment:
-      - RUST_LOG=info
-      - DATABASE_URL=postgresql://zyberlink:${DB_PASSWORD:-dev_password}@postgres:5432/zyberlink
-      - SOLANA_RPC_URL=http://validator:8899
-      - PROGRAM_ID=${PROGRAM_ID:-CypherLinkProgram11111111111111111111111111}
-      - HOST=0.0.0.0
-      - PORT=8080
-      - SERVER_KEYPAIR_PATH=/app/keypair.json
-    depends_on:
-      postgres:
-        condition: service_healthy
-      validator:
-        condition: service_healthy
-    restart: unless-stopped
-
-  # ============================================
   # PostgreSQL Database
   # ============================================
   postgres:
@@ -95,8 +35,8 @@ services:
       - POSTGRES_DB=zyberlink
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    expose:
-      - "5432"
+    ports:
+      - "5432:5432"
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U zyberlink"]
@@ -104,9 +44,143 @@ services:
       timeout: 5s
       retries: 5
 
+  # ============================================
+  # Layer 3: Blink Server (Internal Backend)
+  # NO expuesto a internet
+  # ============================================
+  blink:
+    build:
+      context: .
+      dockerfile: services/blink-server/Dockerfile
+    deploy:
+      replicas: 2
+    expose:
+      - "8080"
+    volumes:
+      - /tmp/backend-keypair.json:/app/keypair.json:ro
+    environment:
+      - RUST_LOG=info
+      - DATABASE_URL=postgresql://zyberlink:${DB_PASSWORD:-dev_password}@postgres:5432/zyberlink
+      - SOLANA_RPC_URL=http://validator:8899
+      - PROGRAM_ID=${PROGRAM_ID:-11111111111111111111111111111111}
+      - BEDROCK_PROGRAM_ID=${BEDROCK_PROGRAM_ID:-8oSWVqrU78YW3FH6BqrqJqRyqK4p6k5ikzbT7UyekJrH}
+      - ZK_GENERATOR_PROGRAM_ID=${ZK_GENERATOR_PROGRAM_ID:-Dzvy1pzCBgtMw5Fte2GybpeN2PsLPW8t7zDvLfKpxnSS}
+      - FHE_GENERATOR_PROGRAM_ID=${FHE_GENERATOR_PROGRAM_ID:-GkYw9vNT6EZFZTwoEM2UBuwsAD6nwzArLGghBZqpsF5L}
+      - FUTARCHY_PROGRAM_ID=${FUTARCHY_PROGRAM_ID:-2V8E8DJ3M3J2Aombv8hxRq5t2RecjbdW3GpUmSVruuhX}
+      - HOST=0.0.0.0
+      - PORT=8080
+      - SERVER_KEYPAIR_PATH=/app/keypair.json
+      - X402_URL=http://x402:8081
+    depends_on:
+      postgres:
+        condition: service_healthy
+      validator:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # ============================================
+  # Layer 2: X402 Anti-Spam Gateway
+  # NO expuesto a internet
+  # ============================================
+  x402:
+    build:
+      context: .
+      dockerfile: services/x402-server/Dockerfile
+    deploy:
+      replicas: 2
+    expose:
+      - "8081"
+    environment:
+      - RUST_LOG=info
+      - DATABASE_URL=postgresql://zyberlink:${DB_PASSWORD:-dev_password}@postgres:5432/zyberlink
+      - BLINK_URL=http://blink:8080
+      - HOST=0.0.0.0
+      - PORT=8081
+    depends_on:
+      blink:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ============================================
+  # Layer 1: Public API Gateway (ENTRY POINT)
+  # UNICO servicio expuesto a internet
+  # Nota: replicas: 1 porque el puerto 3000 se mapea al host
+  # Para escalar, usar nginx como load balancer
+  # ============================================
+  public-api:
+    build:
+      context: .
+      dockerfile: services/public-api/Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - RUST_LOG=info
+      - X402_URL=http://x402:8081
+      - BLINK_URL=http://blink:8080
+      - SOLANA_RPC_URL=http://validator:8899
+      - HOST=0.0.0.0
+      - PORT=3000
+      - RATE_LIMIT_PER_MIN=100
+    depends_on:
+      x402:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ============================================
+  # NGINX Load Balancer (optional)
+  # ============================================
+  nginx:
+    image: docker.io/library/nginx:alpine
+    ports:
+      - "9000:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - webapp
+      - public-api
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+  # ============================================
+  # Frontend (Svelte)
+  # ============================================
+  webapp:
+    build:
+      context: ./apps/webapp
+      args:
+        VITE_API_URL: ""
+        VITE_SOLANA_RPC_URL: "http://localhost:8899"
+    deploy:
+      replicas: 2
+    expose:
+      - "80"
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   validator_ledger:
 
 # Para escalar manualmente:
-# podman-compose up --scale backend=4 --scale webapp=3
+# podman-compose up --scale blink=4 --scale x402=3 --scale public-api=3

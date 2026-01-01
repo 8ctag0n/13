@@ -19,6 +19,14 @@ test-witnesses/
 *.dll
 *.rlib
 
+# Circuits compiled (keys + r1cs, wasm,etc)
+*.wasm
+*.r1cs
+*.tau
+*.zkey
+
+# Circom compiler binary
+circuits/circom
 # Cargo local config
 .cargo/config.toml
 
@@ -271,6 +279,9 @@ src/prover-node/runtime/
 src/prover-node/jobs/
 src/prover-node/state/
 
+# FHE keys (large binary files, generated via generate-fhe-keys)
+src/prover-node/fhe-keys/
+
 # Prover configuration (may contain sensitive data)
 src/prover-node/config.local.toml
 
@@ -306,6 +317,7 @@ temp/
 book/
 # But track docs/book/ (GitBook source files)
 !docs/book/
+
 docs-private
 # Sphinx
 docs/_build/
@@ -406,7 +418,7 @@ docs/planning/
 docs/strategy-internal/
 docs/strategy/
 docs/private/
-
+docs/zk-circuits
 # ============================================
 # Misc
 # ============================================
@@ -459,3 +471,23 @@ test-ledger/
 logs/
 
 releases/
+
+# ZK circuit arkworks keys (large binary files)
+*.arkzkey
+
+# Private planning docs (not tracked)
+private/
+.sqlx/
+
+# ============================================
+# ZyberLink CLI Config
+# ============================================
+
+# Real config file (may contain sensitive data)
+zyb.toml
+
+# Keep example template
+!zyb.example.toml
+
+# Job tracking file (local dev only)
+.zyb-jobs.json

@@ -72,8 +72,8 @@ ZyberLink solves this through **multi-prover consensus**:
         ▼             ▼             ▼
 ┌────────────────────────────────────────────┐
 │   Consensus + On-Chain Verification        │
-│   A: hash_abc  B: hash_abc ✓  C: hash_def ✗│
-│   → Pay A & B, penalize C                  │
+│   A: hash_abc  B: hash_abc (OK) C: hash_def (Fail)│
+│   -> Pay A & B, penalize C                 │
 └────────────────────────────────────────────┘
 ```
 
@@ -91,12 +91,12 @@ ZyberLink solves this through **multi-prover consensus**:
 **In Development** - Zypherpunk Hackathon (Nov 10 - Dec 1, 2025)
 
 **Current Features:**
-- ✅ Multi-prover marketplace on Solana
-- ✅ FHE computation engine (TFHE-rs)
-- ✅ On-chain consensus algorithm
-- ✅ Terminal UI for prover monitoring
-- ✅ Interactive setup wizard
-- ✅ 14/14 FHE E2E tests passing
+- Multi-prover marketplace on Solana
+- FHE computation engine (TFHE-rs)
+- On-chain consensus algorithm
+- Terminal UI for prover monitoring
+- Interactive setup wizard
+- 14/14 FHE E2E tests passing
 
 ## Quick Links
 
@@ -115,3 +115,7 @@ ZyberLink is currently in hackathon development. After December 1, 2025, we will
 ---
 
 **Built with privacy, powered by decentralization.**
+
+## Next Step
+
+[Getting Started](getting-started/README.md) - Begin your journey with ZyberLink.
