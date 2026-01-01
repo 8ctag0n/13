@@ -1,0 +1,20 @@
+[common]
+profile = "local"
+rpc_url = "http://localhost:8899"
+program_id = "HnRTpCx7Xs3f1BKkVhkeZwcqRfPmSDpVQ6QxgN7Vm8Rt"
+backend_url = "http://localhost:3000"
+keypair = "/tmp/job-creator-keypair.json"
+json = true
+
+[run]
+cases = ["mix"]
+interval_secs = 10
+shuffle = false
+
+[profiles.local]
+rpc_url = "http://localhost:8899"
+backend_url = "http://localhost:3000"
+
+[profiles.devnet]
+rpc_url = "https://api.devnet.solana.com"
+backend_url = "https://demo.zyberlink.fun"

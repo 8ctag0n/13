@@ -22,13 +22,13 @@ Private Analytics allows you to compute statistics on encrypted datasets without
 Before starting, ensure you have:
 
 - **Solana wallet** with SOL for transaction fees (0.01-0.1 SOL)
-- **Encrypted data** prepared using the [FHE CLI](fhe-cli.md)
+- **Encrypted data** prepared using the [Zyb CLI (FHE)](fhe-cli.md)
 - **Internet connection** to access ZyberLink platform
 - **Modern browser** (Chrome, Firefox, Safari, Edge)
 
 ### Data Preparation
 
-Your data must be encrypted before submission. See the [FHE CLI Guide](fhe-cli.md) for encryption steps.
+Your data must be encrypted before submission. See the [Zyb CLI (FHE) Guide](fhe-cli.md) for encryption steps.
 
 **Input format:** Array of encrypted values (FheUint8 or FheUint16)
 **Output format:** Encrypted result + metadata (decryptable with your client key)
@@ -40,8 +40,8 @@ Your data must be encrypted before submission. See the [FHE CLI Guide](fhe-cli.m
 Use the FHE CLI to encrypt your dataset:
 
 ```bash
-cd src/fhe-cli
-cargo run --release --bin fhe-cli encrypt --values 10,20,30,40,50
+cd src/zyb-cli
+cargo run --release --bin zyb fhe encrypt --values 10,20,30,40,50
 ```
 
 This generates:
@@ -222,8 +222,8 @@ Once status shows **Completed**:
 Use the FHE CLI to decrypt the result:
 
 ```bash
-cd src/fhe-cli
-cargo run --release --bin fhe-cli decrypt \
+cd src/zyb-cli
+cargo run --release --bin zyb fhe decrypt \
   --result-path ./result.bin \
   --client-key-path ./fhe-output/client_key.bin
 ```
@@ -251,10 +251,10 @@ Provers: 3/3 consensus
 
 ```bash
 # Navigate to FHE CLI
-cd src/fhe-cli
+cd src/zyb-cli
 
 # Encrypt donation values (in dollars)
-cargo run --release --bin fhe-cli encrypt \
+cargo run --release --bin zyb fhe encrypt \
   --values 100,250,75,500,125
 
 # Output:
@@ -292,7 +292,7 @@ Transaction: 5k7Xh9...abc123
 ```bash
 # Download result.bin from platform
 # Decrypt with client key
-cargo run --release --bin fhe-cli decrypt \
+cargo run --release --bin zyb fhe decrypt \
   --result-path ~/Downloads/result.bin \
   --client-key-path ./fhe-output/client_key.bin
 
@@ -311,9 +311,9 @@ Submit multiple jobs in sequence:
 
 ```bash
 # Encrypt multiple datasets
-fhe-cli encrypt --values 10,20,30 --output dataset1.bin
-fhe-cli encrypt --values 40,50,60 --output dataset2.bin
-fhe-cli encrypt --values 70,80,90 --output dataset3.bin
+zyb fhe encrypt --values 10,20,30 --output dataset1.bin
+zyb fhe encrypt --values 40,50,60 --output dataset2.bin
+zyb fhe encrypt --values 70,80,90 --output dataset3.bin
 
 # Submit each dataset for different operations:
 # 1. Dataset1 → Sum
@@ -367,7 +367,7 @@ ls -lh witness.bin
 # Should show ~50-100MB file size
 
 # Re-encrypt if corrupted
-cargo run --release --bin fhe-cli encrypt --values 10,20,30
+cargo run --release --bin zyb fhe encrypt --values 10,20,30
 ```
 
 ### Job Stays in "Pending" Status
@@ -401,7 +401,7 @@ cargo run --release --bin fhe-cli encrypt --values 10,20,30
 
 ### Decryption Fails
 
-**Symptom:** `fhe-cli decrypt` shows error or wrong result
+**Symptom:** `zyb fhe decrypt` shows error or wrong result
 
 **Causes:**
 - Wrong client key (mismatched with witness)
@@ -513,7 +513,7 @@ Provers have access to:
 Now that you understand Private Analytics:
 
 - **[Proof of Innocence Guide](proof-of-innocence-guide.md)** - Verify compliance without exposing data
-- **[FHE CLI Guide](fhe-cli.md)** - Master encryption and decryption workflows
+- **[Zyb CLI (FHE) Guide](fhe-cli.md)** - Master encryption and decryption workflows
 - **[Prover Setup Guide](prover-setup.md)** - Run your own prover node
 - **[SDK Integration](sdk-integration.md)** - Build analytics into your application
 

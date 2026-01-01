@@ -14,7 +14,7 @@ Aprende a usar las funcionalidades principales de ZyberLink:
 Documentación para desarrolladores e integradores:
 
 * [Integración del SDK](integracion-sdk.md) - Integra ZyberLink en tu aplicación
-* [FHE CLI](fhe-cli.md) - Herramienta de línea de comandos para FHE
+* [Zyb CLI (FHE)](fhe-cli.md) - Herramienta de línea de comandos para FHE
 * [Referencia de API](referencia-api.md) - Documentación de endpoints
 * [Referencia API Completa](referencia-api-completa.md) - API detallada
 * [Endpoint de Jobs](api-endpoint-jobs.md) - API de gestión de jobs

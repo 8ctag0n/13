@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  # ============================================
+  # Aptos Local Testnet Node
+  # ============================================
+  aptos-node:
+    image: docker.io/aptoslabs/tools:devnet
+    container_name: zyberlink-aptos-node
+    network_mode: host
+    command: >
+      aptos node run-local-testnet
+      --with-faucet
+      --faucet-port 9081
+      --force-restart
+      --assume-yes
+    volumes:
+      - aptos_data:/root/.aptos
+      - aptos_config:/root/.aptos/testnet
+    environment:
+      - RUST_LOG=info
+      - APTOS_API_HOST=0.0.0.0
+      - APTOS_API_PORT=9080
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:9080/v1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
+volumes:
+  aptos_data:
+    driver: local
+  aptos_config:
+    driver: local

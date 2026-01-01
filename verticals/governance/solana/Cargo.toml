@@ -1,0 +1,18 @@
+[workspace]
+members = [
+    "programs/futarchy-markets",
+    "sdk/rust",
+]
+resolver = "2"
+
+[workspace.dependencies]
+zyberlink-types = { path = "../../../kernel/types" }
+zyberlink-crypto = { path = "../../../kernel/crypto" }
+solana-program = "2.3"
+borsh = { version = "1.5.7", features = ["derive"] }
+
+[profile.release]
+overflow-checks = true
+
+[profile.bpf]
+inherits = "release"

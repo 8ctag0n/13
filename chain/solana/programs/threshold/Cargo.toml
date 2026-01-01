@@ -1,0 +1,19 @@
+[package]
+name = "threshold"
+version.workspace = true
+edition.workspace = true
+
+[features]
+no-entrypoint = []
+test-sbf = []
+
+[dependencies]
+borsh.workspace = true
+solana-program.workspace = true
+thiserror.workspace = true
+bedrock.workspace = true
+zyberlink-jobs.workspace = true
+zyberlink-types.workspace = true
+
+[lib]
+crate-type = ["cdylib", "lib"]

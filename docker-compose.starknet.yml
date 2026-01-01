@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  cairo-dev:
+    build: ./docker/starknet
+    container_name: pbtcfi-cairo-dev
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    command: sleep infinity
+    networks:
+      - starknet-network
+
+  devnet:
+    image: docker.io/shardlabs/starknet-devnet-rs:latest
+    container_name: pbtcfi-devnet
+    command: --seed 0 --port 5050
+    ports:
+      - "5050:5050"
+    networks:
+      - starknet-network
+
+networks:
+  starknet-network:
+    driver: bridge

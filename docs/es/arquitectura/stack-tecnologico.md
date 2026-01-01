@@ -13,7 +13,7 @@ Visión general de tecnologías, librerías y herramientas de ZyberLink.
 - **CLI Solana 2.1+** para despliegue y gestión.
 
 ## CLI y Utilidades
-- **fhe-cli** (`fhe-encrypt`, `fhe-decrypt`) para generar `witness.bin` y claves.
+- **zyb** (`zyb fhe encrypt`, `zyb fhe decrypt`) para generar `witness.bin` y claves.
 - **Scripts** de demo y pruebas E2E (`./scripts`, `demo/`).
 
 ## Frontend
@@ -28,4 +28,4 @@ Visión general de tecnologías, librerías y herramientas de ZyberLink.
 - **Rust 1.75+**, **Solana CLI 2.1+**.
 - Provers: 16GB RAM / 8+ cores recomendado; conexión estable.
 
-Para detalles de despliegue, ver [Despliegue](../guias/despliegue.md) y para FHE CLI ver [FHE CLI](../guias/fhe-cli.md).
+Para detalles de despliegue, ver [Despliegue](../guias/despliegue.md) y para el CLI ver [Zyb CLI (FHE)](../guias/fhe-cli.md).

@@ -115,17 +115,19 @@ Este documento describe los circuitos ZK implementados y sus especificaciones.
 
 **Public Inputs:**
 - `market_id` - ID del mercado
-- `winning_outcome` - Resultado ganador
-- `bet_commitment` - Commitment original de la apuesta
-- `claim_nullifier` - Hash(secret, market_id) para prevenir doble claim
+- `nullifier` - Hash(secret, bet_commitment) para prevenir doble claim
 - `payout_amount` - Monto a pagar
+- `resolution` - Resultado ganador (0/1)
+- `total_pool` - Pool total del mercado
+- `winning_pool` - Pool del lado ganador
+- `bet_commitment` - Commitment original de la apuesta
+- `timestamp` - Timestamp del claim
 
 **Private Inputs:**
-- `bettor_wallet` - Wallet del apostador
+- `secret` - Secreto del usuario
 - `bet_amount` - Monto apostado originalmente
-- `position` - Posición apostada
+- `bet_side` - Lado apostado (0/1)
 - `blinding` - Factor de blinding original
-- `nullifier_secret` - Secreto para nullifier
 
 **Archivo:** `circuits/market/market_claim.circom`
 

@@ -22,13 +22,13 @@ Analytics Privado te permite computar estadísticas sobre datasets encriptados s
 Antes de comenzar, asegúrate de tener:
 
 - **Wallet de Solana** con SOL para fees de transacción (0.01-0.1 SOL)
-- **Datos encriptados** preparados usando el [FHE CLI](fhe-cli.md)
+- **Datos encriptados** preparados usando el [Zyb CLI (FHE)](fhe-cli.md)
 - **Conexión a Internet** para acceder a la plataforma ZyberLink
 - **Navegador moderno** (Chrome, Firefox, Safari, Edge)
 
 ### Preparación de Datos
 
-Tus datos deben estar encriptados antes de la sumisión. Ve la [Guía del FHE CLI](fhe-cli.md) para los pasos de encriptación.
+Tus datos deben estar encriptados antes de la sumisión. Ve la [Guía del Zyb CLI (FHE)](fhe-cli.md) para los pasos de encriptación.
 
 **Formato de entrada:** Array de valores encriptados (FheUint8 o FheUint16)
 **Formato de salida:** Resultado encriptado + metadata (desencriptable con tu clave de cliente)
@@ -40,8 +40,8 @@ Tus datos deben estar encriptados antes de la sumisión. Ve la [Guía del FHE CL
 Usa el FHE CLI para encriptar tu dataset:
 
 ```bash
-cd src/fhe-cli
-cargo run --release --bin fhe-cli encrypt --values 10,20,30,40,50
+cd src/zyb-cli
+cargo run --release --bin zyb fhe encrypt --values 10,20,30,40,50
 ```
 
 Esto genera:
@@ -222,8 +222,8 @@ Una vez que el estado muestre **Completed**:
 Usa el FHE CLI para desencriptar el resultado:
 
 ```bash
-cd src/fhe-cli
-cargo run --release --bin fhe-cli decrypt \
+cd src/zyb-cli
+cargo run --release --bin zyb fhe decrypt \
   --result-path ./result.bin \
   --client-key-path ./fhe-output/client_key.bin
 ```
@@ -251,10 +251,10 @@ Provers: 3/3 consenso
 
 ```bash
 # Navega al FHE CLI
-cd src/fhe-cli
+cd src/zyb-cli
 
 # Encripta valores de donaciones (en dólares)
-cargo run --release --bin fhe-cli encrypt \
+cargo run --release --bin zyb fhe encrypt \
   --values 100,250,75,500,125
 
 # Salida:
@@ -292,7 +292,7 @@ Transacción: 5k7Xh9...abc123
 ```bash
 # Descarga result.bin de la plataforma
 # Desencripta con la clave de cliente
-cargo run --release --bin fhe-cli decrypt \
+cargo run --release --bin zyb fhe decrypt \
   --result-path ~/Downloads/result.bin \
   --client-key-path ./fhe-output/client_key.bin
 
@@ -311,9 +311,9 @@ Envía múltiples trabajos en secuencia:
 
 ```bash
 # Encripta múltiples datasets
-fhe-cli encrypt --values 10,20,30 --output dataset1.bin
-fhe-cli encrypt --values 40,50,60 --output dataset2.bin
-fhe-cli encrypt --values 70,80,90 --output dataset3.bin
+zyb fhe encrypt --values 10,20,30 --output dataset1.bin
+zyb fhe encrypt --values 40,50,60 --output dataset2.bin
+zyb fhe encrypt --values 70,80,90 --output dataset3.bin
 
 # Envía cada dataset para diferentes operaciones:
 # 1. Dataset1 → Sum
@@ -367,7 +367,7 @@ ls -lh witness.bin
 # Debería mostrar tamaño de archivo ~50-100MB
 
 # Re-encripta si está corrupto
-cargo run --release --bin fhe-cli encrypt --values 10,20,30
+cargo run --release --bin zyb fhe encrypt --values 10,20,30
 ```
 
 ### El Trabajo Permanece en Estado "Pending"
@@ -401,7 +401,7 @@ cargo run --release --bin fhe-cli encrypt --values 10,20,30
 
 ### La Desencriptación Falla
 
-**Síntoma:** `fhe-cli decrypt` muestra error o resultado incorrecto
+**Síntoma:** `zyb fhe decrypt` muestra error o resultado incorrecto
 
 **Causas:**
 - Clave de cliente incorrecta (no coincide con el witness)
@@ -513,7 +513,7 @@ Los provers tienen acceso a:
 Ahora que entiendes Analytics Privado:
 
 - **[Guía de Proof of Innocence](proof-of-innocence.md)** - Verifica cumplimiento sin exponer datos
-- **[Guía del FHE CLI](fhe-cli.md)** - Domina flujos de trabajo de encriptación y desencriptación
+- **[Guía del Zyb CLI (FHE)](fhe-cli.md)** - Domina flujos de trabajo de encriptación y desencriptación
 - **[Guía de Configuración de Prover](configuracion-prover.md)** - Ejecuta tu propio nodo prover
 - **[Integración del SDK](integracion-sdk.md)** - Construye analytics en tu aplicación
 

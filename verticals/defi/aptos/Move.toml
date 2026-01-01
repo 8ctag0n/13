@@ -1,0 +1,15 @@
+[package]
+name = "defi-aptos"
+version = "1.0.0"
+authors = ["ZyberLink Team"]
+
+[addresses]
+defi = "_"
+
+[dependencies.AptosFramework]
+git = "https://github.com/aptos-labs/aptos-core.git"
+rev = "mainnet"
+subdir = "aptos-move/framework/aptos-framework"
+
+[dependencies.ZyberlinkCore]
+local = "../../../programs/aptos"

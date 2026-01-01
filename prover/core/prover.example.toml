@@ -1,0 +1,127 @@
+# ZyberLink Prover Node - Multi-Chain Configuration Example
+#
+# This file demonstrates how to configure the prover-node to work across
+# multiple blockchain networks simultaneously.
+#
+# Usage:
+#   zyberlink-prover --config prover.toml
+#
+# Environment Variables (REQUIRED for private keys):
+#   STARKNET_PRIVATE_KEY - Starknet prover private key (hex format, e.g., 0x...)
+#   APTOS_PRIVATE_KEY    - Aptos prover private key (optional if Aptos is enabled)
+
+# ========== PROVER SETTINGS (chain-agnostic) ==========
+
+[prover]
+# Maximum concurrent jobs across ALL chains
+max_concurrent_jobs = 3
+
+# Poll interval in seconds (how often to check for new jobs)
+poll_interval_secs = 5
+
+# Minimum ROI threshold (percentage)
+# Jobs with ROI below this will be rejected
+min_roi_threshold = 1.5
+
+# Cost multiplier for overhead calculation (infrastructure, electricity, etc.)
+cost_multiplier = 1.5
+
+# Mock proving time for testing (seconds)
+mock_proving_time_secs = 10
+
+# Path to ZK circuits directory
+zk_circuits_path = "./prover-circuits"
+
+# Optional: FHE server key path (required for FHE jobs)
+# fhe_server_key_path = "~/.zyberlink/fhe_server_key.bin"
+
+
+# ========== WITNESS SERVICE CONFIGURATION ==========
+
+[witness]
+# Base URL for witness storage and proof submission
+base_url = "https://witness.example.com"
+
+# Blink backend URL for ZK job coordination
+blink_backend_url = "http://localhost:3000"
+
+
+# ========== CHAIN CONFIGURATIONS ==========
+
+# --- Solana Configuration ---
+[chains.solana]
+enabled = true
+rpc_url = "https://api.devnet.solana.com"
+ws_url = "wss://api.devnet.solana.com"  # Optional WebSocket URL
+
+# Path to Solana keypair file (required for signing transactions)
+keypair_path = "~/.config/solana/id.json"
+
+# Legacy ZyberLink program ID (optional if using generators)
+# program_id = "BedRock11111111111111111111111111111111111"
+
+# New architecture: ZK Generator program ID
+zk_generator_program = "ZKGen1111111111111111111111111111111111111"
+
+# New architecture: FHE Generator program ID
+fhe_generator_program = "FHEGen111111111111111111111111111111111111"
+
+
+# --- Starknet Configuration ---
+[chains.starknet]
+enabled = true
+rpc_url = "http://localhost:5050"
+
+# PbtcfiJobs contract address (deployed on Starknet)
+contract_address = "0x0587f1e2a4494f7d72ea0811a4c20185f2e2b12e05b6d8bc8948847e2cf709bd"
+
+# Prover account address
+prover_address = "0x0557ba9ef60b52dad611d79b60563901458f2476a5c1002a8b4869fcb6654c7e"
+
+# IMPORTANT: Private key is loaded from STARKNET_PRIVATE_KEY environment variable
+# NEVER store private keys in this config file!
+# Example: export STARKNET_PRIVATE_KEY="0x1234567890abcdef..."
+
+
+# --- Aptos Configuration ---
+[chains.aptos]
+enabled = false  # Set to true to enable Aptos support
+rpc_url = "https://fullnode.devnet.aptoslabs.com"
+
+# Aptos module address
+module_address = "0x123abc"
+
+# Prover account address
+prover_address = "0x456def"
+
+# IMPORTANT: Private key is loaded from APTOS_PRIVATE_KEY environment variable
+# NEVER store private keys in this config file!
+# Example: export APTOS_PRIVATE_KEY="0x..."
+
+
+# ========== USAGE EXAMPLES ==========
+
+# 1. Run with multi-chain config:
+#    zyberlink-prover --config prover.toml
+#
+# 2. Run with TUI mode:
+#    zyberlink-prover --config prover.toml --tui-mode
+#
+# 3. Set environment variables:
+#    export STARKNET_PRIVATE_KEY="0x..."
+#    export APTOS_PRIVATE_KEY="0x..."
+#    zyberlink-prover --config prover.toml
+#
+# 4. Override config path via environment:
+#    export PROVER_CONFIG="./custom-config.toml"
+#    zyberlink-prover
+
+
+# ========== NOTES ==========
+
+# - At least one chain must be enabled
+# - Solana keypair_path is required (used for witness encryption)
+# - Private keys MUST be provided via environment variables
+# - The prover will poll ALL enabled chains simultaneously
+# - Jobs from all chains compete for the same max_concurrent_jobs slots
+# - ROI calculation works the same across all chains

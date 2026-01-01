@@ -1,0 +1,19 @@
+[package]
+name = "zyberlink-jobs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Shared on-chain job structures for ZyberLink generators"
+
+[features]
+default = []
+# Enable for off-chain usage (SDK, testing)
+no-entrypoint = []
+
+[dependencies]
+borsh.workspace = true
+solana-program.workspace = true
+zyberlink-types = { path = "../../kernel/types" }
+
+[dev-dependencies]

@@ -10,7 +10,7 @@ services:
   validator:
     build:
       context: .
-      dockerfile: infra/docker/Dockerfile.validator
+      dockerfile: deployment/infra/docker/Dockerfile.validator
     ports:
       - "8899:8899"
       - "8900:8900"
@@ -35,8 +35,8 @@ services:
       - POSTGRES_DB=zyberlink
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    expose:
-      - "5432"
+    ports:
+      - "5432:5432"
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U zyberlink"]
@@ -51,7 +51,7 @@ services:
   blink:
     build:
       context: .
-      dockerfile: src/blink-server/Dockerfile
+      dockerfile: services/blink-server/Dockerfile
     deploy:
       replicas: 2
     expose:
@@ -63,6 +63,10 @@ services:
       - DATABASE_URL=postgresql://zyberlink:${DB_PASSWORD:-dev_password}@postgres:5432/zyberlink
       - SOLANA_RPC_URL=http://validator:8899
       - PROGRAM_ID=${PROGRAM_ID:-11111111111111111111111111111111}
+      - BEDROCK_PROGRAM_ID=${BEDROCK_PROGRAM_ID:-8oSWVqrU78YW3FH6BqrqJqRyqK4p6k5ikzbT7UyekJrH}
+      - ZK_GENERATOR_PROGRAM_ID=${ZK_GENERATOR_PROGRAM_ID:-Dzvy1pzCBgtMw5Fte2GybpeN2PsLPW8t7zDvLfKpxnSS}
+      - FHE_GENERATOR_PROGRAM_ID=${FHE_GENERATOR_PROGRAM_ID:-GkYw9vNT6EZFZTwoEM2UBuwsAD6nwzArLGghBZqpsF5L}
+      - FUTARCHY_PROGRAM_ID=${FUTARCHY_PROGRAM_ID:-2V8E8DJ3M3J2Aombv8hxRq5t2RecjbdW3GpUmSVruuhX}
       - HOST=0.0.0.0
       - PORT=8080
       - SERVER_KEYPAIR_PATH=/app/keypair.json
@@ -87,7 +91,7 @@ services:
   x402:
     build:
       context: .
-      dockerfile: src/x402-server/Dockerfile
+      dockerfile: services/x402-server/Dockerfile
     deploy:
       replicas: 2
     expose:
@@ -112,19 +116,20 @@ services:
   # ============================================
   # Layer 1: Public API Gateway (ENTRY POINT)
   # UNICO servicio expuesto a internet
+  # Nota: replicas: 1 porque el puerto 3000 se mapea al host
+  # Para escalar, usar nginx como load balancer
   # ============================================
   public-api:
     build:
       context: .
-      dockerfile: src/public-api/Dockerfile
-    deploy:
-      replicas: 2
+      dockerfile: services/public-api/Dockerfile
     ports:
       - "3000:3000"
     environment:
       - RUST_LOG=info
       - X402_URL=http://x402:8081
       - BLINK_URL=http://blink:8080
+      - SOLANA_RPC_URL=http://validator:8899
       - HOST=0.0.0.0
       - PORT=3000
       - RATE_LIMIT_PER_MIN=100
@@ -157,15 +162,13 @@ services:
       interval: 30s
       timeout: 3s
       retries: 3
-    profiles:
-      - with-nginx
 
   # ============================================
   # Frontend (Svelte)
   # ============================================
   webapp:
     build:
-      context: ./src/webapp
+      context: ./apps/webapp
       args:
         VITE_API_URL: ""
         VITE_SOLANA_RPC_URL: "http://localhost:8899"
@@ -174,8 +177,6 @@ services:
     expose:
       - "80"
     restart: unless-stopped
-    profiles:
-      - with-frontend
 
 volumes:
   postgres_data:

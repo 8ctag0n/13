@@ -8,7 +8,7 @@ services:
   nginx:
     build:
       context: .
-      dockerfile: infra/nginx/Dockerfile
+      dockerfile: deployment/infra/nginx/Dockerfile
     ports:
       - "9001:80"
     depends_on:
@@ -26,7 +26,7 @@ services:
   # ============================================
   webapp:
     build:
-      context: ./src/webapp
+      context: ./apps/webapp
       args:
         VITE_API_URL: ""
         VITE_SOLANA_RPC_URL: ${SOLANA_RPC_URL:-https://api.devnet.solana.com}
@@ -42,7 +42,7 @@ services:
   backend:
     build:
       context: .
-      dockerfile: src/blink-server/Dockerfile
+      dockerfile: services/blink-server/Dockerfile
     deploy:
       replicas: 2
     expose:
