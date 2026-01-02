@@ -254,4 +254,4 @@ To report issues or contribute, visit the main ZyberLink repository.
 
 ## License
 
-MIT
+Apache-2.0
