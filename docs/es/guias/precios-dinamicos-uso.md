@@ -966,7 +966,7 @@ let config = operation.get_cost_config();
 println!("Tier: {}", config.complexity_tier);
 ```
 
-O consulta la [documentación principal](./DYNAMIC_PRICING.md#complexity-tiers).
+O consulta la [documentación principal](./modelo-precios-dinamicos.md#complexity-tiers).
 
 ### Q: ¿Hay descuentos por volumen para múltiples jobs?
 
@@ -986,9 +986,9 @@ O consulta la [documentación principal](./DYNAMIC_PRICING.md#complexity-tiers).
 
 ## Próximos Pasos
 
-- **[Análisis Técnico Profundo](./DYNAMIC_PRICING_TECHNICAL.md)** - Entender los algoritmos
-- **[Referencia API](./API_REFERENCE.md)** - Documentación completa de API
-- **[Documentación Principal](./DYNAMIC_PRICING.md)** - Vista general del sistema
+- **[Análisis Técnico Profundo](./precios-dinamicos-tecnico.md)** - Entender los algoritmos
+- **[Referencia API](./referencia-api.md)** - Documentación completa de API
+- **[Documentación Principal](./modelo-precios-dinamicos.md)** - Vista general del sistema
 
 ---
 

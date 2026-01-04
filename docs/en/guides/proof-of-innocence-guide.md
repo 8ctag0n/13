@@ -757,7 +757,7 @@ Continue exploring ZyberLink:
 For Proof of Innocence questions:
 
 - **Documentation:** https://docs.zyberlink.fun
-- **GitHub Issues:** https://github.com/8ctag0n/13/issues
+- **GitHub Issues:** see the [Repository Map](../getting-started/repositories.md)
 - **Discord Community:** [Join server]
 - **Email:** support@zyberlink.fun
 

@@ -63,13 +63,15 @@ export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
 
 ### 2. Clona y Compila
 
+Reemplaza `<ORG>` por tu organizacion de GitHub o mirror.
+
 ```bash
 # Clona el repositorio
-git clone https://github.com/8ctag0n/13.git zyberlink
-cd zyberlink
+git clone https://github.com/<ORG>/zyb-compute.git
+cd zyb-compute
 
 # Compila prover (toma 5-10 minutos)
-cargo build --release -p zyberlink-prover
+cargo build --release --bin zyberlink-prover
 
 # Ubicación del binario: target/release/zyberlink-prover
 ```
@@ -193,10 +195,10 @@ After=network.target
 [Service]
 Type=simple
 User=YOUR_USERNAME
-WorkingDirectory=/home/YOUR_USERNAME/zyberlink
+WorkingDirectory=/home/YOUR_USERNAME/zyb-compute
 Environment="RUST_LOG=info"
 Environment="SOLANA_RPC_URL=https://api.devnet.solana.com"
-ExecStart=/home/YOUR_USERNAME/zyberlink/target/release/zyberlink-prover \
+ExecStart=/home/YOUR_USERNAME/zyb-compute/target/release/zyberlink-prover \
   --program-id YOUR_PROGRAM_ID \
   --witness-backend-url http://localhost:8080
 Restart=always
@@ -417,8 +419,7 @@ make e2e-sum
 
 ## Próximos Pasos
 
-- **[Documentación Completa del Prover](/src/prover-node/README.md)** - Detalles técnicos completos
-- **[Operaciones FHE](/docs/book/en/concepts/fhe-operations.md)** - Entiende qué estás computando
+- **Documentación Completa del Prover** - Ver `zyb-compute/README.md` (via el [Mapa de Repositorios](../primeros-pasos/repositorios.md))
 - **[Guía de Analytics](analytics-privado.md)** - Ve cómo lucen los trabajos
 - **[Guía de Proof of Innocence](proof-of-innocence.md)** - Otro caso de uso
 
@@ -426,15 +427,15 @@ make e2e-sum
 
 Para preguntas sobre configuración del prover:
 
-- **GitHub Issues:** https://github.com/8ctag0n/13/issues
+- **GitHub Issues:** ver el [Mapa de Repositorios](../primeros-pasos/repositorios.md)
 - **Documentación:** https://docs.zyberlink.fun
 - **Discord:** [Únete a la comunidad]
 
 ## Documentación Relacionada
 
-- [README del Nodo Prover](/src/prover-node/README.md) - Documentación técnica completa
-- [Calculadora de ROI](/src/prover-node/src/roi_calculator.rs) - Lógica de rentabilidad
-- [Motor FHE](/src/prover-node/src/fhe_engine.rs) - Implementación de computación
+- `zyb-compute/README.md` - Documentación técnica completa
+- `zyb-compute/src/roi_calculator.rs` - Lógica de rentabilidad
+- `zyb-compute/src/fhe_engine.rs` - Implementación de computación
 
 ---
 

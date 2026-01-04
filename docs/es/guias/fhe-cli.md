@@ -35,13 +35,12 @@ El CLI de FHE de ZyberLink provee dos herramientas esenciales para computaciones
 
 ### Compilar desde Fuente
 
-```bash
-# Clona el repositorio de ZyberLink
-git clone https://github.com/8ctag0n/13.git zyberlink
-cd zyberlink
+Reemplaza `<ORG>` por tu organizacion de GitHub o mirror.
 
-# Navega al directorio del CLI de FHE
-cd src/zyb-cli
+```bash
+# Clona el repositorio de la CLI
+git clone https://github.com/<ORG>/zyb-cli.git
+cd zyb-cli
 
 # Compila versión release
 cargo build --release
@@ -71,7 +70,7 @@ zyb fhe --help
 ### 1. Encripta Datos
 
 ```bash
-cd src/zyb-cli
+cd zyb-cli
 
 # Encripta un solo valor
 cargo run --release --bin zyb fhe encrypt --values 42
@@ -785,15 +784,14 @@ Ahora que entiendes el CLI de FHE:
 Para preguntas sobre el CLI de FHE:
 
 - **Documentación:** https://docs.zyberlink.fun
-- **GitHub Issues:** https://github.com/8ctag0n/13/issues
+- **GitHub Issues:** ver el [Mapa de Repositorios](../primeros-pasos/repositorios.md)
 - **Discord:** [Únete a la comunidad]
 - **Email:** support@zyberlink.fun
 
 ## Documentación Relacionada
 
-- [Código Fuente del CLI de Zyb](/src/zyb-cli/) - Detalles de implementación
 - [Documentación de TFHE-rs](https://docs.zama.ai/tfhe-rs) - Biblioteca FHE
-- [Guía de Operaciones FHE](/docs/book/en/concepts/fhe-operations.md) - Operaciones soportadas
+- [Diseño FHE](../arquitectura/diseno-fhe.md) - Arquitectura y operaciones FHE
 
 ---
 

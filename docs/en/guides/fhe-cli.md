@@ -35,13 +35,12 @@ The ZyberLink FHE CLI provides two essential tools for privacy-preserving comput
 
 ### Build from Source
 
-```bash
-# Clone ZyberLink repository
-git clone https://github.com/8ctag0n/13.git zyberlink
-cd zyberlink
+Replace `<ORG>` with your GitHub organization or mirror.
 
-# Navigate to FHE CLI directory
-cd src/zyb-cli
+```bash
+# Clone the CLI repository
+git clone https://github.com/<ORG>/zyb-cli.git
+cd zyb-cli
 
 # Build release version
 cargo build --release
@@ -71,7 +70,7 @@ zyb fhe --help
 ### 1. Encrypt Data
 
 ```bash
-cd src/zyb-cli
+cd zyb-cli
 
 # Encrypt a single value
 cargo run --release --bin zyb fhe encrypt --values 42
@@ -785,15 +784,14 @@ Now that you understand the FHE CLI:
 For FHE CLI questions:
 
 - **Documentation:** https://docs.zyberlink.fun
-- **GitHub Issues:** https://github.com/8ctag0n/13/issues
+- **GitHub Issues:** see the [Repository Map](../getting-started/repositories.md)
 - **Discord:** [Join community]
 - **Email:** support@zyberlink.fun
 
 ## Related Documentation
 
-- [Zyb CLI Source](/src/zyb-cli/) - Implementation details
 - [TFHE-rs Documentation](https://docs.zama.ai/tfhe-rs) - FHE library
-- [FHE Operations Guide](/docs/book/en/concepts/fhe-operations.md) - Supported operations
+- [FHE Design](../architecture/fhe-design.md) - FHE architecture and operations
 
 ---
 

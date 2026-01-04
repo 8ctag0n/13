@@ -28,10 +28,12 @@ This guide covers deploying ZyberLink components to production:
 
 ### 1.1 Build the Program
 
+Replace `<ORG>` with your GitHub organization or mirror.
+
 ```bash
 # Clone repository
-git clone https://github.com/yourusername/zyberlink.git
-cd zyberlink
+git clone https://github.com/<ORG>/zyb-chain.git
+cd zyb-chain/solana
 
 # Build Solana program
 cargo build-sbf --manifest-path=programs/zyberlink/Cargo.toml
@@ -97,15 +99,17 @@ source $HOME/.cargo/env
 
 ### 2.2 Clone and Build
 
+Replace `<ORG>` with your GitHub organization or mirror.
+
 ```bash
 # Clone repository
-git clone https://github.com/yourusername/zyberlink.git
-cd zyberlink
+git clone https://github.com/<ORG>/zyb-compute.git
+cd zyb-compute
 
 # Build prover node (optimized)
-cargo build --release -p prover-node
+cargo build --release --bin zyberlink-prover
 
-# Binary will be at: target/release/prover-node
+# Binary will be at: target/release/zyberlink-prover
 ```
 
 ### 2.3 Configure Prover
@@ -137,7 +141,7 @@ max_computation_time_seconds = 60
 ### 2.4 Run Interactive Setup
 
 ```bash
-cd prover-node
+cd zyb-compute
 cargo run --release -- wizard
 ```
 
@@ -152,10 +156,10 @@ This wizard will:
 
 ```bash
 # Run in foreground (for testing)
-./target/release/prover-node
+./target/release/zyberlink-prover
 
 # Run in background (production)
-nohup ./target/release/prover-node > prover.log 2>&1 &
+nohup ./target/release/zyberlink-prover > prover.log 2>&1 &
 
 # Or use systemd (recommended for production)
 ```
@@ -178,8 +182,8 @@ After=network.target
 [Service]
 Type=simple
 User=youruser
-WorkingDirectory=/home/youruser/zyberlink
-ExecStart=/home/youruser/zyberlink/target/release/prover-node
+WorkingDirectory=/home/youruser/zyb-compute
+ExecStart=/home/youruser/zyb-compute/target/release/zyberlink-prover
 Restart=always
 RestartSec=10
 
@@ -301,7 +305,7 @@ curl http://localhost:8080/status
 solana balance /path/to/prover/keypair.json
 
 # View job history
-./target/release/prover-node stats
+./target/release/zyberlink-prover stats
 ```
 
 ### Health Checks
@@ -396,7 +400,7 @@ sudo journalctl -u zyberlink-prover -n 100
 solana account <PROVER_PUBKEY>
 
 # Check prover status in TUI
-./target/release/prover-node
+./target/release/zyberlink-prover
 
 # Verify network connectivity
 curl https://api.mainnet-beta.solana.com -v
@@ -413,7 +417,7 @@ Run multiple provers on same server:
 cp ~/.zyberlink/config.toml ~/.zyberlink/config-prover2.toml
 
 # Run with different config
-./target/release/prover-node --config ~/.zyberlink/config-prover2.toml
+./target/release/zyberlink-prover --config ~/.zyberlink/config-prover2.toml
 ```
 
 ### Load Balancing
@@ -446,7 +450,7 @@ Before going live:
 ## Support
 
 For production deployment assistance:
-- GitHub Issues: https://github.com/yourusername/zyberlink/issues
+- GitHub Issues: https://github.com/<ORG>/zyb-platform/issues (docs) or see the [Repository Map](../getting-started/repositories.md)
 - Community Discord: [link]
 - Enterprise support: [contact email]
 

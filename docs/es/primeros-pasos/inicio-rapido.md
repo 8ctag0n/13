@@ -8,58 +8,45 @@ Antes de comenzar, asegúrate de tener:
 
 - **Rust 1.75+** - [Instalar Rust](https://rustup.rs/)
 - **Solana CLI 2.1+** - [Instalar Solana](https://docs.solana.com/cli/install-solana-cli-tools)
+- **Docker + Docker Compose** - Requerido para el stack local
 - **Entorno tipo Unix** - Linux, macOS, o WSL2
 
 ## Configuración Rápida
 
-### 1. Clonar el Repositorio
+### 1. Clonar el Repositorio de Plataforma
 
 ```bash
-git clone https://github.com/yourusername/zyberlink.git
-cd zyberlink
+git clone https://github.com/8ctagon/zyb-platform.git
+cd zyb-platform
 ```
 
-### 2. Compilar el Proyecto
+### 2. Configurar el Entorno Local
 
 ```bash
-cargo build --release
+cp zyb.example.toml zyb.toml
+cp .env.example .env
 ```
 
-Esto compilará todos los componentes: el programa de Solana, SDK, nodo prover y utilidades.
+### 3. Levantar el Stack Local
 
-**Tiempo esperado:** 3-5 minutos en la primera compilación.
-
-### 3. Iniciar Validador Local
-
-Abre una nueva terminal e inicia un validador local de Solana:
+Usa Docker Compose:
 
 ```bash
-solana-test-validator --reset
+docker-compose up -d
 ```
 
-Déjalo corriendo en segundo plano.
-
-### 4. Desplegar el Programa
-
-En tu terminal principal, despliega el programa marketplace de ZyberLink:
+O usa el Makefile (recomendado):
 
 ```bash
-# Compilar el programa de Solana
-cargo build-sbf
-
-# Desplegar al validador local
-solana program deploy target/deploy/zyberlink.so
+make start
 ```
 
-Guarda el **Program ID** que aparece después del despliegue - lo necesitarás después.
-
-### 5. Ejecutar el Demo Interactivo
+### 4. Ejecutar el Demo Interactivo
 
 La forma más rápida de ver ZyberLink en acción:
 
 ```bash
-cd demo
-./run-demo.sh
+./demo.sh
 ```
 
 Este script:
@@ -76,9 +63,14 @@ Este script:
 - Ganancias acumulándose
 - Estadísticas del sistema en vivo
 
-### 6. Detener el Demo
+### 5. Detener el Demo
 
-Presiona `q` en el TUI para apagar el nodo prover correctamente.
+Presiona `q` en el TUI para apagar el nodo prover correctamente, luego detén el stack:
+
+```bash
+make stop
+# o: docker-compose down
+```
 
 ## ¿Qué Sigue?
 
@@ -90,11 +82,12 @@ Ahora que tienes ZyberLink funcionando:
 
 ## Solución de Problemas
 
-### Falla la compilación con errores de linking
+### Docker Compose no inicia
 
-Asegúrate de tener la última versión de Rust:
+Verifica estado y logs:
 ```bash
-rustup update
+docker-compose ps
+docker-compose logs -f
 ```
 
 ### Solana CLI no encontrado
@@ -104,51 +97,21 @@ Agrega Solana a tu PATH:
 export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
 ```
 
-### Falla el despliegue del programa
-
-Verifica que el validador local esté corriendo:
-```bash
-solana cluster-version
-```
-
-Debería mostrar información de versión si el validador es accesible.
-
 ### ¿Necesitas ayuda?
 
-- Consulta los [GitHub Issues](https://github.com/yourusername/zyberlink/issues)
+- Revisa el [Mapa de Repositorios](repositorios.md) para el issue tracker correcto
 - Únete a nuestras discusiones comunitarias
 
 ## Configuración Avanzada
 
 ### Ejecutar Tu Propio Nodo Prover
 
-En vez de usar el script del demo, puedes ejecutar un nodo prover manualmente:
-
-```bash
-cd prover-node
-cargo run --release -- wizard
-```
-
-El asistente interactivo te guiará a través de:
-- Configuración de wallet
-- Configuración de RPC de Solana
-- Configuración de Program ID
-- Registro de prover
+En vez de usar el script del demo, puedes ejecutar un nodo prover manualmente desde `zyb-compute`.
+Sigue la [Guía de Configuración de Prover](../guias/configuracion-prover.md).
 
 ### Ejecutar Tests
 
-Verifica que todo funcione correctamente:
-
-```bash
-# Tests unitarios
-cargo test
-
-# Tests de integración
-cargo test --test integration_tests
-
-# Tests E2E (requiere validador + prover corriendo)
-./scripts/test-e2e.sh
-```
+Los tests están organizados por repositorio. Empieza por `zyb-platform/tests` y los README de cada repo.
 
 ## Lo Que Construiste
 

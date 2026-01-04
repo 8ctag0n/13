@@ -396,5 +396,5 @@ match create_job() {
 ## Soporte
 
 Para preguntas sobre la API:
-- GitHub Issues: [Reportar problemas](https://github.com/yourusername/zyberlink/issues)
+- GitHub Issues: ver el [Mapa de Repositorios](../primeros-pasos/repositorios.md)
 - Documentación: [Docs completos](https://docs.zyberlink.io)

@@ -621,4 +621,4 @@ sleep 10
 - [Katana Documentation](https://book.dojoengine.org/toolchain/katana)
 - [Zcash Regtest Guide](https://zcash.readthedocs.io/en/latest/rtd_pages/regtest_guide.html)
 - [Testing Guide](testing.md) - Complete E2E test suite
-- [Local Development](desarrollo.md) - Development environment setup
+- [Local Development](development.md) - Development environment setup
