@@ -1,0 +1,79 @@
+# ZyberLink ZK Backend - Minimal Setup
+# =====================================
+# Solo lo necesario para testing de ZK (PoI, etc)
+#
+# Uso:
+#   cd /home/deploy/repo_restructure/extracted3
+#   podman-compose -f docker-compose.zk-minimal.yml up -d --build
+#   podman-compose -f docker-compose.zk-minimal.yml logs -f
+#   podman-compose -f docker-compose.zk-minimal.yml down -v
+
+services:
+  # ─────────────────────────────────────────────────────────────────────────
+  # PostgreSQL - Base de datos dedicada para ZK
+  # ─────────────────────────────────────────────────────────────────────────
+  postgres-zk:
+    image: docker.io/library/postgres:15-alpine
+    container_name: zyberlink-postgres-zk
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: zyberlink_zk
+      POSTGRES_USER: zyberlink
+      POSTGRES_PASSWORD: dev_password
+    volumes:
+      - postgres_zk_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"  # Puerto diferente para no chocar con efax
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zyberlink -d zyberlink_zk"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - zk-internal
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Blink Server (ZK Backend)
+  # ─────────────────────────────────────────────────────────────────────────
+  blink:
+    build:
+      context: .
+      dockerfile: zyb-services/blink-server/Dockerfile.dev
+    image: localhost/zyberlink-blink:dev
+    container_name: zyberlink-blink-zk
+    restart: unless-stopped
+    depends_on:
+      postgres-zk:
+        condition: service_healthy
+    environment:
+      RUST_LOG: info,zyberlink_blink_server=debug
+      DATABASE_URL: postgresql://zyberlink:dev_password@postgres-zk:5432/zyberlink_zk
+      SOLANA_RPC_URL: ${SOLANA_RPC_URL:-https://api.devnet.solana.com}
+      PROGRAM_ID: ${PROGRAM_ID:-11111111111111111111111111111111}
+      PORT: 8080
+      HOST: 0.0.0.0
+      X402_URL: http://localhost:8081
+      VK_DIRECTORY: /app/verification_keys
+      CLEANUP_INTERVAL_SECS: 86400
+    ports:
+      - "${BLINK_PORT:-8085}:8080"
+    volumes:
+      - ./zyb-services/verification_keys:/app/verification_keys:ro
+      - ./zyb-services/blink-server/migrations:/app/blink-server/migrations:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - zk-internal
+
+networks:
+  zk-internal:
+    driver: bridge
+    name: zyberlink-zk-net
+
+volumes:
+  postgres_zk_data:
+    name: zyberlink-zk-postgres
