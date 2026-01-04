@@ -8,12 +8,12 @@ Welcome to the comprehensive documentation for ZyberLink's Dynamic Pricing Syste
 
 ### For First-Time Readers
 Start here for a clear overview of what dynamic pricing is and why it matters:
-- **[DYNAMIC_PRICING.md](./DYNAMIC_PRICING.md)** - Main documentation with examples and architecture overview
+- **[dynamic-pricing-model.md](./dynamic-pricing-model.md)** - Main documentation with examples and architecture overview
 
 ### For Developers Integrating the System
 If you're building on top of ZyberLink, these guides have code examples:
-- **[DYNAMIC_PRICING_USAGE.md](./DYNAMIC_PRICING_USAGE.md)** - Practical integration guide with SDK and API examples
-- **[DYNAMIC_PRICING_TECHNICAL.md](./DYNAMIC_PRICING_TECHNICAL.md)** - Deep technical implementation details
+- **[dynamic-pricing-usage.md](./dynamic-pricing-usage.md)** - Practical integration guide with SDK and API examples
+- **[dynamic-pricing-technical.md](./dynamic-pricing-technical.md)** - Deep technical implementation details
 
 ---
 
@@ -21,7 +21,7 @@ If you're building on top of ZyberLink, these guides have code examples:
 
 ```
 DYNAMIC PRICING SYSTEM
-├── DYNAMIC_PRICING.md (333 lines)
+├── dynamic-pricing-model.md (333 lines)
 │   ├── Overview & Why Dynamic Pricing
 │   ├── 5 Complexity Tiers (O(1) to O(n×m))
 │   ├── Architecture at a glance
@@ -29,7 +29,7 @@ DYNAMIC PRICING SYSTEM
 │   ├── Testing information
 │   └── Getting started guide
 │
-├── DYNAMIC_PRICING_TECHNICAL.md (814 lines)
+├── dynamic-pricing-technical.md (814 lines)
 │   ├── Complete system architecture
 │   ├── Core data structures
 │   ├── Detailed pricing algorithms (per tier)
@@ -39,7 +39,7 @@ DYNAMIC PRICING SYSTEM
 │   ├── Performance analysis
 │   └── Future improvements
 │
-└── DYNAMIC_PRICING_USAGE.md (996 lines)
+└── dynamic-pricing-usage.md (996 lines)
     ├── Job creator guide with examples
     ├── Prover profitability evaluation
     ├── SDK integration examples (Rust)
@@ -187,7 +187,7 @@ curl -X POST http://localhost:8080/api/estimate-cost \
 2. **Use the returned cost** as your minimum payment
 3. **Create the job** with sufficient funds in escrow
 
-See [DYNAMIC_PRICING_USAGE.md](./DYNAMIC_PRICING_USAGE.md#for-job-creators) for complete examples (dev-job usage).
+See [dynamic-pricing-usage.md](./dynamic-pricing-usage.md#for-job-creators) for complete examples (dev-job usage).
 
 ### For Provers (2 minutes)
 
@@ -207,7 +207,7 @@ if roi.is_profitable {
 }
 ```
 
-See [DYNAMIC_PRICING_USAGE.md](./DYNAMIC_PRICING_USAGE.md#for-provers) for full prover guide.
+See [dynamic-pricing-usage.md](./dynamic-pricing-usage.md#for-provers) for full prover guide.
 
 ### For Developers (5 minutes)
 
@@ -230,7 +230,7 @@ let ix = builder.create_fhe_job(
 )?;
 ```
 
-See [DYNAMIC_PRICING_USAGE.md](./DYNAMIC_PRICING_USAGE.md#sdk-integration-examples) for SDK examples.
+See [dynamic-pricing-usage.md](./dynamic-pricing-usage.md#sdk-integration-examples) for SDK examples.
 
 ---
 
@@ -273,7 +273,7 @@ bash test-dynamic-pricing-e2e.sh
 
 ## Document Quick Reference
 
-### Main Documentation (DYNAMIC_PRICING.md)
+### Main Documentation (dynamic-pricing-model.md)
 
 **Read this for:** High-level overview, architecture, why dynamic pricing matters
 
@@ -286,7 +286,7 @@ bash test-dynamic-pricing-e2e.sh
 - Getting started guide
 - Security guarantees
 
-### Technical Implementation (DYNAMIC_PRICING_TECHNICAL.md)
+### Technical Implementation (dynamic-pricing-technical.md)
 
 **Read this for:** Algorithm details, data structures, validation flows
 
@@ -300,7 +300,7 @@ bash test-dynamic-pricing-e2e.sh
 - Performance analysis
 - Testing strategy
 
-### Usage Guide (DYNAMIC_PRICING_USAGE.md)
+### Usage Guide (dynamic-pricing-usage.md)
 
 **Read this for:** Code examples, practical integration, troubleshooting
 
@@ -365,7 +365,7 @@ A: Not currently. Prices are deterministic based on complexity. Future enhanceme
 **Q: Are there bulk discounts?**
 A: Not currently. Each job pays the same per-prover cost. Future could implement volume discounts.
 
-See [DYNAMIC_PRICING_USAGE.md#faq](./DYNAMIC_PRICING_USAGE.md#faq) for 15+ more questions.
+See [dynamic-pricing-usage.md#faq](./dynamic-pricing-usage.md#faq) for 15+ more questions.
 
 ---
 
@@ -403,10 +403,10 @@ Prover Node
 
 ## Navigation Tips
 
-1. **Lost?** Start with [DYNAMIC_PRICING.md](./DYNAMIC_PRICING.md)
-2. **Need examples?** Jump to [DYNAMIC_PRICING_USAGE.md](./DYNAMIC_PRICING_USAGE.md)
-3. **Want details?** Read [DYNAMIC_PRICING_TECHNICAL.md](./DYNAMIC_PRICING_TECHNICAL.md)
-4. **Have questions?** Check [DYNAMIC_PRICING_USAGE.md#faq](./DYNAMIC_PRICING_USAGE.md#faq)
+1. **Lost?** Start with [dynamic-pricing-model.md](./dynamic-pricing-model.md)
+2. **Need examples?** Jump to [dynamic-pricing-usage.md](./dynamic-pricing-usage.md)
+3. **Want details?** Read [dynamic-pricing-technical.md](./dynamic-pricing-technical.md)
+4. **Have questions?** Check [dynamic-pricing-usage.md#faq](./dynamic-pricing-usage.md#faq)
 
 ---
 
@@ -431,21 +431,20 @@ Prover Node
 Found an issue in the pricing logic or documentation?
 
 1. Review the relevant documentation section
-2. Check [DYNAMIC_PRICING_TECHNICAL.md](./DYNAMIC_PRICING_TECHNICAL.md#edge-cases-and-limitations) for known limitations
+2. Check [dynamic-pricing-technical.md](./dynamic-pricing-technical.md#edge-cases-and-limitations) for known limitations
 3. Open an issue on GitHub with detailed information
 
 ---
 
 ## Related Documentation
 
-- **[API_REFERENCE.md](./API_REFERENCE.md)** - Complete API documentation
-- **[HISTOGRAM_FHE_OPTIMIZATION.md](./HISTOGRAM_FHE_OPTIMIZATION.md)** - Tier 5 complexity deep dive
-- **[SUMMARY.md](./SUMMARY.md)** - Project overview
+- **[API Reference](./api-reference.md)** - Complete API documentation
+- **[Histogram FHE Optimization](../architecture/histogram-fhe-optimization.md)** - Tier 5 complexity deep dive
 
 ---
 
 **Ready to get started?**
 
-- **Creators:** Jump to [DYNAMIC_PRICING_USAGE.md - For Job Creators](./DYNAMIC_PRICING_USAGE.md#for-job-creators) (dev-job)
-- **Provers:** Jump to [DYNAMIC_PRICING_USAGE.md - For Provers](./DYNAMIC_PRICING_USAGE.md#for-provers)
-- **Developers:** Jump to [DYNAMIC_PRICING_USAGE.md - SDK Integration](./DYNAMIC_PRICING_USAGE.md#sdk-integration-examples)
+- **Creators:** Jump to [dynamic-pricing-usage.md - For Job Creators](./dynamic-pricing-usage.md#for-job-creators) (dev-job)
+- **Provers:** Jump to [dynamic-pricing-usage.md - For Provers](./dynamic-pricing-usage.md#for-provers)
+- **Developers:** Jump to [dynamic-pricing-usage.md - SDK Integration](./dynamic-pricing-usage.md#sdk-integration-examples)

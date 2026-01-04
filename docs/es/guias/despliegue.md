@@ -25,9 +25,12 @@ Esta guía cubre:
 ## Parte 1: Programa de Solana
 
 ### 1.1 Build
+
+Reemplaza `<ORG>` por tu organizacion de GitHub o mirror.
+
 ```bash
-git clone https://github.com/yourusername/zyberlink.git
-cd zyberlink
+git clone https://github.com/<ORG>/zyb-chain.git
+cd zyb-chain/solana
 cargo build-sbf --manifest-path=programs/zyberlink/Cargo.toml
 ```
 
@@ -65,11 +68,14 @@ source $HOME/.cargo/env
 ```
 
 ### 2.2 Build
+
+Reemplaza `<ORG>` por tu organizacion de GitHub o mirror.
+
 ```bash
-git clone https://github.com/yourusername/zyberlink.git
-cd zyberlink
-cargo build --release -p prover-node
-# Binario: target/release/prover-node
+git clone https://github.com/<ORG>/zyb-compute.git
+cd zyb-compute
+cargo build --release --bin zyberlink-prover
+# Binario: target/release/zyberlink-prover
 ```
 
 ### 2.3 Configurar
@@ -95,17 +101,17 @@ max_computation_time_seconds = 60
 
 Asistente opcional:
 ```bash
-cd prover-node
+cd zyb-compute
 cargo run --release -- wizard
 ```
 
 ### 2.4 Ejecutar
 ```bash
 # Primer plano
-./target/release/prover-node
+./target/release/zyberlink-prover
 
 # Background
-nohup ./target/release/prover-node > prover.log 2>&1 &
+nohup ./target/release/zyberlink-prover > prover.log 2>&1 &
 ```
 
 Systemd (recomendado):
@@ -117,8 +123,8 @@ After=network.target
 [Service]
 Type=simple
 User=tuusuario
-WorkingDirectory=/home/tuusuario/zyberlink
-ExecStart=/home/tuusuario/zyberlink/target/release/prover-node
+WorkingDirectory=/home/tuusuario/zyb-compute
+ExecStart=/home/tuusuario/zyb-compute/target/release/zyberlink-prover
 Restart=always
 RestartSec=10
 
@@ -160,7 +166,7 @@ let client = MarketplaceClient::new(rpc, payer, program_id);
 - Estado systemd: `sudo systemctl status zyberlink-prover`
 - Logs: `sudo journalctl -u zyberlink-prover -n 100`
 - Balance: `solana balance /ruta/a/prover/keypair.json`
-- Stats: `./target/release/prover-node stats`
+- Stats: `./target/release/zyberlink-prover stats`
 
 ## Seguridad
 

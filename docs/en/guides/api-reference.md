@@ -1006,5 +1006,5 @@ let sol = lamports as f64 / LAMPORTS_PER_SOL as f64;
 ## Support
 
 For API questions:
-- GitHub Issues: [Report issues](https://github.com/yourusername/zyberlink/issues)
+- GitHub Issues: see the [Repository Map](../getting-started/repositories.md)
 - Documentation: [Full docs](https://docs.zyberlink.io)

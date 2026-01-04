@@ -1,276 +1,481 @@
-# ZyberLink
+# zyb-platform
 
-**Decentralized Privacy-Preserving Compute Marketplace on Solana**
+**Infrastructure orchestration and deployment configuration for the ZyberLink ecosystem**
 
-> First FHE marketplace with multi-prover consensus - compute on encrypted data without trusting anyone
-
-[![Status](https://img.shields.io/badge/status-v0.0.2--zyb-blue)]()
-[![Tests](https://img.shields.io/badge/tests-55%2F56%20passing-green)]()
-[![Season](https://img.shields.io/badge/season-S0%20Solana%20SZN-purple)]()
-
-## Devnet Programs
-
-| Program | Address | Explorer |
-|---------|---------|----------|
-| zyberlink | `GVCw9MYL6YywDPwsQkqC3xsvw5ETRH7KGkgxCDpeYfeu` | [View](https://explorer.solana.com/address/GVCw9MYL6YywDPwsQkqC3xsvw5ETRH7KGkgxCDpeYfeu?cluster=devnet) |
-| bedrock | `Di2Tu6aNpJpPyxbMAasoLQU2yLqYMFWvUoV7cq7sXfvx` | [View](https://explorer.solana.com/address/Di2Tu6aNpJpPyxbMAasoLQU2yLqYMFWvUoV7cq7sXfvx?cluster=devnet) |
-| futarchy_markets | `AQUUuRSwDhB1eeC2Caa8GPVGV4YzZkJ1YiSvZd3BBPij` | [View](https://explorer.solana.com/address/AQUUuRSwDhB1eeC2Caa8GPVGV4YzZkJ1YiSvZd3BBPij?cluster=devnet) |
-| fhe_generator | `C8PpHFCKZ4F2Szbir2EMS4S4H3mwQqHNWUXK1N21nfAB` | [View](https://explorer.solana.com/address/C8PpHFCKZ4F2Szbir2EMS4S4H3mwQqHNWUXK1N21nfAB?cluster=devnet) |
-| zk_generator | `Dzvy1pzCBgtMw5Fte2GybpeN2PsLPW8t7zDvLfKpxnSS` | [View](https://explorer.solana.com/address/Dzvy1pzCBgtMw5Fte2GybpeN2PsLPW8t7zDvLfKpxnSS?cluster=devnet) |
-| threshold | `Apstq5JFS67Gzb5Yc2cMDuwx8JQoMJ9h2KvDYyCZA9Wh` | [View](https://explorer.solana.com/address/Apstq5JFS67Gzb5Yc2cMDuwx8JQoMJ9h2KvDYyCZA9Wh?cluster=devnet) |
-
-## Live Demo
-
-**https://demo.zyberlink.fun**
-
-## Documentation
-
-| Resource | Path | Description |
-|----------|------|-------------|
-| GitBook Docs | [/docs](docs) | Full documentation (EN/ES) |
-| Zyb CLI (FHE) | [/cli/core](cli/core) | Client-side encryption tool |
-Encrypt data locally before sending to the marketplace. Full docs: [/cli/core](cli/core)
-| Rust SDK | [/sdk/rust](sdk/rust) | Integration library for Rust apps |
-| API Reference | [/docs/en/guides](docs/en/guides) | Backend API endpoints |
+This repository is part of the ZyberLink ecosystem (Fibonacci ID: 13) - the central platform repository containing deployment configurations, Docker compositions, infrastructure scripts, and integration testing tools for running ZyberLink in local, devnet, and production environments.
 
 ## Overview
 
-ZyberLink enables computations on encrypted data using Fully Homomorphic Encryption (FHE). Multiple independent provers compute on ciphertext, with on-chain consensus ensuring correctness. Users' data is **never** exposed - not even to the compute nodes.
+zyb-platform provides the orchestration layer that ties together all ZyberLink components into a cohesive system. It includes:
 
-**Repository:** https://github.com/8ctag0n/13/
+- Multi-chain deployment configurations (Solana, Aptos, Starknet)
+- Docker Compose setups for local development and production
+- Automated deployment scripts and infrastructure management
+- Integration testing framework
+- Environment configuration templates
+- Nginx reverse proxy configurations
+- Makefile-driven development workflows
 
-## Key Features
+This repository serves as the entry point for developers setting up complete ZyberLink environments.
 
-- **Multi-Prover Consensus** - 2-of-3 or 3-of-5 verification eliminates single point of trust
-- **FHE Operations** - Sum, Average, CountIf, Threshold, Histogram via TFHE-rs
-- **Privacy Preserved** - Data encrypted client-side, provers never see plaintext
-- **On-Chain Settlement** - Solana smart contracts handle payments and verification
-- **Smart Cleanup** - Automatic witness data deletion after job completion
+## Repository Structure
+
+```
+zyb-platform/
+├── deployment/
+│   ├── docker/              # Dockerfile definitions
+│   │   ├── aptos/              # Aptos node setup
+│   │   └── starknet/           # Starknet devnet setup
+│   ├── infra/               # Infrastructure configurations
+│   │   ├── docker/             # Production docker-compose files
+│   │   │   ├── docker-compose.prod.yml
+│   │   │   ├── docker-compose.full.yml
+│   │   │   ├── docker-compose.localnet.yml
+│   │   │   └── docker-compose.aptos.yml
+│   │   └── nginx/              # Nginx reverse proxy configs
+│   │       └── Dockerfile
+│   └── scripts/             # Deployment automation scripts
+│       ├── start-localnet.sh      # Start local development environment
+│       ├── stop-localnet.sh       # Stop all services
+│       ├── localnet-status.sh     # Check service health
+│       └── start-demo.sh          # Start complete demo stack
+├── docs/                    # Platform documentation
+│   └── .gitbook.yaml           # GitBook integration
+├── tests/                   # Integration tests
+│   └── e2e/                    # End-to-end test suites
+├── docker-compose.yml       # Default local development stack
+├── docker-compose.dev.yml   # Development with hot-reload
+├── docker-compose.devnet.yml # Solana devnet integration
+├── docker-compose.aptos-mvp.yml # Aptos MVP deployment
+├── docker-compose.pbtcfi.yml    # pBTC.fi vertical
+├── docker-compose.starknet.yml  # Starknet integration
+├── Makefile                 # Development workflow commands
+├── zyb.example.toml         # CLI configuration template
+├── nginx.conf               # Nginx routing configuration
+├── .env.example             # Environment variables template
+├── .env.devnet.template     # Devnet-specific env vars
+├── demo.sh                  # Interactive demo script
+├── Cargo.toml               # Rust workspace configuration
+└── package.json             # Node.js tooling
+```
+
+## Requirements
+
+- Docker 24+ and Docker Compose 2.20+
+- Rust 1.75+ (for building workspace)
+- Node.js 18+ and pnpm (for frontend and SDK development)
+- Solana CLI 1.18+ (for Solana deployments)
+- Make (for using Makefile commands)
+
+Optional (for multi-chain):
+- Aptos CLI (for Aptos deployments)
+- Starknet Devnet (for Starknet testing)
 
 ## Quick Start
 
-### Localnet (Development)
+### 1. Clone and Setup
+
 ```bash
-make c1   # Start containers (validator + postgres + backend + nginx)
-make c2   # Initialize marketplace + register provers
-make c3   # Start provers
-zyb dev-job plan   # Dry-run (uses dev-job.toml)
+# Navigate to platform directory
+cd zyb-platform
 
-# Run tests
-make e2e-poi   # Proof of Innocence test
-make e2e-sum   # Census Sum test
+# Copy configuration template
+cp zyb.example.toml zyb.toml
+cp .env.example .env
 
-make c0   # Stop all
+# Edit configuration as needed
+vim zyb.toml
 ```
 
-### Devnet (Production-like)
+### 2. Start Local Development Environment
+
+Using Docker Compose:
+
 ```bash
-# Setup (one time)
-./scripts/setup-devnet.sh --funder ./keypair-with-sol.json
+# Start full local stack (validator + services + frontend)
+docker-compose up -d
 
-make d1   # Start containers (no validator, uses devnet)
-make d2   # Initialize marketplace
-make d3   # Start provers
+# Check service status
+docker-compose ps
 
-make d0   # Stop all
+# View logs
+docker-compose logs -f
 ```
 
-### dev-job.toml (Config)
+Using Makefile (recommended):
 
-Create `dev-job.toml` in the repo root to set defaults for `zyb dev-job`:
+```bash
+# Start complete localnet with auto-deployment
+make start
+
+# Check status of all services
+make status
+
+# View logs for specific service
+make logs
+
+# Stop all services
+make stop
+```
+
+### 3. Initialize Marketplace
+
+After services are running:
+
+```bash
+# Initialize on-chain marketplace
+make init-marketplace
+
+# Start prover nodes
+make start-provers
+
+# Check prover registration
+make check-provers
+```
+
+### 4. Access Services
+
+- Solana Validator: http://localhost:8899
+- Blink Server (Internal API): http://localhost:8080
+- Public API: http://localhost:9000
+- X402 Server: http://localhost:8402
+- Frontend Webapp: http://localhost:3000
+
+## Usage
+
+### Development Workflows
+
+#### Full Stack Development
+
+```bash
+# Start with hot-reload for backend and frontend
+docker-compose -f docker-compose.dev.yml up
+
+# Rebuild after dependency changes
+make dev-rebuild
+
+# Shell into backend container
+make dev-shell-backend
+
+# Shell into database
+make dev-shell-db
+```
+
+#### Service-Specific Development
+
+```bash
+# Start only backend services
+make start-backend
+
+# Start only frontend
+cd ../zyb-apps/webapp && npm run dev
+
+# Start individual prover node
+cargo run --package zyberlink-prover -- \
+  --rpc-url http://localhost:8899 \
+  --keypair /tmp/prover-1-keypair.json
+```
+
+### Multi-Chain Deployments
+
+#### Solana Devnet
+
+```bash
+# Use devnet composition
+docker-compose -f docker-compose.devnet.yml up -d
+
+# Or with profile
+make start --profile devnet
+```
+
+#### Aptos MVP
+
+```bash
+# Start Aptos local node + ZyberLink services
+docker-compose -f docker-compose.aptos-mvp.yml up -d
+
+# Deploy Aptos contracts
+cd ../zyb-chain/aptos
+aptos move publish --profile local
+```
+
+#### Starknet Devnet
+
+```bash
+# Start Starknet devnet
+docker-compose -f docker-compose.starknet.yml up -d
+
+# Deploy Starknet contracts
+cd ../zyb-chain/starknet
+scarb build && starkli deploy
+```
+
+### Configuration Profiles
+
+Edit `zyb.toml` to configure different deployment profiles:
 
 ```toml
 [common]
 profile = "local"
-rpc_url = "http://localhost:8899"
-program_id = "HnRTpCx7Xs3f1BKkVhkeZwcqRfPmSDpVQ6QxgN7Vm8Rt"
-backend_url = "http://localhost:3000"
-keypair = "/tmp/job-creator-keypair.json"
-no_airdrop = false
-json = true
-
-[run]
-cases = ["mix"]          # or types = ["add","sum","average"]
-interval_secs = 10
-once = false
-shuffle = false
-
-[verify]
-types = ["sum", "count-if"]
-all = false
-
-[webapp]
-verify = false
+chain = "solana"
 
 [profiles.local]
 rpc_url = "http://localhost:8899"
-backend_url = "http://localhost:3000"
+backend_url = "http://localhost:9000"
 
 [profiles.devnet]
 rpc_url = "https://api.devnet.solana.com"
-backend_url = "https://demo.zyberlink.fun"
+backend_url = "https://api.zyberlink.dev"
+
+[profiles.mainnet]
+rpc_url = "https://api.mainnet-beta.solana.com"
+backend_url = "https://api.zyberlink.io"
+```
+
+Use profiles with CLI:
+
+```bash
+zyb dev-job run --profile devnet
+zyb market create --profile local
 ```
 
 ## Architecture
 
+### Service Topology
+
 ```
-┌─────────────┐     ┌──────────────┐     ┌─────────────┐
-│   Client    │────▶│   Backend    │────▶│   Provers   │
-│  (SDK/CLI)  │     │  (Rust API)  │     │  (FHE/ZK)   │
-└─────────────┘     └──────────────┘     └─────────────┘
-       │                   │                    │
-       │            ┌──────┴──────┐            │
-       │            │  PostgreSQL │            │
-       │            │  (Witnesses)│            │
-       │            └─────────────┘            │
-       │                                       │
-       └──────────────┬────────────────────────┘
-                      ▼
-              ┌───────────────┐
-              │    Solana     │
-              │  (Jobs/Pay)   │
-              └───────────────┘
+┌─────────────────────────────────────────────────────┐
+│              zyb-platform (This Repo)               │
+├─────────────────────────────────────────────────────┤
+│                                                     │
+│  ┌──────────────┐    ┌──────────────┐              │
+│  │   Frontend   │◄───┤  Nginx       │              │
+│  │   (Next.js)  │    │  (Reverse    │              │
+│  └──────────────┘    │   Proxy)     │              │
+│         │            └──────┬───────┘              │
+│         │                   │                       │
+│         ▼                   ▼                       │
+│  ┌─────────────────────────────────┐               │
+│  │      Backend Services           │               │
+│  ├─────────────────────────────────┤               │
+│  │  - Public API      (:9000)      │               │
+│  │  - Blink Server    (:8080)      │               │
+│  │  - X402 Server     (:8402)      │               │
+│  │  - Witness Storage (:8081)      │               │
+│  └────────────┬────────────────────┘               │
+│               │                                     │
+│               ▼                                     │
+│  ┌─────────────────────────────────┐               │
+│  │   Blockchain Layer              │               │
+│  ├─────────────────────────────────┤               │
+│  │  - Solana Validator (:8899)     │               │
+│  │  - Aptos Node (optional)        │               │
+│  │  - Starknet Devnet (optional)   │               │
+│  └────────────┬────────────────────┘               │
+│               │                                     │
+│               ▼                                     │
+│  ┌─────────────────────────────────┐               │
+│  │   Prover Nodes (3 instances)    │               │
+│  │   - FHE Computation             │               │
+│  │   - ZK Proof Generation         │               │
+│  └─────────────────────────────────┘               │
+│                                                     │
+└─────────────────────────────────────────────────────┘
 ```
 
-## Use Cases
+### Data Flow
 
+1. **User Request** → Frontend (Next.js)
+2. **API Call** → Nginx → Public API / Blink Server
+3. **Job Submission** → Blockchain (Solana/Aptos/Starknet)
+4. **Job Polling** → Prover Nodes monitor blockchain
+5. **Computation** → Prover executes FHE/ZK computation
+6. **Result Submission** → Prover submits proof to blockchain
+7. **Result Retrieval** → Frontend polls backend for result
 
-### Proof of Innocence
-Verify wallet has no sanctioned interactions without revealing transaction history:
-```
-CountIf(sanctions_list, == user_id) → 0 means innocent
-```
-
-### Private Analytics
-Aggregate encrypted data without seeing individual values:
-```
-Sum([encrypted_values]) → total without exposure
-```
-
-### Age Verification
-Prove age >= 18 without revealing exact age:
-```
-Threshold(encrypted_age, >= 18) → true/false
-```
-
-## Zyb CLI (FHE)
-
-Encrypt data locally before sending to the marketplace. Full docs: [/cli/core](cli/core)
+## Makefile Commands Reference
 
 ```bash
-# Build
-cargo build --release --manifest-path cli/core/Cargo.toml
+# Main Commands
+make help              # Show all available commands
+make start             # Start complete localnet (setup + deploy + services)
+make stop              # Stop all services
+make restart           # Restart all services
+make status            # Check status of all services
 
-# Encrypt values
-./target/release/zyb fhe encrypt --values 100,200,300,400,500
+# Demo Commands
+make demo-up           # Start complete demo stack
+make demo-down         # Stop demo
+make demo-restart      # Restart demo
 
-# Output files in ./fhe-output:
-# - client_key.bin (SECRET - keep local for decryption)
-# - witness.bin (upload this to marketplace)
+# Marketplace Commands
+make init-marketplace  # Initialize on-chain marketplace
+make check-provers     # Check prover registration status
 
-# Decrypt result after job completes
-./target/release/zyb fhe decrypt -p ./fhe-output -r "BASE64_RESULT"
+# Prover Commands
+make start-provers     # Start 3 prover nodes
+make stop-provers      # Stop all prover nodes
+make restart-provers   # Restart provers
+
+# Individual Services
+make start-validator   # Start Solana validator only
+make stop-validator    # Stop validator
+make start-backend     # Start blink-server
+make start-public-api  # Start public API server
+make start-x402        # Start X402 server
+
+# Development
+make dev-up            # Start with hot-reload
+make dev-down          # Stop dev environment
+make dev-rebuild       # Rebuild dev containers
+make dev-shell-backend # Shell into backend container
+make dev-logs          # View dev logs
+
+# Container Management
+make c1                # Start containers (alias for docker-compose up -d)
+make c0                # Stop containers (alias for docker-compose down)
+make c-status          # Container status
+make c-restart         # Restart containers
+make logs              # View container logs
+make clean             # Clean build artifacts
+
+# Build Commands
+make build             # Build workspace
+make build-all         # Build all components
+make build-public-api  # Build public-api service
+make build-x402        # Build x402-server
 ```
 
-## SDK Integration
+## Environment Variables
 
-Rust library for programmatic integration. Path: [/sdk/rust](sdk/rust)
-
-```rust
-use zyberlink_sdk::ZyberClient;
-
-// Initialize client
-let client = ZyberClient::new(rpc_url, api_url);
-
-// Create FHE job
-let job_id = client.create_job(
-    encrypted_data,
-    server_key,
-    Operation::Sum,
-    price_lamports,
-).await?;
-
-// Poll for result
-let result = client.wait_for_result(job_id).await?;
-```
-
-See [SDK Integration Guide](docs/book/en/guides/sdk-integration.md) for full documentation.
-
-## Dev Job Runner (Testing)
-
-Create and verify jobs programmatically.
+Key environment variables (see `.env.example`):
 
 ```bash
-# Build (zyb-cli)
-cargo build --release -p zyb-cli
+# Solana Configuration
+SOLANA_RPC_URL=http://localhost:8899
+SOLANA_NETWORK=localnet
 
-# Run PoI test (CountIf >= 18 on [15,20,25,17] → expects 2)
-./target/release/zyb dev-job verify --types count-if
+# Program IDs (update after deployment)
+BEDROCK_PROGRAM_ID=Di2Tu6aNpJpPyxbMAasoLQU2yLqYMFWvUoV7cq7sXfvx
+FHE_GENERATOR_PROGRAM_ID=C8PpHFCKZ4F2Szbir2EMS4S4H3mwQqHNWUXK1N21nfAB
+ZK_GENERATOR_PROGRAM_ID=Dzvy1pzCBgtMw5Fte2GybpeN2PsLPW8t7zDvLfKpxnSS
+FUTARCHY_PROGRAM_ID=2V8E8DJ3M3J2Aombv8hxRq5t2RecjbdW3GpUmSVruuhX
 
-# Run Sum test (Sum [10,20,30] → expects 60)
-./target/release/zyb dev-job verify --types sum
-```
-## Tech Stack
+# Backend Service Endpoints
+BACKEND_URL=http://localhost:9000
+WITNESS_STORAGE_URL=http://localhost:8081
+X402_URL=http://localhost:8402
 
-| Component | Technology |
-|-----------|------------|
-| FHE Engine | TFHE-rs 0.10 |
-| ZK Proofs | Halo2 |
-| Blockchain | Solana |
-| Backend | Rust + Axum |
-| Frontend | Svelte |
-| Database | PostgreSQL |
+# Database
+DATABASE_URL=postgresql://zyb:zyb@localhost:5432/zyberlink
 
-## Project Structure
-
-```
-.
-├── apps/            # Frontend apps (webapp, wallet, design-system)
-├── cli/             # Unified CLI (zyb-cli)
-├── deployment/      # Infrastructure (docker, scripts, infra)
-├── packages/        # Shared libraries (chain-client, jobs, etc.)
-├── programs/        # Solana smart contracts
-├── prover/          # Prover node core
-├── sdk/             # Client SDKs (Rust, TypeScript, FHE)
-├── services/        # Backend services (blink-server, public-api, etc.)
-└── verticals/       # Vertical-specific logic (pbtcfi, governance, etc.)
+# Frontend
+NEXT_PUBLIC_API_URL=http://localhost:9000
 ```
 
-## Roadmap
+## Dependencies Between Repos
 
-| Season | Focus | Status |
-|--------|-------|--------|
-| **S0** | Solana Foundation | Active |
-| S0.5 | Operational Improvements | Planned |
-| S1 | Multi-chain Interoperability | Planned |
-| S1.5 | Third-party Adoption | Future |
-| S2 | Consumer Applications | Vision |
+This platform orchestrates all ZyberLink repositories:
 
-See [ROADMAP.md](ROADMAP.md) for details.
+- **zyb-kernel** (ID: 5) - Core types and crypto (workspace member)
+- **zyb-circuits** (ID: 8) - ZK circuits (mounted for prover nodes)
+- **zyb-chain** (ID: 21) - Smart contracts (deployed to blockchain)
+- **zyb-compute** (ID: 34) - Prover nodes (runs as Docker services)
+- **zyb-services** (ID: 55) - Backend services (Docker containers)
+- **zyb-sdks** (ID: 89) - Client SDKs (used by frontend)
+- **zyb-cli** (ID: 144) - CLI tool (configured via zyb.toml)
+- **zyb-apps** (ID: 233) - Frontend applications (Docker/local dev)
 
-## Status
+External dependencies:
 
-- **Tests:** 55/56 passing (98%)
-- **E2E PoI CountIf:** Passing
-- **E2E Census Sum:** Passing
+- **Docker** - Container orchestration
+- **Nginx** - Reverse proxy and load balancing
+- **PostgreSQL** - Backend database (optional)
+- **Solana/Aptos/Starknet** - Blockchain infrastructure
 
-## Commands Reference
+## Development
 
-| Command | Description |
-|---------|-------------|
-| `make c0` | Stop localnet |
-| `make c1` | Start localnet containers |
-| `make c2` | Init marketplace + register provers |
-| `make c3` | Start provers |
-| `make d0-d3` | Same for devnet |
-| `make e2e-poi` | Run PoI test |
-| `make e2e-sum` | Run Sum test |
-| `make help` | Full command list |
+### Adding a New Service
+
+1. Create Dockerfile in `deployment/docker/<service>/`
+2. Add service to appropriate `docker-compose.*.yml`
+3. Update `Makefile` with service-specific commands
+4. Add environment variables to `.env.example`
+5. Update `nginx.conf` if service needs reverse proxy
+6. Document service endpoints and usage
+
+### Testing Integration
+
+```bash
+# Run integration tests
+cd tests/e2e
+cargo test --test integration_tests
+
+# Run specific test suite
+cargo test --test market_flow
+```
+
+### Production Deployment
+
+```bash
+# Use production docker-compose
+docker-compose -f deployment/infra/docker/docker-compose.prod.yml up -d
+
+# Or with custom configuration
+export ZYB_CONFIG=/path/to/zyb.toml
+make start --profile mainnet
+```
+
+## Troubleshooting
+
+### Port Conflicts
+
+```bash
+# Check which services are using ports
+lsof -i :8899  # Solana RPC
+lsof -i :9000  # Public API
+lsof -i :3000  # Frontend
+
+# Stop conflicting services or change ports in docker-compose.yml
+```
+
+### Service Health Checks
+
+```bash
+# Check all service health
+make status
+
+# Check individual service logs
+docker-compose logs -f <service-name>
+make logs-public-api
+make logs-x402
+```
+
+### Reset Local Environment
+
+```bash
+# Stop all services and clean data
+make stop
+docker-compose down -v  # Remove volumes
+rm -rf ~/.zyberlink-localnet-ledger
+
+# Restart from scratch
+make start
+```
+
+## Security Considerations
+
+- Never commit `.env` files with secrets
+- Use `zyb.toml` for configuration, not hardcoded values
+- Store keypairs securely (outside repository)
+- Use environment variables for sensitive data in production
+- Regularly update Docker base images
+- Review `nginx.conf` for proper security headers
 
 ## License
 
-MIT
+Apache-2.0
 
 ---
 
-**Zypherpunk Hackathon** - December 2025
+Part of the [ZyberLink](https://github.com/8ctag0n) ecosystem - Privacy-preserving computation marketplace.

@@ -317,10 +317,10 @@ cd /home/deploy/experimental/zyberlink-demo
 
 ## Further Reading
 
-- **[Technical Implementation Guide](./DYNAMIC_PRICING_TECHNICAL.md)** - Deep dive into algorithms and data structures
-- **[Usage Guide with Examples](./DYNAMIC_PRICING_USAGE.md)** - Practical integration examples
-- **[API Reference](./API_REFERENCE.md)** - Complete API documentation
-- **[Histogram Optimization](./HISTOGRAM_FHE_OPTIMIZATION.md)** - Tier 5 complexity analysis
+- **[Technical Implementation Guide](./dynamic-pricing-technical.md)** - Deep dive into algorithms and data structures
+- **[Usage Guide with Examples](./dynamic-pricing-usage.md)** - Practical integration examples
+- **[API Reference](./api-reference.md)** - Complete API documentation
+- **[Histogram Optimization](../architecture/histogram-fhe-optimization.md)** - Tier 5 complexity analysis
 
 ## Contributing
 

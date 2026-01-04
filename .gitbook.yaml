@@ -1,0 +1,18 @@
+# GitBook Configuration for ZyberLink
+
+root: docs
+
+structure:
+  readme: README.md
+  summary: SUMMARY.md
+
+redirects:
+  previous: null
+
+exclude:
+  - .git/**/*
+  - target/**/*
+  - .github/**/*
+  - .config/**/*
+  - node_modules/**/*
+  - docs-private/**/*

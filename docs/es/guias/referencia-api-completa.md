@@ -1205,10 +1205,10 @@ print(f"Job ID: {job['job_id']}")
 
 ## Documentación Relacionada
 
-- **[Dynamic Pricing Overview](./DYNAMIC_PRICING.md)** - Visión general del sistema y niveles de precios
-- **[Technical Implementation](./DYNAMIC_PRICING_TECHNICAL.md)** - Análisis profundo del algoritmo
-- **[Usage Guide](./DYNAMIC_PRICING_USAGE.md)** - Ejemplos de integración
-- **[wZEC Payment Guide](./WZEC_API.md)** - Documentación de pagos con tokens
+- **[Visión General de Precios Dinámicos](./modelo-precios-dinamicos.md)** - Visión general del sistema y niveles de precios
+- **[Implementación Técnica](./precios-dinamicos-tecnico.md)** - Análisis profundo del algoritmo
+- **[Guía de Uso](./precios-dinamicos-uso.md)** - Ejemplos de integración
+- **[Guía de Pagos wZEC](./wzec-api.md)** - Documentación de pagos con tokens
 
 ---
 

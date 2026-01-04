@@ -1205,9 +1205,9 @@ print(f"Job ID: {job['job_id']}")
 
 ## Related Documentation
 
-- **[Dynamic Pricing Overview](./DYNAMIC_PRICING.md)** - System overview and pricing tiers
-- **[Technical Implementation](./DYNAMIC_PRICING_TECHNICAL.md)** - Algorithm deep dive
-- **[Usage Guide](./DYNAMIC_PRICING_USAGE.md)** - Integration examples
+- **[Dynamic Pricing Overview](./dynamic-pricing-model.md)** - System overview and pricing tiers
+- **[Technical Implementation](./dynamic-pricing-technical.md)** - Algorithm deep dive
+- **[Usage Guide](./dynamic-pricing-usage.md)** - Integration examples
 - **[wZEC Payment Guide](./WZEC_API.md)** - Token payment documentation
 
 ---

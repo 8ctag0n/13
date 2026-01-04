@@ -260,7 +260,7 @@ client decrypts: 12 ✓
 - Tokio (async runtime)
 
 **Development:**
-- Cargo workspaces (mono-repo)
+- Cargo workspaces (multi-repo, shared crates)
 - Bare metal Solana programs
 - Comprehensive E2E tests
 

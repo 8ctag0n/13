@@ -235,16 +235,14 @@ window.zyberlink.version  // "0.1.0"
 
 ## Additional Documentation
 
-- [Quick Start](quick-start.md) - Installation and first steps
-- [Architecture](architecture.md) - Technical system details
+- [Quick Start](quickstart.md) - Installation and first steps
 - [Local Development](development.md) - Developer guide
 - [Testing](testing.md) - E2E test suite
 - [Testnets](testnets.md) - Test network configuration
-- [Project Structure](project-structure.md) - Detailed explanation of each file
 
 ## Support
 
-To report issues or contribute, visit the main ZyberLink repository.
+To report issues or contribute, use the `zyb-apps` repository or see the [Repository Map](../getting-started/repositories.md).
 
 ### Debug Logs
 
@@ -254,4 +252,4 @@ To report issues or contribute, visit the main ZyberLink repository.
 
 ## License
 
-MIT
+Apache-2.0

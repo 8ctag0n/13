@@ -467,10 +467,10 @@ if (!jobData.priceLamports || jobData.priceLamports < priceRecommendation.recomm
 
 ## Documentación Relacionada
 
-- [Referencia API de Creación de Jobs](/guias/api-reference.md)
-- [Costos de Operaciones FHE](/guias/examples.md#operation-costs)
-- [Guía de Consenso de Prover](/guias/examples.md#consensus-mechanisms)
-- [Integración SDK](/guias/sdk-integration.md)
+- [Referencia API de Creación de Jobs](./referencia-api.md)
+- [Costos de Operaciones FHE](./ejemplos.md#operation-costs)
+- [Guía de Consenso de Prover](./ejemplos.md#consensus-mechanisms)
+- [Integración SDK](./integracion-sdk.md)
 
 ---
 
