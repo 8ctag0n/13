@@ -522,7 +522,7 @@ Ahora que entiendes Analytics Privado:
 Para preguntas sobre analytics:
 
 - **Documentación:** https://docs.zyberlink.fun
-- **GitHub Issues:** https://github.com/8ctag0n/13/issues
+- **GitHub Issues:** ver el [Mapa de Repositorios](../primeros-pasos/repositorios.md)
 - **Discord Community:** [Únete al servidor]
 - **Email:** support@zyberlink.fun
 

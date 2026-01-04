@@ -584,4 +584,4 @@ Current suite covers:
 - [Playwright Documentation](https://playwright.dev)
 - [Chrome Extension Testing Guide](https://playwright.dev/docs/chrome-extensions)
 - [Testnets Guide](testnets.md) - Detailed local testnet configuration
-- [Local Development](desarrollo.md) - Development environment setup
+- [Local Development](development.md) - Development environment setup

@@ -14,9 +14,12 @@ Complete browser extension implementation for multi-chain wallet supporting Sola
 
 ### Installation
 
+Replace `<ORG>` with your GitHub organization or mirror.
+
 ```bash
 # Clone repository
-cd /home/deploy/experimental/demo-zyberlink-zcash/src/wallet-extension
+git clone https://github.com/<ORG>/zyb-apps.git
+cd zyb-apps/wallet-extension
 
 # Install dependencies
 npm install
@@ -572,7 +575,7 @@ For issues and questions:
 1. Check the [Troubleshooting](#debugging) section
 2. Review browser console logs
 3. Check extension background logs
-4. Report issues to the main repository
+4. Report issues in `zyb-apps` or see the [Repository Map](../getting-started/repositories.md)
 
 ## Next Steps
 

@@ -17,13 +17,15 @@ Add ZyberLink SDK to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-zyberlink-sdk = { git = "https://github.com/yourusername/zyberlink", branch = "main" }
-zyberlink-types = { git = "https://github.com/yourusername/zyberlink", branch = "main" }
+zyberlink-sdk = { path = "../zyb-chain/sdk/rust" }
+zyberlink-types = { path = "../zyb-kernel/types" }
 solana-sdk = "1.18"
 solana-client = "1.18"
 anyhow = "1.0"
 tokio = { version = "1.35", features = ["full"] }
 ```
+
+Adjust the paths to match your local clones, or point to your fork per the [Repository Map](../getting-started/repositories.md).
 
 ## Quick Start
 
@@ -713,6 +715,6 @@ let ix = client.create_job_instruction(
 
 For SDK questions and issues:
 
-- GitHub Issues: [Report a bug](https://github.com/yourusername/zyberlink/issues)
-- Discussions: [Ask questions](https://github.com/yourusername/zyberlink/discussions)
+- GitHub Issues: see the [Repository Map](../getting-started/repositories.md)
+- Discussions: see the [Repository Map](../getting-started/repositories.md)
 - Discord: [Join our community](#)

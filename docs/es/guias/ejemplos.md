@@ -392,5 +392,5 @@ Costos típicos para ejemplos (a $22/SOL):
 
 ¿Tienes preguntas sobre los ejemplos?
 
-- GitHub Discussions: [Hacer preguntas](https://github.com/yourusername/zyberlink/discussions)
-- Código de Ejemplo: [Explorar ejemplos](https://github.com/yourusername/zyberlink/tree/main/sdk/examples)
+- GitHub Discussions: ver el [Mapa de Repositorios](../primeros-pasos/repositorios.md)
+- Código de Ejemplo: ver el [Mapa de Repositorios](../primeros-pasos/repositorios.md)

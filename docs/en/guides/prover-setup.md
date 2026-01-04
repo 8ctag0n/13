@@ -63,13 +63,15 @@ export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
 
 ### 2. Clone and Build
 
+Replace `<ORG>` with your GitHub organization or mirror.
+
 ```bash
 # Clone repository
-git clone https://github.com/8ctag0n/13.git zyberlink
-cd zyberlink
+git clone https://github.com/<ORG>/zyb-compute.git
+cd zyb-compute
 
 # Build prover (takes 5-10 minutes)
-cargo build --release -p zyberlink-prover
+cargo build --release --bin zyberlink-prover
 
 # Binary location: target/release/zyberlink-prover
 ```
@@ -193,10 +195,10 @@ After=network.target
 [Service]
 Type=simple
 User=YOUR_USERNAME
-WorkingDirectory=/home/YOUR_USERNAME/zyberlink
+WorkingDirectory=/home/YOUR_USERNAME/zyb-compute
 Environment="RUST_LOG=info"
 Environment="SOLANA_RPC_URL=https://api.devnet.solana.com"
-ExecStart=/home/YOUR_USERNAME/zyberlink/target/release/zyberlink-prover \
+ExecStart=/home/YOUR_USERNAME/zyb-compute/target/release/zyberlink-prover \
   --program-id YOUR_PROGRAM_ID \
   --witness-backend-url http://localhost:8080
 Restart=always
@@ -417,8 +419,7 @@ make e2e-sum
 
 ## Next Steps
 
-- **[Complete Prover Documentation](/src/prover-node/README.md)** - Full technical details
-- **[FHE Operations](/docs/book/en/concepts/fhe-operations.md)** - Understand what you're computing
+- **Complete Prover Documentation** - See `zyb-compute/README.md` (via the [Repository Map](../getting-started/repositories.md))
 - **[Analytics Guide](analytics-guide.md)** - See what jobs look like
 - **[Proof of Innocence Guide](proof-of-innocence-guide.md)** - Another use case
 
@@ -426,15 +427,15 @@ make e2e-sum
 
 For prover setup questions:
 
-- **GitHub Issues:** https://github.com/8ctag0n/13/issues
+- **GitHub Issues:** see the [Repository Map](../getting-started/repositories.md)
 - **Documentation:** https://docs.zyberlink.fun
 - **Discord:** [Join community]
 
 ## Related Documentation
 
-- [Prover Node README](/src/prover-node/README.md) - Complete technical documentation
-- [ROI Calculator](/src/prover-node/src/roi_calculator.rs) - Profitability logic
-- [FHE Engine](/src/prover-node/src/fhe_engine.rs) - Computation implementation
+- `zyb-compute/README.md` - Complete technical documentation
+- `zyb-compute/src/roi_calculator.rs` - Profitability logic
+- `zyb-compute/src/fhe_engine.rs` - Computation implementation
 
 ---
 

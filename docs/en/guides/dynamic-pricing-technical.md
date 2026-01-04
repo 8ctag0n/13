@@ -601,7 +601,7 @@ let config = large_hist.get_cost_config();
 **Mitigation:**
 - Frontend limits bins to 50 maximum
 - Recommend 5-10 bins for most use cases
-- See [HISTOGRAM_FHE_OPTIMIZATION.md](./HISTOGRAM_FHE_OPTIMIZATION.md) for alternatives
+- See [Histogram FHE Optimization](../architecture/histogram-fhe-optimization.md) for alternatives
 
 ### 3. Price Frontrunning
 
@@ -803,9 +803,9 @@ The Dynamic Pricing System provides:
 5. **Extensibility** for future operation types and pricing models
 
 **Next Steps:**
-- Read [Usage Guide](./DYNAMIC_PRICING_USAGE.md) for integration examples
-- Review [API Reference](./API_REFERENCE.md) for endpoint details
-- See [Histogram Optimization](./HISTOGRAM_FHE_OPTIMIZATION.md) for Tier 5 deep dive
+- Read [Usage Guide](./dynamic-pricing-usage.md) for integration examples
+- Review [API Reference](./api-reference.md) for endpoint details
+- See [Histogram Optimization](../architecture/histogram-fhe-optimization.md) for Tier 5 deep dive
 
 ---
 
