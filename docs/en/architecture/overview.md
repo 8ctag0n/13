@@ -8,48 +8,42 @@ Applications can offload compute-intensive FHE (Fully Homomorphic Encryption) an
 
 **Key Innovation:** Multi-prover consensus eliminates single points of failure while maintaining cryptographic security guarantees.
 
-## High-Level Architecture
+## How It Works
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│                    Client Application                    │
-│  (Mobile app, web app, backend service, etc.)            │
-└────────────────────┬─────────────────────────────────────┘
-                     │
-                     │ 1. Create encrypted job
-                     │
-                     ▼
-┌──────────────────────────────────────────────────────────┐
-│              Solana Marketplace Program                  │
-│  - Job queue management                                  │
-│  - Prover registry                                       │
-│  - Consensus verification                                │
-│  - Payment distribution                                  │
-└────────────────────┬─────────────────────────────────────┘
-                     │
-                     │ 2. Job broadcast
-                     │
-        ┌────────────┼────────────┐
-        │            │            │
-        ▼            ▼            ▼
-┌──────────┐  ┌──────────┐  ┌──────────┐
-│ Prover A │  │ Prover B │  │ Prover C │
-│  (FHE)   │  │  (FHE)   │  │  (FHE)   │
-└────┬─────┘  └────┬─────┘  └────┬─────┘
-     │             │             │
-     │ 3. Execute independently   │
-     │             │             │
-     ▼             ▼             ▼
-  result_A     result_B     result_C
-     │             │             │
-     └─────────────┼─────────────┘
-                   │
-                   ▼
-┌──────────────────────────────────────────────────────────┐
-│            Consensus Verification                        │
-│  If 2+ provers agree → Accept & Pay                     │
-│  If mismatch → Penalize dishonest prover                │
-└──────────────────────────────────────────────────────────┘
+┌──────────────┐
+│    Client    │ (Mobile app, web app, etc.)
+└──────┬───────┘
+       │ 1. Request Job (via Public API Layer)
+       ▼
+┌─────────────────────────────────────┐
+│        ZyberLink Backend            │
+│  [Public API] -> [x402] -> [Blink]  │
+│  - Rate Limiting & Auth             │
+│  - Payment Gating                   │
+│  - Witness Storage & Validation     │
+└──────┬──────────────────────────────┘
+       │ 2. Create On-Chain Job
+       ▼
+┌─────────────────────────┐
+│   Solana Marketplace    │ (On-chain job coordination)
+└────┬────────────────────┘
+     │ 3. Job broadcast
+     ▼
+┌────────────────────────────────────────────┐
+│           Prover Network                   │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐ │
+│  │ Prover A │  │ Prover B │  │ Prover C │ │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘ │
+└───────│─────────────│─────────────│────────┘
+        │ 4. Execute  │             │
+        │    (async)  │             │
+        ▼             ▼             ▼
+┌────────────────────────────────────────────┐
+│   Consensus + On-Chain Verification        │
+│   A: hash_abc  B: hash_abc (OK) C: hash_def (Fail)│
+│   -> Pay A & B, penalize C                 │
+└────────────────────────────────────────────┘
 ```
 
 ## System Components

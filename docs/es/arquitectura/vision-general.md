@@ -8,27 +8,31 @@ Las aplicaciones pueden externalizar operaciones FHE/ZK pesadas a una red de pro
 
 **Innovación clave:** el consenso multi-prover elimina el punto único de falla manteniendo garantías criptográficas.
 
-## Arquitectura Alto Nivel
+## Arquitectura de Alto Nivel
 
 ```
 ┌──────────────────────────────────────────────────────────┐
 │                Aplicación Cliente                        │
 └────────────────────┬─────────────────────────────────────┘
-                     │ 1. Crear job encriptado
+                     │ 1. Solicitar Job (vía Public API)
+                     ▼
+┌──────────────────────────────────────────────────────────┐
+│              Servicios Backend (3 Capas)                 │
+│      [Public API] -> [x402 Gateway] -> [Blink]           │
+└────────────────────┬─────────────────────────────────────┘
+                     │ 2. Publicar Job en Solana
                      ▼
 ┌──────────────────────────────────────────────────────────┐
 │        Programa Marketplace en Solana                    │
-│  - Queue de jobs                                         │
-│  - Registro de provers                                   │
-│  - Verificación de consenso                              │
-│  - Distribución de pagos                                 │
+│  - Gestión de colas y Registro de provers                │
+│  - Verificación de consenso y Pagos                      │
 └────────────────────┬─────────────────────────────────────┘
         ┌────────────┼────────────┐
         ▼            ▼            ▼
 ┌──────────┐  ┌──────────┐  ┌──────────┐
 │ Prover A │  │ Prover B │  │ Prover C │
 └────┬─────┘  └────┬─────┘  └────┬─────┘
-     │ 3. Ejecutan de forma independiente
+     │ 3. Ejecutan de forma independiente sobre FHE
      ▼
  result_A / result_B / result_C
                      ▼

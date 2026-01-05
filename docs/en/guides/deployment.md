@@ -450,7 +450,7 @@ Before going live:
 ## Support
 
 For production deployment assistance:
-- GitHub Issues: https://github.com/<ORG>/zyb-platform/issues (docs) or see the [Repository Map](../getting-started/repositories.md)
+- GitHub Issues: https://github.com/YOUR_ORG/zyb-platform/issues (docs) or see the [Repository Map](../getting-started/repositories.md)
 - Community Discord: [link]
 - Enterprise support: [contact email]
 

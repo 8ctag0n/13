@@ -10,24 +10,24 @@ The DeFi vertical provides privacy-preserving financial primitives.
 
 ## Architecture
 
-### Circuits (`circuits/`)
-- `market/`: ZK circuits for validating market bets.
-- `blind/`: Logic for blind betting operations.
-- `private_balance/`: Operations for encrypted balance transfers.
+### Circuits (`zyb-circuits/`)
+- `zyb-circuits/market/`: ZK circuits for validating market bets.
+- `zyb-circuits/blind/`: Logic for blind betting operations.
+- `zyb-circuits/private_balance/`: Operations for encrypted balance transfers.
 
 ### Chains
 
-#### Aptos
-- `lending_manager`: Manages the lending protocol state.
-- `collateral_vault`: Securely holds collateral assets.
-- `plst_token`: Implementation of the protocol token.
+#### Solana (`zyb-chain/solana/`)
+- `programs/bedrock`: Core DeFi primitives for SVM.
+- `programs/sdks/bedrock-sdk`: Integration tools for Solana apps.
 
 #### Starknet (pBTCFi Integration)
-- Core logic for private Bitcoin finance.
-- Managers for collateral and loan lifecycles.
-- Liquidation engines.
+- Core logic for private Bitcoin finance located in `zyb-chain/starknet`.
 
-## Status
-- **Aptos**: Lending and Collateral management implemented.
-- **Starknet**: Core logic and token implementations ready.
-- **Circuits**: Market bet circuits available for compilation.
+## Technical Status
+
+- [x] **Private Markets**: Core circuits implemented in Circom.
+- [x] **Consensus Logic**: Integrated with multi-prover network.
+- [ ] **Yield Aggregator**: FHE-based yield optimization (In Research).
+- [x] **Solana Program**: Bedrock deployed to Devnet.
+

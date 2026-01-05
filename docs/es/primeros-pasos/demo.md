@@ -27,8 +27,8 @@ Completa la guía de [Inicio Rápido](inicio-rapido.md) primero para tener:
 La forma más fácil de ver todo en acción:
 
 ```bash
-cd demo
-./run-demo.sh
+cd zyb-platform
+./demo.sh
 ```
 
 Este script automáticamente:
