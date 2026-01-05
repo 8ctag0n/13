@@ -2,133 +2,110 @@
 
 ## System Overview
 
+ZyberLink employs a **3-Layer Microservices Architecture** to ensure security, scalability, and separation of concerns.
+
+```mermaid
+graph TD
+    User((User/Client)) -->|HTTPS :3000| L1[Layer 1: Public API]
+    
+    subgraph "Private Network (Docker Internal)"
+        L1 -->|HTTP :8081| L2[Layer 2: x402 Gateway]
+        L2 -->|HTTP :8080| L3[Layer 3: Blink Server]
+        
+        L3 --> DB[(PostgreSQL)]
+        L3 --> AT[Attestation Svc]
+        L3 --> RPC[Solana RPC]
+    end
+    
+    style L1 fill:#4ade80,stroke:#333,stroke-width:2px,color:black
+    style L2 fill:#facc15,stroke:#333,stroke-width:2px,color:black
+    style L3 fill:#60a5fa,stroke:#333,stroke-width:2px,color:black
 ```
-┌──────────────┐       ┌──────────────┐       ┌──────────────┐
-│   Creator    │       │   Prover     │       │  Any User    │
-│  (HTTP CLI)  │       │   (Node)     │       │  (Web/API)   │
-└──────┬───────┘       └──────┬───────┘       └──────┬───────┘
-       │                      │                      │
-       └──────────────────────┴──────────────────────┘
-                              │
-                              v
-╔══════════════════════════════════════════════════════════════════════════╗
-║                   BLINK SERVER (Port 3000 - Actix-web)                   ║
-╠══════════════════════════════════════════════════════════════════════════╣
-║                                                                          ║
-║  ┌─ ZK Jobs API ─────────────┐    ┌─ FHE Jobs API ─────────────┐       ║
-║  │ POST /validate-and-build  │    │ POST /validate-and-build   │       ║
-║  │ POST /confirm             │    │ POST /confirm              │       ║
-║  │ POST /submit-proof        │    │ GET  /compute-data/{id}    │       ║
-║  │ GET  /attestations/{job}  │    │ GET  /status/{id}          │       ║
-║  │ GET  /{job_id}/proof      │    └────────────────────────────┘       ║
-║  └───────────────────────────┘                                          ║
-║                                                                          ║
-║  ┌─ AppState (shared) ──────────────────────────────────────────┐      ║
-║  │ db_pool │ attestation_service │ program_id │ x402_url        │      ║
-║  └──────────────────────────────────────────────────────────────┘      ║
-╚══════════════════════════════════════════════════════════════════════════╝
-        │                   │                   │                  │
-        v                   v                   v                  v
-┌─────────────┐   ┌──────────────────┐  ┌──────────────┐  ┌────────────┐
-│ PostgreSQL  │   │ Attestation      │  │ x402-server  │  │ Solana RPC │
-│   (5432)    │   │ Service          │  │  (8081)      │  │  (8899)    │
-├─────────────┤   ├──────────────────┤  ├──────────────┤  ├────────────┤
-│ zk_jobs     │   │ Groth16 Verify   │  │ Payment      │  │ On-chain   │
-│ fhe_jobs    │   │ (arkworks)       │  │ validation   │  │ job state  │
-│ attestations│   │                  │  │              │  │            │
-│ witnesses   │   │ VK Cache:        │  │ Pricing:     │  │ Finality   │
-│ provers     │   │ - circuit 10-52  │  │ 0.01-0.1 SOL │  │ Consensus  │
-│ nonces      │   │ - 1-5ms verify   │  │              │  │            │
-└─────────────┘   └──────────────────┘  └──────────────┘  └────────────┘
+
+### The 3-Layer Defense Model
+
+```
+INTERNET
+   │
+   ▼
+┌─────────────────────────────────────────────────────────────┐
+│  LAYER 1: PUBLIC API GATEWAY (Port 3000)                    │
+│  Type: Axum / Tokio                                         │
+│  Role: Entry Point, Rate Limiting, Request Validation       │
+│  Access: 0.0.0.0:3000 (Public)                              │
+└────────────┬────────────────────────────────────────────────┘
+             │ (Internal Traffic Only)
+             ▼
+┌─────────────────────────────────────────────────────────────┐
+│  LAYER 2: x402 ANTI-SPAM GATEWAY (Port 8081)                │
+│  Type: Rust Middleware                                      │
+│  Role: Payment Validation, Token Gating, DDoS Protection    │
+│  Access: Internal :8081                                     │
+└────────────┬────────────────────────────────────────────────┘
+             │ (Authenticated Traffic)
+             ▼
+┌─────────────────────────────────────────────────────────────┐
+│  LAYER 3: BLINK SERVER (Port 8080)                          │
+│  Type: Core Logic / Actix-web                               │
+│  Role: Business Logic, DB Access, Blockchain Interactions   │
+│  Access: Internal :8080                                     │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Components
+## Components Detail
 
-### Blink Server (Primary Backend)
+### 1. Public API (Gateway)
+*   **Repo:** `zyb-services/public-api`
+*   **Responsibility:** Handles all incoming HTTP requests, sanitizes inputs, and forwards valid requests to the x402 layer.
+*   **Security:** Implements rate limiting (`RATE_LIMIT_PER_MIN=100`) and basic CORS policies.
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/jobs/zk/validate-and-build` | POST | Create ZK job |
-| `/api/jobs/zk/confirm` | POST | Confirm job after TX |
-| `/api/jobs/zk/{id}/submit-proof` | POST | Submit proof for verification |
-| `/api/jobs/zk/{id}/attestations` | GET | Get attestation for job |
-| `/api/jobs/zk/{id}/proof` | GET | Download proof JSON |
-| `/api/jobs/fhe/validate-and-build` | POST | Create FHE job |
-| `/api/jobs/fhe/{id}/compute-data` | GET | Get encrypted data for computation |
-| `/health` | GET | Health check |
+### 2. x402 Server (Payment & Protection)
+*   **Repo:** `zyb-services/x402-server`
+*   **Responsibility:** Enforces the "Pay-to-Compute" model. It verifies that requests have valid payment tokens or signatures before reaching the core logic.
+*   **Pricing:**
+    *   FHE Operations: 0.01 SOL
+    *   ZK Core: 0.05 SOL
+    *   Voting: 0.05 SOL
 
-### Background Tasks
+### 3. Blink Server (Core)
+*   **Repo:** `zyb-services/blink-server`
+*   **Responsibility:** The brain of the operation.
+    *   **ZK Jobs**: Handles proof submission and verification via `AttestationService`.
+    *   **FHE Jobs**: Manages encrypted witness storage and consensus.
+    *   **Database**: Exclusive write access to PostgreSQL.
+    *   **Chain Sync**: Runs background tasks to sync on-chain state.
+
+### Background Tasks (Running in Blink Server)
 
 ```
-┌────────────────────┐  ┌───────────────────┐  ┌──────────────────┐  ┌─────────────────┐
-│  cleanup.rs        │  │ chain_sync.rs     │  │ prover_sync.rs   │  │ job_finalizer   │
-│  (3600s interval)  │  │ (~10s interval)   │  │ (~30s interval)  │  │ (~10s interval) │
-├────────────────────┤  ├───────────────────┤  ├──────────────────┤  ├─────────────────┤
-│ - Delete expired   │  │ - Fetch on-chain  │  │ - Track prover   │  │ - Auto-finalize │
-│   jobs (24h+)      │  │   job accounts    │  │   reputation     │  │   FHE jobs on   │
-│ - Delete nonces    │  │ - Sync to local   │  │ - Update metrics │  │   consensus     │
-│   (1 day+)         │  │   DB              │  │ - Cache ROI      │  │                 │
-│ - Clear proof_json │  │                   │  │                  │  │                 │
-│   (30 days)        │  │                   │  │                  │  │                 │
-│ - Remove witnesses │  │                   │  │                  │  │                 │
-└────────────────────┘  └───────────────────┘  └──────────────────┘  └─────────────────┘
+┌────────────────────┐  ┌───────────────────┐  ┌──────────────────┐
+│  cleanup.rs        │  │ chain_sync.rs     │  │ prover_sync.rs   │
+│  (3600s interval)  │  │ (~10s interval)   │  │ (~30s interval)  │
+├────────────────────┤  ├───────────────────┤  ├──────────────────┤
+│ - Delete expired   │  │ - Fetch on-chain  │  │ - Track prover   │
+│   jobs             │  │   job accounts    │  │   reputation     │
+└────────────────────┘  └───────────────────┘  └──────────────────┘
 ```
-
-### x402 Anti-Spam Service (Port 8081)
-
-Payment validation layer with circuit-based pricing:
-
-| Circuit Type | Category | Price (SOL) |
-|--------------|----------|-------------|
-| 0-9 | FHE Operations | 0.01 |
-| 10-19 | ZK Core | 0.05 |
-| 20-29 | Voting | 0.05 |
-| 30-39 | Market | 0.075 |
-| 40-49 | Portfolio | 0.1 |
-
-- Quote expiry: 5 minutes
-- Token expiry: 24 hours
 
 ---
 
-## ZK Proof Flow
+## ZK Proof Flow (Updated)
 
 ```
-Creator                 Blink Server           AttestationSvc         Blockchain
+Creator                 Public API (3000)        x402 (8081)           Blink (8080)
    │                         │                       │                     │
    │ 1. POST /validate       │                       │                     │
    ├────────────────────────>│                       │                     │
-   │                         │ validate, gen job_id  │                     │
-   │<────────────────────────┤                       │                     │
-   │                         │                       │                     │
-   │ 2. Sign & submit TX     │                       │                     │
-   ├─────────────────────────────────────────────────────────────────────>│
-   │                         │                       │   create job acct   │
-   │<─────────────────────────────────────────────────────────────────────│
-   │                         │                       │                     │
-   │ 3. POST /confirm        │                       │                     │
-   ├────────────────────────>│                       │                     │
-   │                         │ verify on-chain       │                     │
-   │<────────────────────────┤ Job: active           │                     │
-   │                         │                       │                     │
-
-Prover                       │                       │                     │
-   │ 4. Generate proof       │                       │                     │
-   │    (off-chain snarkjs)  │                       │                     │
-   │                         │                       │                     │
-   │ 5. POST /submit-proof   │                       │                     │
-   ├────────────────────────>│                       │                     │
-   │                         │ 6. verify_proof()     │                     │
+   │                         │ 2. Forward            │                     │
    │                         ├──────────────────────>│                     │
-   │                         │                       │ Load VK             │
-   │                         │                       │ Parse snarkjs JSON  │
-   │                         │                       │ ark-groth16 verify  │
-   │                         │<──────────────────────┤ Ok(true) ~2ms       │
-   │                         │                       │                     │
-   │                         │ 7. Store attestation  │                     │
-   │<────────────────────────┤ {attestation_id}      │                     │
+   │                         │                       │ 3. Check Payment    │
+   │                         │                       │ & Forward           │
+   │                         │                       ├────────────────────>│
+   │                         │                       │                     │ 4. DB & Logic
+   │<──────────────────────────────────────────────────────────────────────┤
+   │       200 OK (Job Created)                                            │
 ```
 
 ---

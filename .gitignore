@@ -491,3 +491,7 @@ zyb.toml
 
 # Job tracking file (local dev only)
 .zyb-jobs.json
+
+# VitePress defaults
+docs/.vitepress/dist
+docs/.vitepress/cache

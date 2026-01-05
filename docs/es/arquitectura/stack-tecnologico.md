@@ -8,6 +8,14 @@ Visión general de tecnologías, librerías y herramientas de ZyberLink.
 - **Halo2** para circuitos ZK (planificado).
 - **Rayon** para paralelismo en provers.
 
+## Servicios Backend (Arquitectura de 3 Capas)
+
+ZyberLink utiliza una arquitectura de microservicios por niveles para seguridad y escalabilidad:
+
+1.  **Public API (Gateway)**: Punto de entrada basado en Axum. Maneja rate limiting y validación inicial.
+2.  **x402 Server (Middleware)**: Capa de anti-spam y verificación de pagos.
+3.  **Blink Server (Core)**: Servicio Actix-web que gestiona el estado de la DB, lógica de atestación y sincronización con la cadena.
+
 ## Blockchain
 - **Solana Program** (Rust, BPF).
 - **CLI Solana 2.1+** para despliegue y gestión.

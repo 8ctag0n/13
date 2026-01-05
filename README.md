@@ -136,10 +136,10 @@ make check-provers
 ### 4. Access Services
 
 - Solana Validator: http://localhost:8899
-- Blink Server (Internal API): http://localhost:8080
-- Public API: http://localhost:9000
-- X402 Server: http://localhost:8402
-- Frontend Webapp: http://localhost:3000
+- Public API Gateway: http://localhost:3000
+- x402 Gateway (Internal): http://localhost:8081
+- Blink Server (Internal): http://localhost:8080
+- Frontend Webapp: http://localhost:5173 (Dev) / http://localhost:9000 (Nginx)
 
 ## Usage
 
@@ -250,7 +250,7 @@ zyb market create --profile local
 │                                                     │
 │  ┌──────────────┐    ┌──────────────┐              │
 │  │   Frontend   │◄───┤  Nginx       │              │
-│  │   (Next.js)  │    │  (Reverse    │              │
+│  │   (Svelte 4) │    │  (Reverse    │              │
 │  └──────────────┘    │   Proxy)     │              │
 │         │            └──────┬───────┘              │
 │         │                   │                       │
@@ -258,10 +258,9 @@ zyb market create --profile local
 │  ┌─────────────────────────────────┐               │
 │  │      Backend Services           │               │
 │  ├─────────────────────────────────┤               │
-│  │  - Public API      (:9000)      │               │
+│  │  - Public API      (:3000)      │               │
+│  │  - x402 Gateway    (:8081)      │               │
 │  │  - Blink Server    (:8080)      │               │
-│  │  - X402 Server     (:8402)      │               │
-│  │  - Witness Storage (:8081)      │               │
 │  └────────────┬────────────────────┘               │
 │               │                                     │
 │               ▼                                     │
@@ -285,13 +284,15 @@ zyb market create --profile local
 
 ### Data Flow
 
-1. **User Request** → Frontend (Next.js)
-2. **API Call** → Nginx → Public API / Blink Server
-3. **Job Submission** → Blockchain (Solana/Aptos/Starknet)
-4. **Job Polling** → Prover Nodes monitor blockchain
-5. **Computation** → Prover executes FHE/ZK computation
-6. **Result Submission** → Prover submits proof to blockchain
-7. **Result Retrieval** → Frontend polls backend for result
+1. **User Request** → Frontend (Svelte 4)
+2. **API Call** → Nginx → Public API (:3000)
+3. **Payment Gating** → x402 Gateway (:8081)
+4. **Core Logic** → Blink Server (:8080)
+5. **Job Submission** → Blockchain (Solana/Aptos/Starknet)
+6. **Job Polling** → Prover Nodes monitor blockchain
+7. **Computation** → Prover executes FHE/ZK computation
+8. **Result Submission** → Prover submits proof to blockchain
+9. **Result Retrieval** → Frontend polls backend for result
 
 ## Makefile Commands Reference
 

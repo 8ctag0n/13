@@ -27,8 +27,8 @@ Complete the [Quickstart guide](quickstart.md) first to have:
 The easiest way to see everything in action:
 
 ```bash
-cd demo
-./run-demo.sh
+cd zyb-platform
+./demo.sh
 ```
 
 This script automatically:

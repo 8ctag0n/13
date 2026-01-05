@@ -87,6 +87,14 @@ borsh = "1.5"  # Serialization
 
 **Version:** Rust 1.75+
 
+### Backend Services (3-Layer Architecture)
+
+ZyberLink uses a tiered microservices architecture for security and scalability:
+
+1.  **Public API (Gateway)**: Axum-based entry point. Handles rate limiting and initial validation.
+2.  **x402 Server (Middleware)**: Anti-spam and payment verification layer.
+3.  **Blink Server (Core)**: Actix-web service managing DB state, attestation logic, and chain synchronization.
+
 ### Async Runtime: Tokio
 
 **Purpose:** Handle concurrent job monitoring, RPC calls, computation

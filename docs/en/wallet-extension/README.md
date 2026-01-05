@@ -1,4 +1,8 @@
-# ZyberLink Wallet Extension
+# ZyberLink Reference Wallet (Experimental)
+
+> ⚠️ **Experimental Reference Implementation**
+>
+> This wallet is a proof-of-concept designed to demonstrate native FHE key management and ZK proof generation directly within the browser. It is intended for developers and researchers exploring advanced privacy features, not for production asset management. For standard Solana interactions, we recommend using Phantom, Solflare, or Backpack.
 
 Multi-chain browser extension supporting Solana, Starknet, and Zcash with customizable RPC configuration.
 

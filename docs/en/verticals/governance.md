@@ -10,20 +10,19 @@ This vertical implements Futarchy-based governance and private voting systems.
 
 ## Architecture
 
-### Circuits (`circuits/vote`)
-- `private_vote.circom`: Core logic for anonymous voting using ZK proofs.
-- `private_vote_poi.circom`: Extended voting logic incorporating Proof-of-Innocence checks.
+### Circuits (`zyb-circuits/vote`)
+- `zyb-circuits/vote/private_vote.circom`: Core logic for anonymous voting using ZK proofs.
+- `zyb-circuits/vote/private_vote_poi.circom`: Extended voting logic incorporating Proof-of-Innocence checks.
 
 ### Chains
 
-#### Solana
-- `futarchy-markets`: Rust-based programs for handling prediction markets on SVM.
+#### Solana (`zyb-chain/solana/`)
+- `programs/futarchy-markets`: Rust-based programs for handling prediction markets on SVM.
 
-#### Aptos
-- `marketplace.move`: Move smart contracts implementing the prediction marketplace.
+## Technical Status
 
-## Status
-- **Circuits**: Private vote circuits implemented.
-- **Solana**: Futarchy market programs in development.
-- **Aptos**: Marketplace contracts available.
-- **SDK**: TypeScript and Rust SDKs available for integration.
+- [x] **Anonymous Voting**: Circom circuits for privacy-preserving voting.
+- [x] **Futarchy Support**: On-chain prediction markets for decision making.
+- [ ] **Delegate Privacy**: FHE-based voting power delegation (Development).
+- [x] **Solana Integration**: Registry for DAO configurations.
+

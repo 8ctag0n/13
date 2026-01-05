@@ -9,14 +9,18 @@ Privacy-first identity and compliance solutions.
 
 ## Architecture
 
-### Circuits (`circuits/`)
-- `poi/proof_of_innocence.circom`: The core circuit for generating POI proofs.
-- `portfolio/compliance.circom`: Circuit for checking portfolio constraints.
-- `portfolio/net_worth.circom`: Circuit for net worth validation.
+### Circuits (`zyb-circuits/`)
+- `zyb-circuits/poi/proof_of_innocence.circom`: The core circuit for generating POI proofs.
+- `zyb-circuits/portfolio/compliance.circom`: Circuit for checking portfolio constraints.
+- `zyb-circuits/portfolio/net_worth.circom`: Circuit for net worth validation.
 
 ### SDK
-- `@zyberlink/compliance-kit`: TypeScript tools for generating proofs and interacting with verifiers.
+- `zyb-sdks/identity-sdk`: Rust/TypeScript tools for generating proofs and interacting with verifiers.
 
-## Status
-- **Circuits**: Core POI and Portfolio circuits implemented.
-- **Integration**: Planned integration with Solana, Aptos, and Starknet verifiers.
+## Technical Status
+
+- [x] **Proof of Innocence**: Baseline POI flow with FHE CountIf support.
+- [x] **Compliance Kit**: SDK for easy integration with financial apps.
+- [ ] **Biometric ZK**: Identity anchoring via biometric proofs (Research).
+- [x] **Sanctions Verification**: Automated checks against global lists.
+
