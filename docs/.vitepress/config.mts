@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitepress'
 
 export default defineConfig({
+  base: '/13/',
   title: "ZyberLink",
   description: "Decentralized Multi-Prover Network for Privacy-Preserving Computations",
   cleanUrls: true,
