@@ -31,12 +31,4 @@ features:
 
 <TerminalCinema />
 
-### Protocol Stats (Jan 2026)
-- **Network Uptime**: 99.98%
-- **Average FHE Latency**: 4.2s
-- **Consensus Accuracy**: 100.00%
-- **Active Provers**: 1,240+
-
----
-
 [Explore Architecture](/en/architecture/overview) | [Start Proving](/en/guides/prover-setup) | [Github](https://github.com/8ctag0n/13)

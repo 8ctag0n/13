@@ -2,6 +2,8 @@
 
 **Decentralized Multi-Prover Network for Privacy-Preserving Computations**
 
+<div style="padding:56.25% 0 0 0;position:relative; margin-top: 2rem; margin-bottom: 2rem; border-radius: 8px; overflow: hidden;"><iframe src="https://player.vimeo.com/video/1143423578?badge=0&amp;autopause=0&amp;player_id=0&amp;app_id=58479" frameborder="0" allow="autoplay; fullscreen; picture-in-picture; clipboard-write; encrypted-media; web-share" referrerpolicy="strict-origin-when-cross-origin" style="position:absolute;top:0;left:0;width:100%;height:100%;" title="ZyberLink__Private_Compute"></iframe></div><script src="https://player.vimeo.com/api/player.js"></script>
+
 ## Vision
 
 ZyberLink is a decentralized marketplace for FHE (Fully Homomorphic Encryption) and ZK (Zero-Knowledge) computations on Solana. We enable privacy-preserving infrastructure for any application by distributing trust across a network of independent provers who compete to execute cryptographic computations.
@@ -54,12 +56,21 @@ ZyberLink solves this through **multi-prover consensus**:
 ┌──────────────┐
 │    Client    │ (Mobile app, web app, etc.)
 └──────┬───────┘
-       │ 1. Encrypt witness + create job
+       │ 1. Request Job (via Public API Layer)
+       ▼
+┌─────────────────────────────────────┐
+│        ZyberLink Backend            │
+│  [Public API] -> [x402] -> [Blink]  │
+│  - Rate Limiting & Auth             │
+│  - Payment Gating                   │
+│  - Witness Storage & Validation     │
+└──────┬──────────────────────────────┘
+       │ 2. Create On-Chain Job
        ▼
 ┌─────────────────────────┐
 │   Solana Marketplace    │ (On-chain job coordination)
 └────┬────────────────────┘
-     │ 2. Job broadcast
+     │ 3. Job broadcast
      ▼
 ┌────────────────────────────────────────────┐
 │           Prover Network                   │
@@ -67,7 +78,7 @@ ZyberLink solves this through **multi-prover consensus**:
 │  │ Prover A │  │ Prover B │  │ Prover C │ │
 │  └────┬─────┘  └────┬─────┘  └────┬─────┘ │
 └───────│─────────────│─────────────│────────┘
-        │ 3. Execute  │             │
+        │ 4. Execute  │             │
         │    (async)  │             │
         ▼             ▼             ▼
 ┌────────────────────────────────────────────┐
@@ -88,14 +99,14 @@ ZyberLink solves this through **multi-prover consensus**:
 
 ## Project Status
 
-**In Development** - Zypherpunk Hackathon (Nov 10 - Dec 1, 2025)
+**Production Alpha** - January 2026
 
 **Current Features:**
-- Multi-prover marketplace on Solana
+- Multi-prover marketplace on Solana (Mainnet & Devnet)
+- 3-Layer Microservices Backend (Public API → x402 → Blink)
 - FHE computation engine (TFHE-rs)
 - On-chain consensus algorithm
 - Terminal UI for prover monitoring
-- Interactive setup wizard
 - 14/14 FHE E2E tests passing
 
 ## Quick Links
